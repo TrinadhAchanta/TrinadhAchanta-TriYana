@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 
+from datetime import timedelta
+
 from sqlalchemy.orm import Session
 
 from .models import (
     AirspaceZone,
     Doctor,
     Hospital,
+    DoctorAvailability,
     HomeVisit,
     Medication,
     MedSchedule,
@@ -187,7 +190,7 @@ def seed(db: Session) -> dict:
     db.add_all(users.values())
     db.flush()
 
-    from .services.visits import _all_slots  # aligned to real bookable slots
+    from .services.visits import _all_slots, _local_days  # aligned to real bookable slots
     slots = _all_slots(now)
     visit = HomeVisit(doctor_id=carter.id, patient_id=meera.id, status=VisitStatus.requested,
                       reason="Fever and body ache (fictional)", scheduled_for=slots[0],
@@ -197,15 +200,29 @@ def seed(db: Session) -> dict:
                        booking_ref="BK-DEMO0002", fee=carter.visit_fee, address=arjun.address)
     visit3 = HomeVisit(doctor_id=unverified.id, patient_id=arjun.id, status=VisitStatus.in_progress,
                        reason="(fictional)", scheduled_for=now)
-    db.add_all([visit, visit2, visit3])
+    # Past visits, so "book a follow-up" can suggest the same doctor again.
+    sana = others[1]
+    past_meera = HomeVisit(doctor_id=sana.id, patient_id=meera.id, status=VisitStatus.completed,
+                           reason="BP and sugar review (fictional)", scheduled_for=now - timedelta(days=12),
+                           completed_at=now - timedelta(days=12), booking_ref="BK-DEMO0000",
+                           fee=sana.visit_fee, address=meera.address)
+    past_arjun = HomeVisit(doctor_id=carter.id, patient_id=arjun.id, status=VisitStatus.completed,
+                           reason="Viral fever (fictional)", scheduled_for=now - timedelta(days=9),
+                           completed_at=now - timedelta(days=9), booking_ref="BK-DEMO0009",
+                           fee=carter.visit_fee, address=arjun.address)
+    db.add_all([visit, visit2, visit3, past_meera, past_arjun])
+    # Dr. Sana is away for the next two days, so Meera's follow-up shows the "book her next opening" path.
+    for day in _local_days(now)[:2]:
+        db.add(DoctorAvailability(doctor_id=sana.id, day=day.isoformat(), hours=[]))
     db.commit()
     return {
         "patients": {"meera": meera.id, "arjun": arjun.id},
-        "doctors": {"carter": carter.id, "unverified": unverified.id},
+        "doctors": {"carter": carter.id, "unverified": unverified.id, "sana": sana.id},
         "medications": {k: m.id for k, m in meds.items()},
         "pharmacies": {"greenleaf": pharmacies[0].id, "sunrise": pharmacies[1].id,
                        "wholepack": pharmacies[2].id, "unverified": pharmacies[3].id},
         "hospitals": {k: h.id for k, h in hospitals.items()},
-        "visits": {"meera": visit.id, "arjun": visit2.id, "unverified_doctor": visit3.id},
+        "visits": {"meera": visit.id, "arjun": visit2.id, "unverified_doctor": visit3.id,
+                   "meera_past": past_meera.id, "arjun_past": past_arjun.id},
         "tokens": DEMO_TOKENS,
     }
