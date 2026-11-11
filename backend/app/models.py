@@ -1,0 +1,473 @@
+"""Database models for the Digital Prescription -> Medicine Delivery flow.
+
+Core Triyana entities (users, patients, verified doctors, home visits,
+pharmacies) are included in the minimal form this feature depends on.
+"""
+from __future__ import annotations
+
+import enum
+from datetime import datetime, timezone
+
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Enum,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from .db import Base
+from .security import EncryptedText
+
+
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+# --------------------------------------------------------------------------- enums
+class Role(str, enum.Enum):
+    patient = "patient"
+    doctor = "doctor"
+    pharmacist = "pharmacist"
+    courier = "courier"
+
+
+class VisitStatus(str, enum.Enum):
+    requested = "requested"
+    accepted = "accepted"
+    in_progress = "in_progress"
+    completed = "completed"
+    cancelled = "cancelled"
+
+
+class RxStatus(str, enum.Enum):
+    draft = "draft"
+    signed = "signed"
+    superseded = "superseded"
+    cancelled = "cancelled"
+
+
+class MedSchedule(str, enum.Enum):
+    otc = "otc"
+    rx = "rx"                # ordinary prescription-only medicine
+    restricted = "restricted"  # e.g. antibiotics / Schedule H1-style: prescriber sign-off for partial fills
+    controlled = "controlled"  # controlled substances: no patient-initiated partial fills
+
+
+class CartItemStatus(str, enum.Enum):
+    in_cart = "in_cart"
+    removed = "removed"
+    buy_later = "buy_later"
+    ordered = "ordered"
+
+
+class QuantityStatus(str, enum.Enum):
+    full = "full"                          # buying the prescribed quantity
+    pending_pharmacist = "pending_pharmacist"
+    pending_prescriber = "pending_prescriber"
+    approved = "approved"
+    rejected = "rejected"
+    not_permitted = "not_permitted"
+
+
+class OrderStatus(str, enum.Enum):
+    prescription_received = "prescription_received"
+    pharmacist_reviewing = "pharmacist_reviewing"
+    awaiting_clarification = "awaiting_clarification"
+    order_accepted = "order_accepted"
+    preparing = "preparing"
+    ready_for_pickup = "ready_for_pickup"
+    out_for_delivery = "out_for_delivery"
+    delivered = "delivered"
+    picked_up = "picked_up"
+    rejected = "rejected"
+    cancelled = "cancelled"
+
+
+class PaymentStatus(str, enum.Enum):
+    authorized = "authorized"
+    captured = "captured"
+    voided = "voided"
+    failed = "failed"
+    refunded = "refunded"
+    partially_refunded = "partially_refunded"
+
+
+# ------------------------------------------------------------------- core triyana
+class User(Base):
+    __tablename__ = "users"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    role: Mapped[Role] = mapped_column(Enum(Role))
+    token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    patient_id: Mapped[int | None] = mapped_column(ForeignKey("patients.id"))
+    doctor_id: Mapped[int | None] = mapped_column(ForeignKey("doctors.id"))
+    pharmacy_id: Mapped[int | None] = mapped_column(ForeignKey("pharmacies.id"))
+
+
+class Patient(Base):
+    __tablename__ = "patients"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    patient_ref: Mapped[str] = mapped_column(String(32), unique=True)
+    date_of_birth: Mapped[str] = mapped_column(EncryptedText)
+    address: Mapped[str] = mapped_column(EncryptedText)
+    lat: Mapped[float] = mapped_column(Float)
+    lng: Mapped[float] = mapped_column(Float)
+    jurisdiction: Mapped[str] = mapped_column(String(16))
+
+
+class Doctor(Base):
+    __tablename__ = "doctors"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    specialty: Mapped[str] = mapped_column(String(80))
+    license_no: Mapped[str] = mapped_column(String(40), unique=True)
+    license_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    jurisdiction: Mapped[str] = mapped_column(String(16))
+    rating: Mapped[float] = mapped_column(Float, default=0)
+
+
+class HomeVisit(Base):
+    __tablename__ = "home_visits"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    doctor_id: Mapped[int] = mapped_column(ForeignKey("doctors.id"))
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"))
+    status: Mapped[VisitStatus] = mapped_column(Enum(VisitStatus), default=VisitStatus.requested)
+    reason: Mapped[str] = mapped_column(EncryptedText, default="")
+    scheduled_for: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    doctor = relationship("Doctor")
+    patient = relationship("Patient")
+
+
+# --------------------------------------------------------------- medication data
+class Medication(Base):
+    __tablename__ = "medications"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    brand_name: Mapped[str] = mapped_column(String(120))
+    generic_name: Mapped[str] = mapped_column(String(120))
+    strength: Mapped[str] = mapped_column(String(40))
+    form: Mapped[str] = mapped_column(String(40))          # tablet, capsule, syrup ...
+    unit: Mapped[str] = mapped_column(String(20))          # tablets, capsules, ml
+    schedule: Mapped[MedSchedule] = mapped_column(Enum(MedSchedule))
+    pack_sizes: Mapped[list] = mapped_column(JSON)         # e.g. [1, 5, 15] units per pack
+    loose_units_allowed: Mapped[bool] = mapped_column(Boolean, default=True)
+    cold_chain: Mapped[bool] = mapped_column(Boolean, default=False)
+    id_check_required: Mapped[bool] = mapped_column(Boolean, default=False)
+    reference_unit_price: Mapped[float] = mapped_column(Float)
+
+
+# ----------------------------------------------------------------- prescriptions
+class Prescription(Base):
+    __tablename__ = "prescriptions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    reference_no: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    visit_id: Mapped[int | None] = mapped_column(ForeignKey("home_visits.id"))
+    doctor_id: Mapped[int] = mapped_column(ForeignKey("doctors.id"))
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    jurisdiction: Mapped[str] = mapped_column(String(16))
+    status: Mapped[RxStatus] = mapped_column(Enum(RxStatus), default=RxStatus.draft)
+    consultation_date: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    diagnosis_note: Mapped[str] = mapped_column(EncryptedText, default="")
+    valid_until: Mapped[datetime | None] = mapped_column(DateTime)
+    content_hash: Mapped[str | None] = mapped_column(String(64))
+    supersedes_id: Mapped[int | None] = mapped_column(ForeignKey("prescriptions.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    signed_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    items = relationship("PrescriptionItem", back_populates="prescription", order_by="PrescriptionItem.id")
+    doctor = relationship("Doctor")
+    patient = relationship("Patient")
+    signature = relationship("PrescriberSignature", uselist=False, back_populates="prescription")
+
+
+class PrescriptionItem(Base):
+    __tablename__ = "prescription_items"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    prescription_id: Mapped[int] = mapped_column(ForeignKey("prescriptions.id"))
+    medication_id: Mapped[int] = mapped_column(ForeignKey("medications.id"))
+    dosage: Mapped[str] = mapped_column(String(80))
+    frequency: Mapped[str] = mapped_column(String(80))
+    duration_days: Mapped[int] = mapped_column(Integer)
+    quantity: Mapped[int] = mapped_column(Integer)
+    route: Mapped[str] = mapped_column(String(40))
+    instructions: Mapped[str] = mapped_column(EncryptedText, default="")
+    refills_allowed: Mapped[int] = mapped_column(Integer, default=0)
+
+    prescription = relationship("Prescription", back_populates="items")
+    medication = relationship("Medication")
+
+
+class PrescriberSignature(Base):
+    __tablename__ = "prescriber_signatures"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    prescription_id: Mapped[int] = mapped_column(ForeignKey("prescriptions.id"), unique=True)
+    doctor_id: Mapped[int] = mapped_column(ForeignKey("doctors.id"))
+    content_hash: Mapped[str] = mapped_column(String(64))
+    signature: Mapped[str] = mapped_column(String(128))
+    method: Mapped[str] = mapped_column(String(40), default="demo-hmac-sha256")
+    signed_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    prescription = relationship("Prescription", back_populates="signature")
+
+
+# -------------------------------------------------------------------- pharmacies
+class Pharmacy(Base):
+    __tablename__ = "pharmacies"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    license_no: Mapped[str] = mapped_column(String(40), unique=True)
+    license_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    business_reg_no: Mapped[str] = mapped_column(String(40))
+    jurisdiction: Mapped[str] = mapped_column(String(16))
+    address: Mapped[str] = mapped_column(String(200))
+    lat: Mapped[float] = mapped_column(Float)
+    lng: Mapped[float] = mapped_column(Float)
+    service_radius_km: Mapped[float] = mapped_column(Float)
+    opens_at: Mapped[int] = mapped_column(Integer)   # hour 0-23 local
+    closes_at: Mapped[int] = mapped_column(Integer)  # hour 1-24 local
+    rating: Mapped[float] = mapped_column(Float)
+    rating_count: Mapped[int] = mapped_column(Integer, default=0)
+    pickup_available: Mapped[bool] = mapped_column(Boolean, default=True)
+    delivery_available: Mapped[bool] = mapped_column(Boolean, default=True)
+    delivery_fee: Mapped[float] = mapped_column(Float)
+    prep_minutes: Mapped[int] = mapped_column(Integer, default=30)
+    allows_partial_dispensing: Mapped[bool] = mapped_column(Boolean, default=True)
+    delivery_options: Mapped[list] = mapped_column(JSON, default=list)
+    integration: Mapped[str] = mapped_column(String(40), default="mock-live")  # mock-live | mock-catalog
+
+
+class PharmacyInventory(Base):
+    __tablename__ = "pharmacy_inventory"
+    __table_args__ = (UniqueConstraint("pharmacy_id", "medication_id"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    pharmacy_id: Mapped[int] = mapped_column(ForeignKey("pharmacies.id"))
+    medication_id: Mapped[int] = mapped_column(ForeignKey("medications.id"))
+    units_in_stock: Mapped[int] = mapped_column(Integer)
+    unit_price: Mapped[float] = mapped_column(Float)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime)  # None => not live-verified
+
+
+# ------------------------------------------------------------------------- carts
+class SuggestedCart(Base):
+    __tablename__ = "suggested_carts"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    prescription_id: Mapped[int] = mapped_column(ForeignKey("prescriptions.id"), unique=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    items = relationship("CartItem", back_populates="cart", order_by="CartItem.id")
+    prescription = relationship("Prescription")
+
+
+class CartItem(Base):
+    __tablename__ = "cart_items"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    cart_id: Mapped[int] = mapped_column(ForeignKey("suggested_carts.id"))
+    prescription_item_id: Mapped[int] = mapped_column(ForeignKey("prescription_items.id"), unique=True)
+    status: Mapped[CartItemStatus] = mapped_column(Enum(CartItemStatus), default=CartItemStatus.in_cart)
+    requested_quantity: Mapped[int] = mapped_column(Integer)
+    quantity_status: Mapped[QuantityStatus] = mapped_column(Enum(QuantityStatus), default=QuantityStatus.full)
+    quantity_note: Mapped[str] = mapped_column(Text, default="")
+
+    cart = relationship("SuggestedCart", back_populates="items")
+    prescription_item = relationship("PrescriptionItem")
+
+
+class PartialDispenseRequest(Base):
+    """History of every requested purchase quantity and how it was decided."""
+
+    __tablename__ = "partial_dispense_requests"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    cart_item_id: Mapped[int] = mapped_column(ForeignKey("cart_items.id"))
+    prescribed_quantity: Mapped[int] = mapped_column(Integer)
+    requested_quantity: Mapped[int] = mapped_column(Integer)
+    status: Mapped[QuantityStatus] = mapped_column(Enum(QuantityStatus))
+    rule_code: Mapped[str] = mapped_column(String(40))
+    explanation: Mapped[str] = mapped_column(Text)
+    decided_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+# ------------------------------------------------------------------------ orders
+class PharmacyOrder(Base):
+    __tablename__ = "pharmacy_orders"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_no: Mapped[str] = mapped_column(String(32), unique=True)
+    idempotency_key: Mapped[str] = mapped_column(String(80), unique=True)
+    cart_id: Mapped[int] = mapped_column(ForeignKey("suggested_carts.id"))
+    prescription_id: Mapped[int] = mapped_column(ForeignKey("prescriptions.id"))
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    pharmacy_id: Mapped[int] = mapped_column(ForeignKey("pharmacies.id"), index=True)
+    status: Mapped[OrderStatus] = mapped_column(Enum(OrderStatus), default=OrderStatus.prescription_received)
+    fulfillment: Mapped[str] = mapped_column(String(16))   # delivery | pickup
+    delivery_option: Mapped[str | None] = mapped_column(String(20))
+    scheduled_for: Mapped[datetime | None] = mapped_column(DateTime)
+    subtotal: Mapped[float] = mapped_column(Float)
+    delivery_fee: Mapped[float] = mapped_column(Float)
+    tax: Mapped[float] = mapped_column(Float)
+    discount: Mapped[float] = mapped_column(Float, default=0)
+    total: Mapped[float] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    items = relationship("OrderItem", back_populates="order", order_by="OrderItem.id")
+    pharmacy = relationship("Pharmacy")
+    payment = relationship("Payment", uselist=False, back_populates="order")
+    delivery = relationship("DeliveryAssignment", uselist=False, back_populates="order")
+    events = relationship("TrackingEvent", order_by="TrackingEvent.id")
+
+
+class OrderItem(Base):
+    __tablename__ = "order_items"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("pharmacy_orders.id"))
+    cart_item_id: Mapped[int] = mapped_column(ForeignKey("cart_items.id"))
+    prescription_item_id: Mapped[int] = mapped_column(ForeignKey("prescription_items.id"))
+    medication_id: Mapped[int] = mapped_column(ForeignKey("medications.id"))
+    prescribed_quantity: Mapped[int] = mapped_column(Integer)
+    requested_quantity: Mapped[int] = mapped_column(Integer)
+    approved_quantity: Mapped[int | None] = mapped_column(Integer)
+    unit_price: Mapped[float] = mapped_column(Float)
+
+    order = relationship("PharmacyOrder", back_populates="items")
+    medication = relationship("Medication")
+
+
+class PharmacistApproval(Base):
+    __tablename__ = "pharmacist_approvals"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("pharmacy_orders.id"))
+    pharmacist_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    decision: Mapped[str] = mapped_column(String(16))  # approve | adjust | reject
+    notes: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class PrescriptionClarification(Base):
+    __tablename__ = "prescription_clarifications"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    prescription_id: Mapped[int] = mapped_column(ForeignKey("prescriptions.id"))
+    order_id: Mapped[int | None] = mapped_column(ForeignKey("pharmacy_orders.id"))
+    raised_by_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    reason: Mapped[str] = mapped_column(String(40))
+    message: Mapped[str] = mapped_column(EncryptedText)
+    status: Mapped[str] = mapped_column(String(16), default="open")
+    response: Mapped[str | None] = mapped_column(EncryptedText)
+    responded_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class PatientMessage(Base):
+    """Secure messages between patient and pharmacist / doctor."""
+
+    __tablename__ = "patient_messages"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    prescription_item_id: Mapped[int | None] = mapped_column(ForeignKey("prescription_items.id"))
+    recipient: Mapped[str] = mapped_column(String(16))   # pharmacist | doctor | patient
+    sender_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    body: Mapped[str] = mapped_column(EncryptedText)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+# ---------------------------------------------------------------------- payments
+class Payment(Base):
+    __tablename__ = "payments"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("pharmacy_orders.id"), unique=True)
+    method: Mapped[str] = mapped_column(String(24))
+    provider_ref: Mapped[str] = mapped_column(String(64))
+    amount_authorized: Mapped[float] = mapped_column(Float)
+    amount_captured: Mapped[float] = mapped_column(Float, default=0)
+    amount_refunded: Mapped[float] = mapped_column(Float, default=0)
+    status: Mapped[PaymentStatus] = mapped_column(Enum(PaymentStatus))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    order = relationship("PharmacyOrder", back_populates="payment")
+    refunds = relationship("Refund")
+
+
+class Refund(Base):
+    __tablename__ = "refunds"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    payment_id: Mapped[int] = mapped_column(ForeignKey("payments.id"))
+    amount: Mapped[float] = mapped_column(Float)
+    reason: Mapped[str] = mapped_column(String(200))
+    provider_ref: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+# ---------------------------------------------------------------------- delivery
+class DeliveryAssignment(Base):
+    __tablename__ = "delivery_assignments"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("pharmacy_orders.id"), unique=True)
+    provider: Mapped[str] = mapped_column(String(40))
+    option: Mapped[str] = mapped_column(String(20))
+    courier_name: Mapped[str | None] = mapped_column(String(80))
+    tracking_ref: Mapped[str] = mapped_column(String(40))
+    eta: Mapped[datetime | None] = mapped_column(DateTime)
+    handover_code: Mapped[str] = mapped_column(EncryptedText)
+    cold_chain: Mapped[bool] = mapped_column(Boolean, default=False)
+    id_check_required: Mapped[bool] = mapped_column(Boolean, default=False)
+    signature_required: Mapped[bool] = mapped_column(Boolean, default=True)
+    proof_of_delivery: Mapped[dict | None] = mapped_column(JSON)
+
+    order = relationship("PharmacyOrder", back_populates="delivery")
+
+
+class TrackingEvent(Base):
+    __tablename__ = "tracking_events"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("pharmacy_orders.id"), index=True)
+    status: Mapped[str] = mapped_column(String(40))
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class DispensingRecord(Base):
+    __tablename__ = "dispensing_records"
+    __table_args__ = (UniqueConstraint("order_item_id"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_item_id: Mapped[int] = mapped_column(ForeignKey("order_items.id"))
+    prescription_item_id: Mapped[int] = mapped_column(ForeignKey("prescription_items.id"), index=True)
+    pharmacy_id: Mapped[int] = mapped_column(ForeignKey("pharmacies.id"))
+    pharmacist_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    quantity: Mapped[int] = mapped_column(Integer)
+    dispensed_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+# ------------------------------------------------------------- audit & notices
+class AuditLog(Base):
+    """Append-only, hash-chained audit trail (tamper evident)."""
+
+    __tablename__ = "audit_logs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    actor_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    actor_role: Mapped[str] = mapped_column(String(20))
+    action: Mapped[str] = mapped_column(String(60), index=True)
+    entity: Mapped[str] = mapped_column(String(40))
+    entity_id: Mapped[int | None] = mapped_column(Integer)
+    details: Mapped[dict] = mapped_column(JSON, default=dict)
+    prev_hash: Mapped[str] = mapped_column(String(64))
+    hash: Mapped[str] = mapped_column(String(64))
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    title: Mapped[str] = mapped_column(String(120))
+    body: Mapped[str] = mapped_column(Text)
+    link: Mapped[str] = mapped_column(String(120), default="")
+    read: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

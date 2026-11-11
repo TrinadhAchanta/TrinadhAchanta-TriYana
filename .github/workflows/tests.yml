@@ -1,0 +1,28 @@
+name: tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - run: python -m pytest -q
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t triyana .
+      - name: Smoke test container
+        run: |
+          docker run -d --rm -p 8000:8000 --name triyana triyana
+          for i in $(seq 1 30); do curl -sf localhost:8000/api/health && exit 0; sleep 1; done
+          docker logs triyana; exit 1

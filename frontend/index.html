@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Triyana Home</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="top">
+    <div class="logo">Tri<span>yana</span> Home</div>
+    <span class="demo-pill" title="All people, medicines, pharmacies and payments are fictional">Demo mode · fictional data</span>
+    <div class="spacer"></div>
+    <label class="small muted" for="account">Signed in as</label>
+    <select id="account" aria-label="Demo account"></select>
+    <button class="btn small" id="reset" title="Restore the fictional demo data">Reset demo</button>
+  </header>
+  <main>
+    <nav class="tabs" id="tabs"></nav>
+    <div id="view"></div>
+  </main>
+
+  <button class="btn primary yana" id="yanaBtn" hidden>Ask Yana</button>
+  <section class="yana-panel" id="yanaPanel" aria-label="Yana assistant">
+    <div class="row between" style="padding:10px 12px;border-bottom:1px solid var(--line)">
+      <b>Yana</b><span class="small muted">Helps with your cart. Never changes your prescription.</span>
+    </div>
+    <div class="yana-log" id="yanaLog"></div>
+    <div class="chips" id="yanaChips"></div>
+    <form class="yana-form" id="yanaForm">
+      <input id="yanaInput" placeholder="Ask about your medicines…" autocomplete="off">
+      <button class="btn primary">Send</button>
+    </form>
+  </section>
+  <div id="toast" role="status"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
