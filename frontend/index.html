@@ -2,37 +2,48 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#062e29">
   <title>Triyana Home</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-  <header class="top">
-    <div class="logo">Tri<span>yana</span> Home</div>
-    <span class="demo-pill" title="All people, medicines, pharmacies and payments are fictional">Demo mode · fictional data</span>
-    <div class="spacer"></div>
-    <label class="small muted" for="account">Signed in as</label>
-    <select id="account" aria-label="Demo account"></select>
-    <button class="btn small" id="reset" title="Restore the fictional demo data">Reset demo</button>
-  </header>
-  <main>
-    <nav class="tabs" id="tabs"></nav>
-    <div id="view"></div>
-  </main>
-
-  <button class="btn primary yana" id="yanaBtn" hidden>Ask Yana</button>
-  <section class="yana-panel" id="yanaPanel" aria-label="Yana assistant">
-    <div class="row between" style="padding:10px 12px;border-bottom:1px solid var(--line)">
-      <b>Yana</b><span class="small muted">Helps with your cart. Never changes your prescription.</span>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand"><div class="mark" id="markA"></div><div><b>Triyana</b><small>Home healthcare</small></div></div>
+      <nav id="sideNav"></nav>
+      <div class="spacer"></div>
+      <div class="account-card">
+        <label for="account">Signed in as</label>
+        <select id="account" aria-label="Demo account"></select>
+        <div class="demo-flag"><span id="flagIco"></span><span>Demo · fictional data</span></div>
+        <button class="btn ghost sm" id="reset" style="margin-top:8px;width:100%">Reset demo data</button>
+      </div>
+    </aside>
+    <div class="main">
+      <header class="topbar">
+        <div class="brand"><div class="mark" id="markB"></div><b>Triyana</b></div>
+        <select id="accountMobile" aria-label="Demo account"></select>
+      </header>
+      <div class="content" id="view"></div>
     </div>
+  </div>
+  <nav class="bottom-nav" id="bottomNav"></nav>
+
+  <button class="yana-fab" id="yanaBtn" hidden><span class="yana-orb"></span><span class="label">Ask Yana</span></button>
+  <section class="yana-panel" id="yanaPanel" aria-label="Yana assistant">
+    <div class="yana-head"><span class="yana-orb"></span><div><b>Yana</b><span>Your medicine assistant · never changes prescriptions</span></div><button class="x" id="yanaClose" aria-label="Close">✕</button></div>
     <div class="yana-log" id="yanaLog"></div>
     <div class="chips" id="yanaChips"></div>
     <form class="yana-form" id="yanaForm">
       <input id="yanaInput" placeholder="Ask about your medicines…" autocomplete="off">
-      <button class="btn primary">Send</button>
+      <button class="btn primary" aria-label="Send">Send</button>
     </form>
   </section>
-  <div id="toast" role="status"></div>
+  <div class="toast" id="toast" role="status"></div>
   <script src="/static/app.js"></script>
 </body>
 </html>
