@@ -5,7 +5,9 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from .models import (
+    AirspaceZone,
     Doctor,
+    Hospital,
     HomeVisit,
     Medication,
     MedSchedule,
@@ -26,6 +28,8 @@ DEMO_TOKENS = {
     "pharmacist": "demo-pharmacist-greenleaf",
     "pharmacist2": "demo-pharmacist-sunrise",
     "courier": "demo-courier-greenleaf",
+    "hospital": "demo-hospital-lotus",
+    "hospital2": "demo-hospital-district",
 }
 
 
@@ -98,12 +102,14 @@ def seed(db: Session) -> dict:
                  business_reg_no="DEMO-GST-11", jurisdiction="DEMO-IN", address="4 Market St, Demo City",
                  lat=17.4430, lng=78.3520, service_radius_km=8, opens_at=0, closes_at=24, rating=4.8,
                  rating_count=1240, delivery_fee=30, prep_minutes=20, allows_partial_dispensing=True,
-                 delivery_options=["standard", "same_day", "priority", "scheduled"], integration="mock-live"),
+                 delivery_options=["standard", "same_day", "priority", "scheduled", "drone"], integration="mock-live",
+                 drone_pad=True),
         Pharmacy(name="Sunrise Chemists (Demo)", license_no="DEMO-PH-1002", license_verified=True,
                  business_reg_no="DEMO-GST-12", jurisdiction="DEMO-IN", address="210 Ring Rd, Demo City",
                  lat=17.4650, lng=78.3700, service_radius_km=10, opens_at=0, closes_at=24, rating=4.4,
                  rating_count=530, delivery_fee=15, prep_minutes=45, allows_partial_dispensing=True,
-                 delivery_options=["standard", "same_day", "scheduled"], integration="mock-live"),
+                 delivery_options=["standard", "same_day", "scheduled", "drone"], integration="mock-live",
+                 drone_pad=True),
         Pharmacy(name="WholePack Pharmacy (Demo)", license_no="DEMO-PH-1003", license_verified=True,
                  business_reg_no="DEMO-GST-13", jurisdiction="DEMO-IN", address="9 Lake View, Demo City",
                  lat=17.4300, lng=78.3400, service_radius_km=6, opens_at=0, closes_at=24, rating=4.6,
@@ -115,6 +121,39 @@ def seed(db: Session) -> dict:
                  delivery_options=["standard"]),
     ]
     db.add_all(pharmacies)
+
+    # Fictional airspace map in the style of the Drone Rules 2021 zones (green = everywhere else).
+    db.add_all([
+        AirspaceZone(name="Demo City Airport (fictional) perimeter", kind="red", lat=17.452, lng=78.475,
+                     radius_km=3.0, authority="Central government permission only"),
+        AirspaceZone(name="Demo City Airport (fictional) approach", kind="yellow", lat=17.452, lng=78.475,
+                     radius_km=12.0, authority="Airport ATC permission via Digital Sky"),
+        AirspaceZone(name="Demo Cantonment (fictional) defence area", kind="red", lat=17.425, lng=78.31,
+                     radius_km=1.5, authority="Ministry of Defence"),
+    ])
+    hospitals = {
+        "lotus": Hospital(name="Lotus Multi-Speciality Hospital (Demo)", kind="multi_speciality",
+                          registration_no="DEMO-CEA-TS-0101", verified=True, jurisdiction="DEMO-IN",
+                          address="1 Lotus Lane, Demo City", lat=17.4475, lng=78.3420, drone_pad=True, cold_storage=True),
+        "district": Hospital(name="Demo City District Hospital", kind="district", registration_no="DEMO-CEA-TS-0102",
+                             verified=True, jurisdiction="DEMO-IN", address="District Rd, Demo City",
+                             lat=17.4950, lng=78.3300, drone_pad=True, cold_storage=True),
+        "children": Hospital(name="Ring Road Children's Hospital (Demo)", kind="specialty",
+                             registration_no="DEMO-CEA-TS-0103", verified=True, jurisdiction="DEMO-IN",
+                             address="Ring Rd East, Demo City", lat=17.4700, lng=78.4300, drone_pad=True,
+                             cold_storage=True),
+        "lakeside": Hospital(name="Lakeside Cancer Centre (Demo)", kind="specialty", registration_no="DEMO-CEA-TS-0104",
+                             verified=True, jurisdiction="DEMO-IN", address="Lakeside, Demo City",
+                             lat=17.4000, lng=78.2800, drone_pad=True, cold_storage=True),
+        "hillpark": Hospital(name="Hill Park Rural PHC (Demo)", kind="phc", registration_no="DEMO-CEA-TS-0105",
+                             verified=True, jurisdiction="DEMO-IN", address="Hill Park village, Demo District",
+                             lat=17.7000, lng=78.2000, drone_pad=True, cold_storage=False),
+        "riverside": Hospital(name="Riverside Nursing Home (Demo)", kind="multi_speciality",
+                              registration_no="DEMO-CEA-TS-0106", verified=True, jurisdiction="DEMO-IN",
+                              address="River Rd, Demo City", lat=17.4250, lng=78.3550, drone_pad=False,
+                              cold_storage=False),
+    }
+    db.add_all(hospitals.values())
     db.flush()
     stock = {
         0: {"dolo": (200, 1.9), "cetri": (100, 1.7), "amoxi": (60, 6.2), "trama": (20, 8.5), "insu": (10, 410.0), "panto": (90, 3.0), "rita": (20, 11.0)},
@@ -140,6 +179,10 @@ def seed(db: Session) -> dict:
                             token=DEMO_TOKENS["pharmacist2"], pharmacy_id=pharmacies[1].id),
         "courier": User(name="Asha (Courier, GreenLeaf)", role=Role.courier, token=DEMO_TOKENS["courier"],
                         pharmacy_id=pharmacies[0].id),
+        "hospital": User(name="Nisha (Pharmacy in-charge, Lotus Hospital)", role=Role.hospital,
+                         token=DEMO_TOKENS["hospital"], hospital_id=hospitals["lotus"].id),
+        "hospital2": User(name="Dev (Stores, District Hospital)", role=Role.hospital,
+                          token=DEMO_TOKENS["hospital2"], hospital_id=hospitals["district"].id),
     }
     db.add_all(users.values())
     db.flush()
@@ -162,6 +205,7 @@ def seed(db: Session) -> dict:
         "medications": {k: m.id for k, m in meds.items()},
         "pharmacies": {"greenleaf": pharmacies[0].id, "sunrise": pharmacies[1].id,
                        "wholepack": pharmacies[2].id, "unverified": pharmacies[3].id},
+        "hospitals": {k: h.id for k, h in hospitals.items()},
         "visits": {"meera": visit.id, "arjun": visit2.id, "unverified_doctor": visit3.id},
         "tokens": DEMO_TOKENS,
     }

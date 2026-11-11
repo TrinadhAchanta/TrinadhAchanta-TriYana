@@ -39,6 +39,7 @@ from .models import (
     utcnow,
 )
 from .services import carts as cart_svc
+from .services import hospitals as hospital_svc
 from .services import orders as order_svc
 from .services import prescriptions as rx_svc
 from .services import privacy as privacy_svc
@@ -206,7 +207,8 @@ def health():
 @app.get("/api/me")
 def me(user: User = Depends(current_user), db: Session = Depends(get_db)):
     unread = db.scalars(select(Notification).where(Notification.user_id == user.id, Notification.read.is_(False))).all()
-    return {"id": user.id, "name": user.name, "role": user.role.value, "unread_notifications": len(unread)}
+    return {"id": user.id, "name": user.name, "role": user.role.value, "unread_notifications": len(unread),
+            "hospital_id": user.hospital_id, "pharmacy_id": user.pharmacy_id}
 
 
 @app.get("/api/notifications")
@@ -584,6 +586,68 @@ def handover(order_id: int, body: HandoverIn, user: User = Depends(require(Role.
     return order_svc.serialize_order(db, order, user)
 
 
+# ------------------------------------------------------- hospitals & drones
+class ShipmentIn(BaseModel):
+    origin_kind: Literal["pharmacy", "hospital"]
+    origin_id: int
+    dest_hospital_id: int
+    category: str = "medicines"
+    contents: str = Field(default="", max_length=300)
+    weight_kg: float = Field(gt=0, le=50)
+    cold_chain: bool = False
+    controlled: bool = False
+    urgency: Literal["routine", "urgent", "emergency"] = "routine"
+    mode: Literal["auto", "road"] = "auto"
+
+
+class MissionActionIn(BaseModel):
+    reason: str = Field(default="", max_length=200)
+    received_by: str = Field(default="", max_length=120)
+    temperature_ok: bool | None = None
+
+
+@app.get("/api/hospital/network")
+def hospital_network(user: User = Depends(require(Role.hospital)), db: Session = Depends(get_db)):
+    """Which hospitals and pharmacies a drone can serve from this hospital, and why not where it can't."""
+    return hospital_svc.network(db, user)
+
+
+@app.post("/api/shipments/quote")
+def shipment_quote(body: ShipmentIn, user: User = Depends(require(Role.hospital)), db: Session = Depends(get_db)):
+    return hospital_svc.quote(db, user, body.model_dump())
+
+
+@app.post("/api/shipments", status_code=201)
+def create_shipment(body: ShipmentIn, user: User = Depends(require(Role.hospital)), db: Session = Depends(get_db)):
+    s = hospital_svc.create(db, user, body.model_dump())
+    return hospital_svc.shipment_to_dict(db, s, _zones(db))
+
+
+@app.get("/api/shipments")
+def list_shipments(user: User = Depends(require(Role.hospital, Role.pharmacist)), db: Session = Depends(get_db)):
+    zones = _zones(db)
+    return [hospital_svc.shipment_to_dict(db, s, zones) for s in hospital_svc.list_for(db, user)]
+
+
+@app.get("/api/missions/{mission_id}")
+def get_mission(mission_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    from .services.drones import serialize_mission
+    return serialize_mission(hospital_svc.mission_for_user(db, user, mission_id), _zones(db))
+
+
+@app.post("/api/missions/{mission_id}/{action}")
+def mission_action(mission_id: int, action: Literal["launch", "arrive", "divert", "confirm"], body: MissionActionIn,
+                   user: User = Depends(require(Role.hospital, Role.pharmacist)), db: Session = Depends(get_db)):
+    from .services.drones import serialize_mission
+    m = hospital_svc.mission_action(db, user, mission_id, action, body.model_dump())
+    return serialize_mission(m, _zones(db))
+
+
+def _zones(db: Session):
+    from .models import AirspaceZone
+    return list(db.scalars(select(AirspaceZone)))
+
+
 # ------------------------------------------------------------------- yana
 @app.post("/api/yana")
 def yana(body: YanaIn, user: User = Depends(require(Role.patient)), db: Session = Depends(get_db)):
@@ -612,6 +676,7 @@ def demo_accounts():
         "patient": "Meera (patient)", "patient2": "Arjun (patient)", "doctor": "Dr. Carter (verified doctor)",
         "pharmacist": "Ravi (GreenLeaf pharmacist)", "pharmacist2": "Lina (Sunrise pharmacist)",
         "courier": "Asha (GreenLeaf courier)",
+        "hospital": "Nisha (Lotus Hospital)", "hospital2": "Dev (District Hospital)",
     }
     return [{"key": k, "label": v, "token": DEMO_TOKENS[k]} for k, v in labels.items()]
 

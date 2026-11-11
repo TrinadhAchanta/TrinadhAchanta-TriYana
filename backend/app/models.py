@@ -36,6 +36,7 @@ class Role(str, enum.Enum):
     doctor = "doctor"
     pharmacist = "pharmacist"
     courier = "courier"
+    hospital = "hospital"  # hospital pharmacy / logistics staff
 
 
 class VisitStatus(str, enum.Enum):
@@ -109,6 +110,7 @@ class User(Base):
     patient_id: Mapped[int | None] = mapped_column(ForeignKey("patients.id"))
     doctor_id: Mapped[int | None] = mapped_column(ForeignKey("doctors.id"))
     pharmacy_id: Mapped[int | None] = mapped_column(ForeignKey("pharmacies.id"))
+    hospital_id: Mapped[int | None] = mapped_column(ForeignKey("hospitals.id"))
 
 
 class Patient(Base):
@@ -260,6 +262,7 @@ class Pharmacy(Base):
     allows_partial_dispensing: Mapped[bool] = mapped_column(Boolean, default=True)
     delivery_options: Mapped[list] = mapped_column(JSON, default=list)
     integration: Mapped[str] = mapped_column(String(40), default="mock-live")  # mock-live | mock-catalog
+    drone_pad: Mapped[bool] = mapped_column(Boolean, default=False)  # surveyed launch/landing point
 
 
 class PharmacyInventory(Base):
@@ -512,3 +515,87 @@ class DataRequest(Base):
     status: Mapped[str] = mapped_column(String(16), default="received")
     reference: Mapped[str] = mapped_column(String(24))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+# ------------------------------------------------------------ hospitals & drones
+class Hospital(Base):
+    __tablename__ = "hospitals"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    kind: Mapped[str] = mapped_column(String(40))            # multi_speciality | district | phc | specialty
+    registration_no: Mapped[str] = mapped_column(String(40), unique=True)  # e.g. state CEA / NABH ref
+    verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    jurisdiction: Mapped[str] = mapped_column(String(16))
+    address: Mapped[str] = mapped_column(String(200))
+    lat: Mapped[float] = mapped_column(Float)
+    lng: Mapped[float] = mapped_column(Float)
+    drone_pad: Mapped[bool] = mapped_column(Boolean, default=False)
+    cold_storage: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class AirspaceZone(Base):
+    """Drone Rules 2021 airspace map zones (fictional demo geometry).
+    Anything outside a red or yellow zone is green."""
+
+    __tablename__ = "airspace_zones"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    kind: Mapped[str] = mapped_column(String(10))   # red | yellow
+    lat: Mapped[float] = mapped_column(Float)
+    lng: Mapped[float] = mapped_column(Float)
+    radius_km: Mapped[float] = mapped_column(Float)
+    authority: Mapped[str] = mapped_column(String(120), default="")
+
+
+class Shipment(Base):
+    """A medical consignment to a hospital: pharmacy -> hospital or hospital -> hospital."""
+
+    __tablename__ = "shipments"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    ref: Mapped[str] = mapped_column(String(24), unique=True)
+    requested_by_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    origin_kind: Mapped[str] = mapped_column(String(12))   # pharmacy | hospital
+    origin_id: Mapped[int] = mapped_column(Integer)
+    dest_hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"), index=True)
+    category: Mapped[str] = mapped_column(String(24))      # medicines | blood | vaccines | lab_samples | antivenom
+    contents: Mapped[str] = mapped_column(EncryptedText)
+    weight_kg: Mapped[float] = mapped_column(Float)
+    cold_chain: Mapped[bool] = mapped_column(Boolean, default=False)
+    controlled: Mapped[bool] = mapped_column(Boolean, default=False)
+    urgency: Mapped[str] = mapped_column(String(12), default="routine")  # routine | urgent | emergency
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    dest_hospital = relationship("Hospital")
+    mission = relationship("DeliveryMission", uselist=False, back_populates="shipment")
+
+
+class DeliveryMission(Base):
+    """One delivery leg, flown by drone or driven by road courier (fallback)."""
+
+    __tablename__ = "delivery_missions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    ref: Mapped[str] = mapped_column(String(24), unique=True)
+    shipment_id: Mapped[int | None] = mapped_column(ForeignKey("shipments.id"), unique=True)
+    order_id: Mapped[int | None] = mapped_column(ForeignKey("pharmacy_orders.id"), unique=True)
+    mode: Mapped[str] = mapped_column(String(8))           # drone | road
+    provider: Mapped[str] = mapped_column(String(60))
+    status: Mapped[str] = mapped_column(String(20))        # scheduled | in_flight | in_transit | arrived | delivered | cancelled
+    origin: Mapped[dict] = mapped_column(JSON)             # {name, lat, lng}
+    destination: Mapped[dict] = mapped_column(JSON)
+    distance_km: Mapped[float] = mapped_column(Float)
+    duration_minutes: Mapped[int] = mapped_column(Integer)
+    eta: Mapped[datetime | None] = mapped_column(DateTime)
+    vehicle: Mapped[dict] = mapped_column(JSON, default=dict)      # drone UIN/model or courier details
+    compliance: Mapped[dict] = mapped_column(JSON, default=dict)   # permission refs, pilot cert, altitude cap
+    checks: Mapped[list] = mapped_column(JSON, default=list)       # eligibility checks at booking
+    fallback_reason: Mapped[str | None] = mapped_column(Text)
+    cold_chain: Mapped[bool] = mapped_column(Boolean, default=False)
+    temperature_log: Mapped[list] = mapped_column(JSON, default=list)
+    handover_code: Mapped[str] = mapped_column(EncryptedText)
+    received_by: Mapped[str | None] = mapped_column(String(120))
+    events: Mapped[list] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    launched_at: Mapped[datetime | None] = mapped_column(DateTime)
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    shipment = relationship("Shipment", back_populates="mission")

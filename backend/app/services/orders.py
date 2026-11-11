@@ -15,9 +15,11 @@ from ..adapters.pharmacy import MockPharmacyNetwork
 from .india import SCHEDULE_X_NOTE, needs_h1_register, online_blocked, schedule_info
 from ..errors import Conflict, Forbidden, NotFound, PaymentDeclined, Unprocessable
 from ..models import (
+    AirspaceZone,
     CartItem,
     CartItemStatus,
     DeliveryAssignment,
+    DeliveryMission,
     DispensingRecord,
     OrderItem,
     OrderStatus,
@@ -36,6 +38,7 @@ from ..models import (
     TrackingEvent,
     User,
 )
+from . import drones as drone_svc
 from .carts import get_cart_for_patient
 from .common import ensure_order_access, get_or_404, new_ref, notify, users_for_doctor, users_for_patient, users_for_pharmacy
 from .dispensing_rules import achievable_quantities, evaluate_quantity_request, policy_for
@@ -495,21 +498,37 @@ def advance(db: Session, user: User, order_id: int, action: str) -> PharmacyOrde
         if order.fulfillment == "delivery":
             patient = db.get(Patient, order.patient_id)
             dist = haversine_km(patient.lat, patient.lng, order.pharmacy.lat, order.pharmacy.lng)
-            booking = courier.book(order.delivery_option, dist, 0, order.scheduled_for)
             meds = [it.medication for it in order.items if it.approved_quantity]
+            msg = "Your order is packed and waiting for the courier."
+            mission = _book_drone(db, order, patient) if order.delivery_option == "drone" else None
+            if mission is not None and mission.mode == "drone":
+                provider, courier_name, ref = mission.provider, f"Drone {mission.vehicle['uin']}", mission.ref
+                eta, code = mission.eta, mission.handover_code
+                msg = "Your order is packed and loaded for drone delivery."
+            else:
+                if mission is not None:  # drone not possible on this route today: road fallback
+                    msg = _fallback_to_road(db, order, mission.fallback_reason)
+                    db.delete(mission)
+                booking = courier.book(order.delivery_option, dist, 0, order.scheduled_for)
+                provider, courier_name, ref = courier.name, booking.courier_name, booking.tracking_ref
+                eta, code = booking.eta, booking.handover_code
             db.add(DeliveryAssignment(
-                order_id=order.id, provider=courier.name, option=order.delivery_option,
-                courier_name=booking.courier_name, tracking_ref=booking.tracking_ref, eta=booking.eta,
-                handover_code=booking.handover_code,
+                order_id=order.id, provider=provider, option=order.delivery_option,
+                courier_name=courier_name, tracking_ref=ref, eta=eta,
+                handover_code=code,
                 cold_chain=any(m.cold_chain for m in meds),
                 id_check_required=any(m.id_check_required for m in meds),
                 signature_required=True,
             ))
-            msg = "Your order is packed and waiting for the courier."
         else:
             msg = "Your order is ready to collect. Bring photo ID."
     if action == "dispatch" and order.fulfillment != "delivery":
         raise Conflict("not_delivery", "Pickup orders are not dispatched.")
+    if action == "dispatch":
+        mission = order_mission(db, order.id)
+        if mission is not None:
+            drone_svc.launch(mission)
+            msg = "Your medicines are in the air. Keep your handover code ready."
     _event(db, order, to, msg)
     audit.record(db, user, f"order.{action}", "order", order.id)
     _notify_patient(db, order, msg)
@@ -533,6 +552,9 @@ def complete_handover(db: Session, user: User, order_id: int, code: str, recipie
         if d.id_check_required and not id_verified:
             raise Unprocessable("id_check_required", "This delivery requires an identity check.")
         d.proof_of_delivery = {"recipient": recipient_name, "id_verified": id_verified, "code_matched": True}
+        mission = order_mission(db, order.id)
+        if mission is not None:
+            drone_svc.confirm(mission, recipient_name or "Patient", temperature_ok=True)
         _event(db, order, OrderStatus.delivered, f"Delivered to {recipient_name}.")
     else:
         if user.role != Role.pharmacist or order.status != OrderStatus.ready_for_pickup:
@@ -563,6 +585,39 @@ def cancel(db: Session, user: User, order_id: int, reason: str) -> PharmacyOrder
     _notify_patient(db, order, "Your order was cancelled. Any payment has been released or refunded.")
     db.commit()
     return order
+
+
+# ------------------------------------------------------------------ drones
+def order_mission(db: Session, order_id: int) -> DeliveryMission | None:
+    return db.scalars(select(DeliveryMission).where(DeliveryMission.order_id == order_id)).first()
+
+
+def _book_drone(db: Session, order: PharmacyOrder, patient: Patient) -> DeliveryMission:
+    """Re-check the route at packing time (weather, airspace) and book the drone, or a road fallback."""
+    payload = drone_svc.order_payload([(it.medication, it.approved_quantity) for it in order.items if it.approved_quantity])
+    home = drone_svc.Place("Patient's home", patient.lat, patient.lng, "patient_home")
+    return drone_svc.create_mission(db, drone_svc.pharmacy_place(order.pharmacy), home, payload,
+                                    patient.jurisdiction, order_id=order.id)
+
+
+def _fallback_to_road(db: Session, order: PharmacyOrder, reason: str | None) -> str:
+    """Switch a drone order to priority road delivery and refund the fee difference."""
+    new_fee = round(order.pharmacy.delivery_fee * OPTION_INFO["priority"]["fee_multiplier"], 2)
+    diff = round(order.delivery_fee - new_fee, 2)
+    order.delivery_option = "priority"
+    if diff > 0:
+        order.delivery_fee = new_fee
+        order.total = round(order.total - diff, 2)
+        pay = order.payment
+        if pay.status in (PaymentStatus.captured, PaymentStatus.partially_refunded):
+            res = get_gateway().refund(pay.provider_ref, diff)
+            db.add(Refund(payment_id=pay.id, amount=diff, reason="Drone unavailable: switched to road",
+                          provider_ref=res.ref))
+            pay.amount_refunded = round(pay.amount_refunded + diff, 2)
+            pay.status = PaymentStatus.partially_refunded
+    audit.record(db, None, "order.drone_fallback", "order", order.id, reason=reason, refunded=max(diff, 0))
+    return (f"Drone delivery isn't possible right now ({reason}) so a priority road courier will bring it. "
+            + (f"The {diff:.2f} fee difference has been refunded." if diff > 0 else ""))
 
 
 # --------------------------------------------------------------- serialization
@@ -610,6 +665,8 @@ def serialize_order(db: Session, order: PharmacyOrder, viewer: User) -> dict:
         }
         if viewer.role == Role.patient:
             data["delivery"]["handover_code"] = d.handover_code  # patient shares it with the courier
+    mission = order_mission(db, order.id)
+    data["mission"] = drone_svc.serialize_mission(mission, list(db.scalars(select(AirspaceZone)))) if mission else None
     return data
 
 

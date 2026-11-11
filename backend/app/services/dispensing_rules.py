@@ -35,7 +35,8 @@ POLICIES: dict[str, JurisdictionPolicy] = {
         code="DEMO-IN", name="Demo Region (India-style)", currency="INR", tax_rate=0.12,
         partial_fill_allowed=True,
         prescriber_auth_for=frozenset({MedSchedule.restricted}),
-        drone_delivery_permitted=False, prescription_validity_days=30, india_schedules=True,
+        # Drone Rules 2021 allow medical drone delivery; each route is still checked in services/drones.py.
+        drone_delivery_permitted=True, prescription_validity_days=30, india_schedules=True,
     ),
     "DEMO-US": JurisdictionPolicy(
         code="DEMO-US", name="Demo Region (US-style)", currency="USD", tax_rate=0.0,
