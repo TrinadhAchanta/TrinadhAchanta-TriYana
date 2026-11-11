@@ -9,7 +9,11 @@ from .db import get_db
 from .models import Role, User
 
 
-def current_user(authorization: str | None = Header(default=None), db: Session = Depends(get_db)) -> User:
+PROVIDER_ROLES = (Role.doctor, Role.courier, Role.pharmacist)
+
+
+def current_user(authorization: str | None = Header(default=None), x_triyana_app: str | None = Header(default=None),
+                 db: Session = Depends(get_db)) -> User:
     """Demo bearer-token auth. Production: OIDC/OAuth2 with MFA for clinicians."""
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail={"code": "unauthenticated", "message": "Sign in required."})
@@ -17,6 +21,11 @@ def current_user(authorization: str | None = Header(default=None), db: Session =
     user = db.scalars(select(User).where(User.token == token)).first()
     if not user:
         raise HTTPException(status_code=401, detail={"code": "unauthenticated", "message": "Invalid session."})
+    # Two apps, two logins: patients use Triyana, providers use Triyana Partner.
+    if x_triyana_app == "provider" and user.role not in PROVIDER_ROLES:
+        raise HTTPException(status_code=403, detail={"code": "wrong_app", "message": "This is the Triyana Partner app for doctors, couriers and pharmacists. Patients sign in to the Triyana app."})
+    if x_triyana_app == "patient" and user.role in PROVIDER_ROLES:
+        raise HTTPException(status_code=403, detail={"code": "wrong_app", "message": "Providers sign in to the Triyana Partner app."})
     return user
 
 
