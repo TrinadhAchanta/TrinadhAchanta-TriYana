@@ -13,6 +13,8 @@ uvicorn app.main:app --reload        # http://localhost:8000
 python -m pytest -q                  # 29 tests
 ```
 
+Or with Docker: `docker build -t triyana . && docker run -p 8000:8000 triyana`. To host a public demo, see [docs/DEPLOY.md](docs/DEPLOY.md).
+
 The web app has a demo account switcher (patient, doctor, pharmacist, courier). Walk the journey: Dr. Kavya accepts → starts → completes the visit → writes and signs a prescription → Meera reviews the cart, buys 3 of 5 tablets, removes another item, picks a pharmacy, authorises payment → Ravi reviews and dispenses → Asha delivers with Meera's handover code. Use **Reset demo** to start again.
 
 ## How it works
