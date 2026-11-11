@@ -25,6 +25,22 @@ docker run -p 8000:8000 -e TRIYANA_SECRET="$(openssl rand -hex 32)" -v triyana-d
 | `TRIYANA_SECRET` | demo value | Encryption and signature key material. **Always set in any hosted environment.** |
 | `TRIYANA_DATABASE_URL` | `sqlite:////data/triyana_demo.db` | SQLAlchemy URL. Use Postgres for anything beyond a demo. |
 | `TRIYANA_DEMO` | `1` | Enables the demo account switcher and **Reset demo**. Set to `0` to hide both. |
+| `RAZORPAY_KEY_ID` | unset | Razorpay key. Use a `rzp_test_...` key for test mode. When unset, the built-in sandbox is used. |
+| `RAZORPAY_KEY_SECRET` | unset | Razorpay key secret. Set it as a secret, never in code. |
+
+## Turn on Razorpay (India)
+
+1. Create a Razorpay account and open **Account & Settings → API Keys** in **Test mode**. Generate a key.
+2. In Render, open the `triyana-demo` service → **Environment**, add `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET`, and save. Render redeploys.
+3. At checkout the patient now pays in the Razorpay window (UPI, cards, netbanking, wallets). Test mode never moves real money; use Razorpay's test UPI ID `success@razorpay` or their test cards.
+
+Payments are authorised only (manual capture). The order is captured when the pharmacist approves it. If the pharmacist approves less, the difference is refunded immediately. If they reject it, Razorpay refunds the uncaptured payment automatically. Card numbers and UPI PINs never reach Triyana's servers.
+
+## India rules built in
+
+- **Drug schedules:** Schedule X medicines are never sold online (the patient is told to buy in person with the original prescription). Schedule H1 orders can't be approved until the pharmacist confirms the H1 register entry. H and H1 are labelled for patients and pharmacists. Demo classifications must be checked against CDSCO before launch.
+- **Doctor registration:** each doctor shows their registration number, medical council and qualification on prescriptions and in booking.
+- **DPDP Act 2023:** patients see a consent notice before booking or ordering. Consent is recorded with the notice version and can be withdrawn. Patients can download their data and request erasure or correction.
 
 ## Demo-only, not for real patients
 

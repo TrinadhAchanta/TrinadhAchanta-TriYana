@@ -10,7 +10,9 @@ from .. import audit
 from ..adapters.delivery import OPTION_INFO, SandboxDeliveryProvider
 from ..adapters.geo import haversine_km
 from ..adapters.payments import SUPPORTED_METHODS, SandboxPaymentGateway
+from ..adapters.razorpay import RazorpayError, RazorpayGateway, configured as razorpay_configured
 from ..adapters.pharmacy import MockPharmacyNetwork
+from .india import SCHEDULE_X_NOTE, needs_h1_register, online_blocked, schedule_info
 from ..errors import Conflict, Forbidden, NotFound, PaymentDeclined, Unprocessable
 from ..models import (
     CartItem,
@@ -40,7 +42,13 @@ from .dispensing_rules import achievable_quantities, evaluate_quantity_request, 
 from .matching import match_pharmacies
 from .prescriptions import is_dispensable
 
-gateway = SandboxPaymentGateway()
+_sandbox_gateway = SandboxPaymentGateway()
+_razorpay_gateway = RazorpayGateway()
+
+
+def get_gateway():
+    """Razorpay when keys are configured (test or live), otherwise the built-in sandbox."""
+    return _razorpay_gateway if razorpay_configured() else _sandbox_gateway
 courier = SandboxDeliveryProvider()
 
 STATUS_LABELS = {
@@ -137,6 +145,8 @@ def checkout(
     if not items:
         raise Unprocessable("empty_cart", "Your cart is empty.")
     for ci in items:
+        if online_blocked(ci.prescription_item.medication, rx.jurisdiction):
+            raise Unprocessable("schedule_x_online_sale", SCHEDULE_X_NOTE)
         if ci.quantity_status not in CHECKOUT_QTY_OK:
             raise Conflict("quantity_pending", f"{ci.prescription_item.medication.brand_name}: the requested quantity "
                            "is still waiting for authorisation. Wait for a response or buy the prescribed quantity.")
@@ -201,7 +211,7 @@ def checkout(
         db.rollback()
         raise Conflict("price_changed", "The total changed. Please review the updated price.", total=total)
 
-    auth = gateway.authorize(payment_method, total, payment_token)
+    auth = get_gateway().authorize(payment_method, total, payment_token)
     if not auth.ok:
         for med_id, units in reserved:
             network.release(pharmacy, med_id, units)
@@ -209,6 +219,11 @@ def checkout(
         audit.record(db, user, "payment.authorization_failed", "cart", cart.id, method=payment_method, amount=total)
         db.commit()
         raise PaymentDeclined("payment_declined", auth.message)
+    if db.scalars(select(Payment.id).where(Payment.provider_ref == auth.ref)).first():
+        for med_id, units in reserved:
+            network.release(pharmacy, med_id, units)
+        db.rollback()
+        raise PaymentDeclined("payment_reused", "This payment was already used for another order.")
 
     order = PharmacyOrder(
         order_no=new_ref("ORD"), idempotency_key=idempotency_key, cart_id=cart.id, prescription_id=rx.id,
@@ -261,11 +276,11 @@ def _release_and_void(db: Session, order: PharmacyOrder, reason: str) -> None:
         network.release(order.pharmacy, it.medication_id, it.requested_quantity)
     pay = order.payment
     if pay.status == PaymentStatus.authorized:
-        gateway.void(pay.provider_ref)
+        get_gateway().void(pay.provider_ref)
         pay.status = PaymentStatus.voided
     elif pay.status == PaymentStatus.captured:
         refund_amount = round(pay.amount_captured - pay.amount_refunded, 2)
-        res = gateway.refund(pay.provider_ref, refund_amount)
+        res = get_gateway().refund(pay.provider_ref, refund_amount)
         db.add(Refund(payment_id=pay.id, amount=refund_amount, reason=reason, provider_ref=res.ref))
         pay.amount_refunded = round(pay.amount_refunded + refund_amount, 2)
         pay.status = PaymentStatus.refunded
@@ -275,7 +290,7 @@ def _release_and_void(db: Session, order: PharmacyOrder, reason: str) -> None:
 
 
 def review(db: Session, user: User, order_id: int, decision: str, notes: str,
-           adjustments: dict[int, int] | None = None) -> PharmacyOrder:
+           adjustments: dict[int, int] | None = None, h1_register_confirmed: bool = False) -> PharmacyOrder:
     """Pharmacist approves, adjusts (downwards, within what the patient authorised) or rejects."""
     order = _pharmacist_order(db, user, order_id)
     if order.status not in (OrderStatus.pharmacist_reviewing, OrderStatus.prescription_received):
@@ -303,6 +318,13 @@ def review(db: Session, user: User, order_id: int, decision: str, notes: str,
         raise Unprocessable("bad_decision", "Decision must be approve, adjust or reject.")
     if decision == "adjust" and not adjustments:
         raise Unprocessable("adjustments_required", "Provide the adjusted quantities.")
+    h1_items = [it for it in order.items if needs_h1_register(it.medication, rx.jurisdiction)
+                and adjustments.get(it.id, it.requested_quantity) > 0]
+    if h1_items and not h1_register_confirmed:
+        raise Unprocessable("h1_register_required",
+                            "This order has Schedule H1 medicines. Record them in the Schedule H1 register "
+                            "(patient, doctor, medicine, quantity) and confirm before approving.",
+                            medicines=[it.medication.brand_name for it in h1_items])
 
     for it in order.items:
         qty = adjustments.get(it.id, it.requested_quantity)
@@ -344,14 +366,16 @@ def review(db: Session, user: User, order_id: int, decision: str, notes: str,
     order.total = round(order.subtotal + order.tax + order.delivery_fee - order.discount, 2)
     pay = order.payment
     capture_amount = min(order.total, pay.amount_authorized)
-    gateway.capture(pay.provider_ref, capture_amount)
+    get_gateway().capture(pay.provider_ref, capture_amount)
     pay.amount_captured = capture_amount
     pay.status = PaymentStatus.captured
 
     db.add(PharmacistApproval(order_id=order.id, pharmacist_user_id=user.id, decision=decision, notes=notes))
     _event(db, order, OrderStatus.order_accepted, notes or "Your pharmacist approved the order.")
     audit.record(db, user, f"order.{decision}d", "order", order.id,
-                 approved={it.id: it.approved_quantity for it in order.items}, captured=capture_amount)
+                 approved={it.id: it.approved_quantity for it in order.items}, captured=capture_amount,
+                 h1_register_entries=[{"medicine": it.medication.brand_name, "quantity": it.approved_quantity}
+                                      for it in h1_items])
     msg = "Your order was accepted and payment captured."
     if decision == "adjust":
         msg = (f"The pharmacist adjusted your order ({notes}). You were charged {capture_amount:.2f} instead of "
@@ -543,6 +567,7 @@ def cancel(db: Session, user: User, order_id: int, reason: str) -> PharmacyOrder
 
 # --------------------------------------------------------------- serialization
 def serialize_order(db: Session, order: PharmacyOrder, viewer: User) -> dict:
+    juris = db.get(Prescription, order.prescription_id).jurisdiction
     d = order.delivery
     pay = order.payment
     data = {
@@ -563,6 +588,7 @@ def serialize_order(db: Session, order: PharmacyOrder, viewer: User) -> dict:
                 "approved_quantity": it.approved_quantity,
                 "unit": it.medication.unit,
                 "unit_price": it.unit_price,
+                "india_schedule": schedule_info(it.medication, juris),
             }
             for it in order.items
         ],
@@ -585,3 +611,48 @@ def serialize_order(db: Session, order: PharmacyOrder, viewer: User) -> dict:
         if viewer.role == Role.patient:
             data["delivery"]["handover_code"] = d.handover_code  # patient shares it with the courier
     return data
+
+
+# ------------------------------------------------------------- payment intent
+def quote(db: Session, user: User, cart_id: int, *, pharmacy_id: int, fulfillment: str,
+          delivery_option: str | None) -> dict:
+    """Price the cart at a pharmacy without reserving stock (used to open the payment window)."""
+    cart = get_cart_for_patient(db, user, cart_id)
+    rx = cart.prescription
+    patient = db.get(Patient, cart.patient_id)
+    pharmacy = db.get(Pharmacy, pharmacy_id)
+    if pharmacy is None or pharmacy.jurisdiction != rx.jurisdiction or not pharmacy.license_verified:
+        raise NotFound("pharmacy_not_found", "Pharmacy not available.")
+    items = [i for i in cart.items if i.status == CartItemStatus.in_cart]
+    if not items:
+        raise Unprocessable("empty_cart", "Your cart is empty.")
+    match = next((m for m in match_pharmacies(db, cart, patient) if m.pharmacy.id == pharmacy.id), None)
+    if match is None or not match.eligible:
+        raise Unprocessable("pharmacy_not_eligible", "This pharmacy can't fulfil your cart.")
+    if fulfillment == "delivery":
+        if delivery_option not in match.delivery_options:
+            raise Unprocessable("delivery_option_unavailable", "That delivery option isn't available for this order.")
+        delivery_fee = round(pharmacy.delivery_fee * OPTION_INFO[delivery_option]["fee_multiplier"], 2)
+    else:
+        delivery_fee = 0.0
+    network = MockPharmacyNetwork(db)
+    subtotal = round(sum(network.stock(pharmacy, ci.prescription_item.medication_id).unit_price * ci.requested_quantity
+                         for ci in items), 2)
+    tax = round(subtotal * policy_for(rx.jurisdiction).tax_rate, 2)
+    return {"cart": cart, "patient": patient, "total": round(subtotal + tax + delivery_fee, 2)}
+
+
+def payment_intent(db: Session, user: User, cart_id: int, **kw) -> dict:
+    q = quote(db, user, cart_id, **kw)
+    gw = get_gateway()
+    if not isinstance(gw, RazorpayGateway):
+        return {"gateway": "sandbox", "amount": q["total"], "currency": "INR"}
+    try:
+        rzp = gw.create_order(q["total"], receipt=f"cart-{cart_id}", notes={"cart_id": str(cart_id)})
+    except RazorpayError as e:
+        raise PaymentDeclined("gateway_unavailable", str(e))
+    audit.record(db, user, "payment.intent_created", "cart", cart_id, provider_order=rzp.get("id"), amount=q["total"])
+    db.commit()
+    return {"gateway": "razorpay", "key_id": gw.key_id, "test_mode": gw.test_mode, "order_id": rzp["id"],
+            "amount": q["total"], "amount_paise": rzp["amount"], "currency": "INR",
+            "prefill": {"name": q["patient"].name}}

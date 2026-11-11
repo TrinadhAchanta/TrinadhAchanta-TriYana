@@ -83,11 +83,13 @@ async function guard(fn) { try { await fn(); } catch (e) { toast(e.message, "ale
 const empty = (icon, title, body = "") => `<div class="card empty"><div class="ico">${ic(icon)}</div><h3>${esc(title)}</h3><p class="small">${esc(body)}</p></div>`;
 const pageHead = (title, sub = "", right = "") => `<div class="page-head"><div><h1>${esc(title)}</h1>${sub ? `<p>${sub}</p>` : ""}</div>${right}</div>`;
 const pillClass = (i) => ["", "c2", "c3", "c4"][i % 4];
+const schedBadge = (s) => (!s ? "" : `<span class="badge ${s.code === "X" ? "bad" : s.code === "H1" ? "warn" : s.code === "OTC" ? "" : "info"}" title="${esc(s.note)}">${s.code === "OTC" ? "OTC" : esc(s.label)}</span>`);
+const regLine = (d) => [d.qualification, d.license_no ? `Reg. No. ${d.license_no}` : "", d.medical_council].filter(Boolean).map(esc).join(" · ");
 const miniPill = (i, off = false) => `<div class="pill sm ${off ? "off" : pillClass(i)}">${ic("pills")}</div>`;
 
 /* ---------------------------------------------------------------- shell */
 const TABS = {
-  patient: [["home", "Home", "home"], ["book", "Book a doctor", "stethoscope"], ["rx", "Prescription", "rx"], ["cart", "Cart", "cart"], ["pharmacies", "Pharmacies", "store", "desktop"], ["orders", "Tracking", "truck"], ["meds", "My Medicines", "pills"]],
+  patient: [["home", "Home", "home"], ["book", "Book a doctor", "stethoscope"], ["rx", "Prescription", "rx"], ["cart", "Cart", "cart"], ["pharmacies", "Pharmacies", "store", "desktop"], ["orders", "Tracking", "truck"], ["meds", "My Medicines", "pills"], ["privacy", "Privacy & consent", "shield", "desktop"]],
   doctor: [["visits", "Home visits", "calendar"], ["prescriptions", "Prescriptions", "file"], ["clarifications", "Clarifications", "chat"]],
   pharmacist: [["queue", "Order queue", "inbox"]],
   courier: [["deliveries", "Deliveries", "truck"]],
@@ -118,6 +120,10 @@ async function signIn(token) {
   Object.assign(state, { role: me.role, name: me.name, unread: me.unread_notifications, ctx: {} });
   $("#yanaBtn").hidden = me.role !== "patient";
   $("#yanaPanel").classList.remove("open");
+  if (me.role === "patient") {
+    const c = await api("/api/consents");
+    if (!c.consents.care) { state.tab = null; renderNav(); return consentScreen(); }
+  }
   go(TABS[me.role][0][0]);
 }
 
@@ -147,13 +153,6 @@ const SCREENS = {};
 
 const OPEN_VISIT = ["requested", "accepted", "in_progress"];
 const VISIT_LABEL = { requested: ["Waiting for doctor to confirm", "info", "clock"], accepted: ["Confirmed", "good", "check"], in_progress: ["Doctor is with you", "warn", "stethoscope"], completed: ["Completed", "brand", "check"], cancelled: ["Cancelled", "", "x"] };
-const HOW = [
-  ["Book a doctor", "Tell us what's wrong, pick the nearest verified doctor and a time."],
-  ["Doctor visits you", "The doctor examines you at home and e-signs your prescription."],
-  ["Choose your medicines", "Your cart fills itself. Pick a nearby licensed pharmacy and pay."],
-  ["Delivered to your door", "Track the courier live and share your delivery code at the door."],
-];
-const howSteps = () => `<div class="how">${HOW.map(([t, b], i) => `<div class="step"><div class="n">${i + 1}</div><b>${t}</b><span>${b}</span></div>`).join("")}</div>`;
 const dateChip = (iso) => { const d = parseIso(iso); return `<div class="date-chip"><b>${d.toLocaleDateString("en-IN", { day: "numeric", timeZone: TZ })}</b><span>${d.toLocaleDateString(undefined, { month: "short", timeZone: TZ })}</span></div>`; };
 const stars = (d) => `<span class="stars">★ ${d.rating.toFixed(1)}</span> <span class="muted">(${d.rating_count})</span>`;
 
@@ -201,12 +200,12 @@ SCREENS.home = async () => {
     </section>
     ${showCta ? `<div class="card book-cta"><div class="row" style="flex-wrap:nowrap"><div class="ico">${ic("stethoscope", "lg")}</div><div><h3 style="margin:0">Need a doctor at home?</h3><span class="small muted">Verified doctors near you · visits from ${money(600)}</span></div></div>${bookBtn()}</div>` : ""}
     ${upcoming.length ? `<div class="section-title">Your upcoming visit${upcoming.length > 1 ? "s" : ""}</div>${upcoming.map(visitCard).join("")}` : ""}
-    <div class="section-title">How Triyana works</div>${howSteps()}
     <div class="section-title">Your health, in one place</div>
     <div class="grid tiles">
       <div class="card lift tile" data-go="book"><div class="ico">${ic("stethoscope", "lg")}</div><b>Book a doctor</b><span class="small muted">Nearest verified doctors, at home</span></div>
       <div class="card lift tile" data-go="rx"><div class="ico">${ic("rx", "lg")}</div><b>Prescriptions</b><span class="small muted">Signed by your verified doctor</span></div>
       <div class="card lift tile" data-go="cart"><div class="ico blue">${ic("cart", "lg")}</div><b>Medicine cart</b><span class="small muted">Choose what to buy, and how much</span></div>
+      <div class="card lift tile" data-go="privacy"><div class="ico">${ic("shield", "lg")}</div><b>Privacy & consent</b><span class="small muted">See, download or erase your data</span></div>
       <div class="card lift tile" id="openYana"><div class="ico gold">${ic("chat", "lg")}</div><b>Ask Yana</b><span class="small muted">"Find a pharmacy near my home"</span></div>
     </div>
     <div class="section-title">Notifications</div>
@@ -269,6 +268,7 @@ SCREENS.book = async () => {
             ${docs.map((d, n) => `<button class="doc ${b.doctor === d.id ? "on" : ""}" data-doc="${d.id}"><div class="avatar">${esc(initials(d.name))}</div>
               <div class="info"><b>${esc(d.name)}</b> <span class="verified" title="Verified licence">${ic("badge")}</span>${n === 0 ? ` <span class="badge good">Nearest</span>` : ""}
                 <div class="small muted">${esc(d.specialty)} · ${d.experience_years} yrs experience</div>
+                <div class="tiny muted">${regLine(d)}</div>
                 <div class="meta small"><span>${stars(d)}</span><span>${ic("pin")} ${d.distance_km} km · can arrive in ~${d.arrives_in_min} min</span><span>${ic("chat")} ${esc(d.languages.join(", "))}</span></div>
                 ${d.next_slot ? `<div class="tiny muted" style="margin-top:4px">Next free: ${dayLabel(d.next_slot)}, ${time(d.next_slot)}</div>` : ""}</div>
               <div class="fee"><b>${money(d.visit_fee)}</b><span class="tiny muted">per visit</span></div></button>`).join("")}
@@ -311,7 +311,7 @@ SCREENS.book = async () => {
 
 function bookedScreen(v) {
   window.scrollTo({ top: 0 });
-  const isDemoDoctor = /Kavya/.test(v.doctor.name);
+  const isDemoDoctor = /Carter/.test(v.doctor.name);
   view().innerHTML = `<section class="hero"><div class="eyebrow">Booking ${esc(v.booking_ref)}</div>
       <h1>Request sent to ${esc(v.doctor.name)}</h1>
       <p>${esc(v.doctor.specialty)} · ${v.doctor.distance_km} km away · ${dayLabel(v.scheduled_for)}, ${time(v.scheduled_for)}. We'll let you know as soon as the doctor confirms.</p>
@@ -320,7 +320,7 @@ function bookedScreen(v) {
     <div class="section-title">What happens next</div>
     <div class="how">${[["Doctor confirms", "You get a notification when your request is accepted."], ["Doctor visits you", "They examine you at home and e-sign your prescription."], ["Your cart is ready", "Medicines appear in your cart. Choose a pharmacy and pay."], ["Delivered home", "Track the courier and share your code at the door."]]
       .map(([t, s], i) => `<div class="step"><div class="n">${i + 1}</div><b>${t}</b><span>${s}</span></div>`).join("")}</div>
-    <div class="notice info" style="margin-top:16px">${ic("info")}<span>${isDemoDoctor ? "Demo tip: switch <b>Signed in as</b> to <b>Dr. Kavya</b> to see this request arrive in the doctor's app." : "Demo tip: only Dr. Kavya has a demo login. Book her (or \"Nearest available\") to follow the request into the doctor's app."}</span></div>`;
+    <div class="notice info" style="margin-top:16px">${ic("info")}<span>${isDemoDoctor ? "Demo tip: switch <b>Signed in as</b> to <b>Dr. Carter</b> to see this request arrive in the doctor's app." : "Demo tip: only Dr. Carter has a demo login. Book her (or \"Nearest available\") to follow the request into the doctor's app."}</span></div>`;
   $$("[data-go]").forEach((x) => (x.onclick = () => go(x.dataset.go)));
   wireCancel(() => go("home"));
 }
@@ -332,11 +332,11 @@ SCREENS.rx = async () => {
     <article class="card ${rx.status === "signed" && idx === 0 ? "featured" : rx.status !== "signed" ? "muted-card" : ""}">
       <div class="card-head"><div><div class="tiny muted strong">PRESCRIPTION ${esc(rx.reference_no)}</div>
         <h2 style="margin-top:4px">${esc(rx.doctor.name)} ${rx.doctor.license_verified ? `<span class="verified" title="Verified licence">${ic("badge")}</span>` : ""}</h2>
-        <div class="meta"><span>${ic("stethoscope")} ${esc(rx.doctor.specialty)}</span><span>${ic("id")} Licence ${esc(rx.doctor.license_no)}</span><span>${ic("calendar")} ${day(rx.consultation_date)}</span></div></div>
+        <div class="meta"><span>${ic("stethoscope")} ${esc(rx.doctor.specialty)}</span><span>${ic("id")} ${regLine(rx.doctor)}</span><span>${ic("calendar")} ${day(rx.consultation_date)}</span></div></div>
         ${rx.status === "signed" ? `<span class="badge ${rx.integrity_verified ? "good" : "bad"}">${ic(rx.integrity_verified ? "shield" : "alert")} ${rx.integrity_verified ? "E-signed & verified" : "Signature check failed"}</span>` : `<span class="badge">${esc(rx.status)}</span>`}</div>
       <div class="row small muted" style="margin-bottom:6px"><span>${ic("user")} ${esc(rx.patient.name)} · ${esc(rx.patient.patient_ref)}</span><span>· Valid until ${day(rx.valid_until)}</span></div>
       ${rx.items.map((i, n) => `<div class="list-item">${miniPill(n)}
-        <div class="grow"><div class="row between"><b>${esc(i.medicine)} ${esc(i.strength)}</b><span class="badge brand">${i.quantity} ${esc(i.unit)}</span></div>
+        <div class="grow"><div class="row between"><b>${esc(i.medicine)} ${esc(i.strength)}</b><span class="row" style="gap:6px">${schedBadge(i.india_schedule)}<span class="badge brand">${i.quantity} ${esc(i.unit)}</span></span></div>
         <div class="small muted">${esc(i.generic_name)} · ${esc(i.form)} · ${esc(i.route)}</div>
         <div class="small" style="margin-top:4px">${esc(i.dosage)} · ${esc(i.frequency)} · ${i.duration_days} days${i.refills_allowed ? ` · ${i.refills_allowed} refill(s)` : ""}</div>
         ${i.instructions ? `<div class="instructions" style="margin-top:8px">${esc(i.instructions)}</div>` : ""}</div></div>`).join("")}
@@ -360,18 +360,20 @@ SCREENS.cart = async () => {
     <div class="split"><div>
     ${cart.items.map((i, n) => {
       const [ql, qc, qi] = QTY[i.quantity_status] || [i.quantity_status, "", "info"];
-      const st = { removed: `<span class="badge">${ic("minus")} Removed from cart</span>`, buy_later: `<span class="badge">${ic("later")} Saved for later</span>`, ordered: `<span class="badge brand">${ic("bag")} Ordered</span>` }[i.status] || "";
+      const st = { removed: i.online_sale_blocked ? `<span class="badge bad">${ic("store")} Buy in person</span>` : `<span class="badge">${ic("minus")} Removed from cart</span>`, buy_later: `<span class="badge">${ic("later")} Saved for later</span>`, ordered: `<span class="badge brand">${ic("bag")} Ordered</span>` }[i.status] || "";
       return `<article class="card ${i.status === "removed" || i.status === "buy_later" ? "muted-card" : ""}" data-item="${i.id}">
         <div class="med"><div class="pill ${i.status === "in_cart" ? pillClass(n) : "off"}">${ic("pills", "lg")}</div><div style="min-width:0">
           <div class="row between"><h3>${esc(i.medicine)} ${esc(i.strength)}</h3>${st}</div>
-          <div class="meta"><span>${esc(i.generic_name)} · ${esc(i.form)}</span>${i.cold_chain ? `<span>${ic("snow")} Cold chain</span>` : ""}${i.id_check_required ? `<span>${ic("id")} ID at delivery</span>` : ""}${i.status === "in_cart" ? `<span>${ic("store")} ${i.pharmacies_with_stock} pharmacies</span>` : ""}</div>
+          <div class="meta">${schedBadge(i.india_schedule)}<span>${esc(i.generic_name)} · ${esc(i.form)}</span>${i.cold_chain ? `<span>${ic("snow")} Cold chain</span>` : ""}${i.id_check_required ? `<span>${ic("id")} ID at delivery</span>` : ""}${i.status === "in_cart" ? `<span>${ic("store")} ${i.pharmacies_with_stock} pharmacies</span>` : ""}</div>
         </div></div>
         <div class="qty-compare"><div class="qty-box"><span>Prescribed</span><b>${i.prescribed.quantity} ${esc(i.unit)}</b></div><div class="qty-arrow">${ic("arrow")}</div>
-          <div class="qty-box req"><span>You're buying</span><b>${i.requested_quantity} ${esc(i.unit)}</b></div></div>
+          ${i.online_sale_blocked ? `<div class="qty-box"><span>Online</span><b>Not sold online</b></div>` : `<div class="qty-box req"><span>You're buying</span><b>${i.requested_quantity} ${esc(i.unit)}</b></div>`}</div>
         <div class="instructions"><b>Doctor's instructions:</b> ${esc(i.prescribed.dosage)}, ${esc(i.prescribed.frequency)}, ${i.prescribed.duration_days} days. ${esc(i.prescribed.instructions)}</div>
-        <div class="row between" style="margin-top:12px"><span class="badge ${qc}">${ic(qi)} ${ql}</span><span class="strong">${money(i.estimated_line_total)} <span class="tiny muted">est.</span></span></div>
+        <div class="row between" style="margin-top:12px"><span class="badge ${qc}">${ic(qi)} ${ql}</span>${i.online_sale_blocked ? "" : `<span class="strong">${money(i.estimated_line_total)} <span class="tiny muted">est.</span></span>`}</div>
         ${i.quantity_note && i.quantity_status !== "full" ? `<div class="notice ${qc}">${ic("info")}<span>${esc(i.quantity_note)}</span></div>` : ""}
-        ${i.status === "ordered" ? "" : `<div class="actions-bar">
+        ${i.status === "ordered" ? "" : i.online_sale_blocked ? `<div class="actions-bar">
+          <button class="btn ghost sm" data-act="pharmacist">${ic("chat")} Ask pharmacist</button>
+          <button class="btn ghost sm" data-act="doctor">${ic("stethoscope")} Contact doctor</button></div><div class="qty-form"></div>` : `<div class="actions-bar">
           ${i.status !== "in_cart" ? `<button class="btn primary sm" data-act="add">${ic("cart")} Add to cart</button>` : ""}
           <button class="btn sm" data-act="qty">${ic("pills")} Different quantity</button>
           ${i.status === "in_cart" ? `<button class="btn sm" data-act="remove">${ic("x")} Remove</button><button class="btn sm" data-act="buy_later">${ic("later")} Buy later</button>` : ""}
@@ -469,13 +471,40 @@ SCREENS.pharmacies = async () => {
   $$("[data-pick]").forEach((b) => (b.onclick = () => guard(() => checkoutScreen(data.pharmacies.find((p) => p.pharmacy_id === +b.dataset.pick)))));
 };
 
-const PAY_ICON = { apple_pay: "phone", google_pay: "phone", card: "card", upi: "bolt", paypal: "wallet", regional_wallet: "wallet" };
+const PAY_ICON = { upi: "bolt", card: "card", netbanking: "store", wallet: "wallet", apple_pay: "phone", google_pay: "phone", paypal: "wallet", regional_wallet: "wallet" };
+let rzpLoading;
+function loadRazorpay() {
+  if (window.Razorpay) return Promise.resolve();
+  rzpLoading = rzpLoading || new Promise((resolve, reject) => {
+    const sc = document.createElement("script"); sc.src = "https://checkout.razorpay.com/v1/checkout.js";
+    sc.onload = resolve; sc.onerror = () => { rzpLoading = null; reject(new Error("Couldn't load Razorpay. Check your connection and try again.")); };
+    document.head.appendChild(sc);
+  });
+  return rzpLoading;
+}
+async function payWithRazorpay(p, opt, total) {
+  const intent = await post(`/api/carts/${state.ctx.cartId}/payment-intent`, { pharmacy_id: p.pharmacy_id, fulfillment: opt.fulfillment, delivery_option: opt.fulfillment === "delivery" ? opt.delivery_option : null });
+  if (Math.abs(intent.amount - total) > 0.009) throw new Error("The total changed. Please review the updated price.");
+  await loadRazorpay();
+  const r = await new Promise((resolve, reject) => {
+    const rz = new window.Razorpay({
+      key: intent.key_id, order_id: intent.order_id, amount: intent.amount_paise, currency: "INR", name: "Triyana",
+      description: "Medicines · held until a pharmacist approves", prefill: { ...intent.prefill, method: opt.method },
+      theme: { color: "#0b7a6c" }, handler: resolve,
+      modal: { ondismiss: () => reject(new Error("Payment cancelled. You have not been charged.")) },
+    });
+    rz.on("payment.failed", (e) => reject(new Error(e?.error?.description || "Payment failed. You have not been charged.")));
+    rz.open();
+  });
+  return `rzp:${r.razorpay_order_id}:${r.razorpay_payment_id}:${r.razorpay_signature}`;
+}
 const DELIV = { standard: ["truck", "Standard"], same_day: ["clock", "Same day"], scheduled: ["calendar", "Scheduled"], priority: ["bolt", "Priority"], drone: ["drone", "Drone"] };
 const MULT = { standard: 1, same_day: 1.4, scheduled: 1, priority: 2, drone: 2.5 };
 const r2 = (n) => Math.round(n * 100) / 100;
 
 async function checkoutScreen(p) {
-  const methods = await api("/api/payment-methods");
+  const [methods, cfg] = await Promise.all([api("/api/payment-methods"), api("/api/payment-config")]);
+  const rzp = cfg.gateway === "razorpay";
   const opt = { fulfillment: p.delivery_available ? "delivery" : "pickup", delivery_option: p.delivery_options[0]?.code || null, method: methods[0].code, decline: false };
   const key = `chk-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const render = () => {
@@ -491,28 +520,30 @@ async function checkoutScreen(p) {
           ${opt.fulfillment === "delivery" ? `<div class="section-title" style="margin-top:18px">Delivery speed</div><div class="choice-grid">${p.delivery_options.map((o) => `<button class="choice ${o.code === opt.delivery_option ? "on" : ""}" data-d="${o.code}"><span class="ico">${ic(DELIV[o.code]?.[0] || "truck")}</span><div><b>${esc(DELIV[o.code]?.[1] || o.label)}</b><span>${money(r2(p.delivery_fee * (MULT[o.code] || 1)))}</span></div></button>`).join("")}</div>
             ${opt.delivery_option === "scheduled" ? `<label class="field" style="margin-top:12px">Deliver at<input type="datetime-local" id="sched"></label>` : ""}` : ""}</div>
         <div class="card"><h3>Payment method</h3><div class="choice-grid" style="margin-top:12px">${methods.map((m) => `<button class="choice ${m.code === opt.method ? "on" : ""}" data-m="${m.code}"><span class="ico">${ic(PAY_ICON[m.code] || "card")}</span><div><b>${esc(m.label)}</b></div></button>`).join("")}</div>
-          <label class="check" style="margin-top:14px"><input type="checkbox" id="decline" ${opt.decline ? "checked" : ""}> <span class="small muted">Sandbox: simulate a declined payment</span></label></div>
+          ${rzp ? "" : `<label class="check" style="margin-top:14px"><input type="checkbox" id="decline" ${opt.decline ? "checked" : ""}> <span class="small muted">Sandbox: simulate a declined payment</span></label>`}</div>
       </div><aside class="sticky"><div class="card featured">
         <h3>Payment summary</h3>
         <table class="price" style="margin-top:8px"><tr><td>Medicine subtotal</td><td>${money(p.subtotal)}</td></tr><tr><td>Delivery fee</td><td>${money(fee)}</td></tr>
           <tr><td>Taxes</td><td>${money(p.tax)}</td></tr><tr><td>Discounts</td><td>${money(0)}</td></tr><tr class="total"><td>Total</td><td>${money(total)}</td></tr></table>
         <div class="notice info small">${ic("shield")}<span><b>Authorised, not charged.</b> You're only charged after a licensed pharmacist approves your order, and only for what they approve.</span></div>
         <button class="btn primary block" id="pay">${ic("lock")} Pay ${money(total)}</button>
-        <p class="tiny muted" style="text-align:center;margin:10px 0 0">Sandbox payments · no real money moves</p>
+        <p class="tiny muted" style="text-align:center;margin:10px 0 0">${rzp ? (cfg.test_mode ? "Secured by Razorpay · test mode, no real money moves" : "Secured by Razorpay") : "Sandbox payments · no real money moves"}</p>
       </div></aside></div>`;
     $("#back").onclick = () => SCREENS.pharmacies();
     $$("[data-f]").forEach((b) => (b.onclick = () => { opt.fulfillment = b.dataset.f; render(); }));
     $$("[data-d]").forEach((b) => (b.onclick = () => { opt.delivery_option = b.dataset.d; render(); }));
     $$("[data-m]").forEach((b) => (b.onclick = () => { opt.method = b.dataset.m; render(); }));
-    $("#decline").onchange = (e) => (opt.decline = e.target.checked);
+    if ($("#decline")) $("#decline").onchange = (e) => (opt.decline = e.target.checked);
     $("#pay").onclick = () => guard(async () => {
       const btn = $("#pay"); btn.disabled = true; btn.textContent = "Authorising…";
       try {
         const sched = $("#sched")?.value;
+        const token = rzp ? await payWithRazorpay(p, opt, total) : opt.decline ? "sandbox-decline" : "sandbox-ok";
+        btn.textContent = "Placing order…";
         const order = await post(`/api/carts/${state.ctx.cartId}/checkout`, {
           pharmacy_id: p.pharmacy_id, fulfillment: opt.fulfillment, delivery_option: opt.fulfillment === "delivery" ? opt.delivery_option : null,
           scheduled_for: sched ? new Date(sched).toISOString().slice(0, 19) : null, payment_method: opt.method,
-          payment_token: opt.decline ? "sandbox-decline" : "sandbox-ok", idempotency_key: key, expected_total: total,
+          payment_token: token, idempotency_key: key, expected_total: total,
         });
         toast("Order placed. A pharmacist is reviewing it.");
         go("orders", { orderId: order.id });
@@ -550,7 +581,7 @@ SCREENS.orders = async () => {
         return `<li class="${seen.has(s) ? "done" : ""} ${cur ? "current" : ""}"><span class="node">${seen.has(s) ? ic("check") : ""}</span><b>${l}</b>
           <div class="small muted">${ev ? `${time(ev.at)} · ${esc(ev.note)}` : cur ? "Up next" : ""}</div></li>`; }).join("")}</ul>`}</div>
       <div class="card"><h3>Items</h3><div class="table-wrap"><table><tr><th>Medicine</th><th>Prescribed</th><th>Requested</th><th>Approved</th></tr>
-        ${o.items.map((i) => `<tr><td><b>${esc(i.medicine)}</b></td><td>${i.prescribed_quantity}</td><td>${i.requested_quantity}</td><td>${i.approved_quantity ?? `<span class="badge warn">Pending</span>`}</td></tr>`).join("")}</table></div></div>
+        ${o.items.map((i) => `<tr><td><b>${esc(i.medicine)}</b> ${schedBadge(i.india_schedule)}</td><td>${i.prescribed_quantity}</td><td>${i.requested_quantity}</td><td>${i.approved_quantity ?? `<span class="badge warn">Pending</span>`}</td></tr>`).join("")}</table></div></div>
     </div><aside class="sticky">
       ${o.delivery && o.status !== "delivered" ? `<div class="code-box"><div class="tiny" style="opacity:.8">SHARE THIS CODE WITH YOUR COURIER</div><div class="code">${esc(o.delivery.handover_code)}</div><div class="tiny" style="opacity:.8">Proof of delivery</div></div>` : ""}
       ${o.delivery ? `<div class="card"><div class="row"><div class="avatar">${esc(initials(o.delivery.courier))}</div><div><b>${esc(o.delivery.courier)}</b><div class="tiny muted">${esc(o.delivery.provider)} · ${esc(o.delivery.tracking_ref)}</div></div></div>
@@ -615,7 +646,7 @@ async function prescribeScreen(visitId, visit) {
       <div class="card"><label class="field">Clinical note<textarea id="note" rows="2">Demo consultation</textarea></label></div>
       ${rows.map((r, i) => `<div class="card" data-row="${i}"><div class="card-head"><div class="row">${miniPill(i)}<h3>Medicine ${i + 1}</h3></div>${rows.length > 1 ? `<button class="btn ghost sm danger" data-del="${i}">${ic("x")} Remove</button>` : ""}</div>
         <div class="form-grid">
-        <label class="wide">Medicine<select data-k="medication_id">${meds.map((m) => `<option value="${m.id}" ${m.id === r.medication_id ? "selected" : ""}>${esc(m.brand_name)} ${esc(m.strength)} (${esc(m.generic_name)})${m.schedule === "controlled" ? " · controlled" : m.schedule === "restricted" ? " · restricted" : ""}</option>`).join("")}</select></label>
+        <label class="wide">Medicine<select data-k="medication_id">${meds.map((m) => `<option value="${m.id}" ${m.id === r.medication_id ? "selected" : ""}>${esc(m.brand_name)} ${esc(m.strength)} (${esc(m.generic_name)})${m.india_schedule && m.india_schedule !== "OTC" ? ` · Schedule ${m.india_schedule}` : ""}${m.india_schedule === "X" ? " (not sold online)" : ""}</option>`).join("")}</select></label>
         <label>Dosage<input data-k="dosage" value="${esc(r.dosage)}"></label><label>Frequency<input data-k="frequency" value="${esc(r.frequency)}"></label>
         <label>Duration (days)<input type="number" min="1" data-k="duration_days" value="${r.duration_days}"></label><label>Quantity<input type="number" min="1" data-k="quantity" value="${r.quantity}"></label>
         <label>Route<input data-k="route" value="${esc(r.route)}"></label><label>Refills<input type="number" min="0" data-k="refills_allowed" value="${r.refills_allowed}"></label>
@@ -673,6 +704,62 @@ SCREENS.clarifications = async () => {
   })));
 };
 
+/* ------------------------------------------------------- privacy (DPDP) */
+async function consentScreen() {
+  const n = await api("/api/privacy/notice");
+  const care = n.purposes.care, rem = n.purposes.reminders;
+  view().innerHTML = `<section class="hero"><div class="eyebrow">Welcome to Triyana</div><h1>Your health data, your choice</h1>
+      <p>Before you book a doctor or order medicines, please read how we use your information. You can change your mind at any time under Privacy & consent.</p></section>
+    <div class="split"><div>
+      <div class="card"><h3>What we collect</h3><ul class="small" style="margin:8px 0 0;padding-left:18px">${n.what_we_collect.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>
+      <div class="card"><h3>How long we keep it</h3><p class="small muted" style="margin:6px 0 0">${esc(n.retention)}</p></div>
+      <div class="card"><h3>Your rights</h3><ul class="small" style="margin:8px 0 0;padding-left:18px">${n.rights.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
+        <p class="tiny muted" style="margin:10px 0 0">Grievance officer: ${esc(n.grievance_officer.name)} · ${esc(n.grievance_officer.email)} · replies within ${n.grievance_officer.respond_within_days} days</p></div>
+    </div><aside class="sticky"><div class="card featured">
+      <h3>Your consent</h3>
+      <label class="check" style="margin-top:12px"><input type="checkbox" id="cCare"> <span><b>${esc(care.title)}</b> <span class="badge info">Needed</span><br><span class="small muted">${esc(care.body)}</span></span></label>
+      <label class="check" style="margin-top:12px"><input type="checkbox" id="cRem"> <span><b>${esc(rem.title)}</b> <span class="badge">Optional</span><br><span class="small muted">${esc(rem.body)}</span></span></label>
+      <button class="btn primary block" id="consentAgree" style="margin-top:16px" disabled>${ic("check")} Agree and continue</button>
+      <button class="btn ghost block" id="consentLater" style="margin-top:6px">Not now</button>
+      <p class="tiny muted" style="text-align:center;margin:8px 0 0">Under India's Digital Personal Data Protection Act, 2023 · notice ${esc(n.version)}</p>
+    </div></aside></div>`;
+  $("#cCare").onchange = (e) => ($("#consentAgree").disabled = !e.target.checked);
+  $("#consentAgree").onclick = () => guard(async () => {
+    await post("/api/consents", { purpose: "care", granted: true });
+    if ($("#cRem").checked) await post("/api/consents", { purpose: "reminders", granted: true });
+    toast("Thanks. You can change this any time under Privacy & consent."); go("home");
+  });
+  $("#consentLater").onclick = () => { toast("You can look around, but booking and ordering need your consent.", "info"); go("home"); };
+}
+
+SCREENS.privacy = async () => {
+  const [c, n] = await Promise.all([api("/api/consents"), api("/api/privacy/notice")]);
+  const row = (key) => {
+    const pp = n.purposes[key]; const on = c.consents[key];
+    return `<div class="list-item"><div class="grow"><div class="row between"><b>${esc(pp.title)}</b><span class="badge ${on ? "good" : ""}">${on ? "On" : "Off"}</span></div>
+      <div class="small muted">${esc(pp.body)}</div>${key === "care" && on ? `<div class="tiny muted" style="margin-top:4px">Turning this off stops new bookings and orders. Records the law requires us to keep stay safe.</div>` : ""}</div>
+      <button class="btn sm ${on ? "danger" : "primary"}" data-consent="${key}" data-on="${on ? 0 : 1}">${on ? "Withdraw" : "Give consent"}</button></div>`;
+  };
+  view().innerHTML = pageHead("Privacy & consent", "Your rights under India's Digital Personal Data Protection Act, 2023") + `
+    <div class="card"><h3>Your consents</h3>${Object.keys(n.purposes).map(row).join("")}</div>
+    <div class="grid">
+      <div class="card"><h3>Get a copy of your data</h3><p class="small muted">Visits, prescriptions, orders and consents, as a file.</p><button class="btn" id="export">${ic("file")} Download my data</button></div>
+      <div class="card"><h3>Ask us to erase or correct data</h3><div class="seg" style="margin:6px 0 10px"><button class="on" data-kind="erasure">Erase</button><button data-kind="correction">Correct</button></div>
+        <textarea id="dpDetails" rows="2" style="width:100%" placeholder="What should we erase or correct?"></textarea><button class="btn" id="dpSend" style="margin-top:10px">Send request</button></div>
+    </div>
+    <div class="card"><h3>Consent history</h3>${c.history.length ? c.history.map((h) => `<div class="row between small" style="padding:6px 0;border-bottom:1px solid var(--line)"><span>${esc(n.purposes[h.purpose]?.title || h.purpose)}</span><span class="${h.granted ? "" : "muted"}">${h.granted ? "Given" : "Withdrawn"} · ${when(h.at)}</span></div>`).join("") : `<p class="small muted">No consents recorded yet.</p>`}
+      <p class="tiny muted" style="margin:10px 0 0">Grievance officer: ${esc(n.grievance_officer.name)} · ${esc(n.grievance_officer.email)}. If you're not satisfied, you can complain to the Data Protection Board of India.</p></div>`;
+  $$("[data-consent]").forEach((b) => (b.onclick = () => guard(async () => { await post("/api/consents", { purpose: b.dataset.consent, granted: b.dataset.on === "1" }); toast(b.dataset.on === "1" ? "Consent given" : "Consent withdrawn"); SCREENS.privacy(); })));
+  let kind = "erasure";
+  $$("[data-kind]").forEach((b) => (b.onclick = () => { kind = b.dataset.kind; $$("[data-kind]").forEach((x) => x.classList.toggle("on", x === b)); }));
+  $("#dpSend").onclick = () => guard(async () => { const r = await post("/api/patient/data-requests", { kind, details: $("#dpDetails").value }); toast(`Request ${r.reference} sent. We'll reply within ${r.respond_within_days} days.`); $("#dpDetails").value = ""; });
+  $("#export").onclick = () => guard(async () => {
+    const data = await api("/api/patient/my-data");
+    const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+    a.download = "triyana-my-data.json"; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  });
+};
+
 /* ------------------------------------------------------------ pharmacist */
 SCREENS.queue = async () => {
   const orders = await api("/api/pharmacy/orders");
@@ -686,6 +773,7 @@ SCREENS.queue = async () => {
       <div class="table-wrap"><table><tr><th>Medicine</th><th>Prescribed</th><th>Requested</th><th>Approve</th></tr>${o.items.map((i) => `<tr><td><b>${esc(i.medicine)}</b></td><td>${i.prescribed_quantity}</td>
         <td>${i.requested_quantity}${i.requested_quantity < i.prescribed_quantity ? ` <span class="badge warn">partial</span>` : ""}</td>
         <td>${i.approved_quantity ?? (["prescription_received", "pharmacist_reviewing"].includes(o.status) ? `<input type="number" min="0" max="${i.requested_quantity}" value="${i.requested_quantity}" data-adj="${i.id}" style="width:80px">` : "—")}</td></tr>`).join("")}</table></div>
+      ${o.status === "pharmacist_reviewing" && o.items.some((i) => i.india_schedule?.register_required) ? `<label class="check notice warn small" style="margin-top:12px"><input type="checkbox" data-h1> <span>I've entered the Schedule H1 medicines (${o.items.filter((i) => i.india_schedule?.register_required).map((i) => esc(i.medicine)).join(", ")}) in the Schedule H1 register: patient, doctor, medicine and quantity.</span></label>` : ""}
       <div class="row between" style="margin-top:12px"><span class="small muted">Total ${money(o.price.total)} · payment ${esc(o.payment.status)}</span><div class="actions-bar" style="margin:0">${pharmacistActions(o)}</div></div><div class="clar"></div></article>`).join("") || empty("inbox", "No orders yet", "New prescription orders will arrive here."));
   $$("[data-order]").forEach((card) => {
     const id = +card.dataset.order; const o = orders.find((x) => x.id === id);
@@ -695,7 +783,8 @@ SCREENS.queue = async () => {
       else if (x === "approve") {
         const adj = {}; let changed = false;
         $$("[data-adj]", card).forEach((inp) => { const it = o.items.find((i) => i.id === +inp.dataset.adj); adj[inp.dataset.adj] = +inp.value; if (+inp.value !== it.requested_quantity) changed = true; });
-        await post(`/api/pharmacy/orders/${id}/review`, changed ? { decision: "adjust", notes: prompt("Note for the patient about the adjustment:") || "Quantity adjusted by pharmacist", adjustments: adj } : { decision: "approve", notes: "Approved by pharmacist" });
+        const h1 = !!$("[data-h1]", card)?.checked;
+        await post(`/api/pharmacy/orders/${id}/review`, changed ? { decision: "adjust", notes: prompt("Note for the patient about the adjustment:") || "Quantity adjusted by pharmacist", adjustments: adj, h1_register_confirmed: h1 } : { decision: "approve", notes: "Approved by pharmacist", h1_register_confirmed: h1 });
       } else if (x === "reject") {
         const notes = prompt("Reason for rejection (shown to the patient):"); if (!notes) return;
         await post(`/api/pharmacy/orders/${id}/review`, { decision: "reject", notes });

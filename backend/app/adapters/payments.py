@@ -14,13 +14,17 @@ import uuid
 from dataclasses import dataclass
 
 SUPPORTED_METHODS = {
+    "upi": "UPI (Google Pay, PhonePe, Paytm, BHIM)",
+    "card": "Credit / debit card",
+    "netbanking": "Netbanking",
+    "wallet": "Wallet",
+    # Kept for other regions and older clients.
     "apple_pay": "Apple Pay",
     "google_pay": "Google Pay",
-    "card": "Credit / debit card",
-    "upi": "UPI",
     "paypal": "PayPal",
     "regional_wallet": "Regional wallet",
 }
+INDIA_METHODS = ("upi", "card", "netbanking", "wallet")
 
 
 @dataclass

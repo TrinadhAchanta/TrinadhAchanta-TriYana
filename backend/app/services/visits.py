@@ -62,7 +62,8 @@ def travel_minutes(km: float) -> int:
 def doctor_to_dict(doc: Doctor, km: float | None, slots: list[datetime] | None = None) -> dict:
     return {
         "id": doc.id, "name": doc.name, "specialty": doc.specialty, "license_no": doc.license_no,
-        "license_verified": doc.license_verified, "rating": doc.rating, "rating_count": doc.rating_count,
+        "license_verified": doc.license_verified, "medical_council": doc.medical_council,
+        "qualification": doc.qualification, "registration_year": doc.registration_year, "rating": doc.rating, "rating_count": doc.rating_count,
         "experience_years": doc.experience_years, "visit_fee": doc.visit_fee, "languages": doc.languages or [],
         "about": doc.about, "area": doc.area, "distance_km": km,
         "arrives_in_min": travel_minutes(km) if km is not None else None,

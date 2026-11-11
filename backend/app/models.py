@@ -128,8 +128,11 @@ class Doctor(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(120))
     specialty: Mapped[str] = mapped_column(String(80))
-    license_no: Mapped[str] = mapped_column(String(40), unique=True)
+    license_no: Mapped[str] = mapped_column(String(40), unique=True)  # NMC / State Medical Council registration no.
     license_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    medical_council: Mapped[str] = mapped_column(String(120), default="")
+    qualification: Mapped[str] = mapped_column(String(120), default="")
+    registration_year: Mapped[int | None] = mapped_column(Integer)
     jurisdiction: Mapped[str] = mapped_column(String(16))
     rating: Mapped[float] = mapped_column(Float, default=0)
     rating_count: Mapped[int] = mapped_column(Integer, default=0)
@@ -175,6 +178,8 @@ class Medication(Base):
     cold_chain: Mapped[bool] = mapped_column(Boolean, default=False)
     id_check_required: Mapped[bool] = mapped_column(Boolean, default=False)
     reference_unit_price: Mapped[float] = mapped_column(Float)
+    # India Drugs and Cosmetics Rules schedule: OTC, G, H, H1 or X (demo classification).
+    india_schedule: Mapped[str] = mapped_column(String(4), default="H")
 
 
 # ----------------------------------------------------------------- prescriptions
@@ -482,4 +487,28 @@ class Notification(Base):
     body: Mapped[str] = mapped_column(Text)
     link: Mapped[str] = mapped_column(String(120), default="")
     read: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class Consent(Base):
+    """DPDP Act 2023: a record of each consent a patient gives or withdraws (append-only)."""
+    __tablename__ = "consents"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    purpose: Mapped[str] = mapped_column(String(32))
+    granted: Mapped[bool] = mapped_column(Boolean)
+    notice_version: Mapped[str] = mapped_column(String(16))
+    language: Mapped[str] = mapped_column(String(8), default="en")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class DataRequest(Base):
+    """DPDP data principal requests (erasure / correction), handled by the grievance officer."""
+    __tablename__ = "data_requests"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(16))
+    details: Mapped[str] = mapped_column(EncryptedText, default="")
+    status: Mapped[str] = mapped_column(String(16), default="received")
+    reference: Mapped[str] = mapped_column(String(24))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
