@@ -129,7 +129,7 @@ a { color: var(--brand); }
 .card h2, .card h3 { margin: 0; letter-spacing: -.015em; }
 .card h2 { font-size: 19px; }
 .card h3 { font-size: 16px; }
-.card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.card-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .card.featured { border: 1px solid transparent; background: linear-gradient(var(--surface), var(--surface)) padding-box, var(--brand-grad) border-box; }
 .card.muted-card { opacity: .7; }
 .section-title { font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin: 26px 0 10px; }
@@ -350,3 +350,38 @@ hr.soft { border: 0; border-top: 1px solid var(--line); margin: 14px 0; }
   .qty-box b { font-size: 18px; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+/* ------------------------------------------------------------- booking */
+.how { display: grid; gap: 12px; grid-template-columns: repeat(4, minmax(0, 1fr)); counter-reset: step; }
+.how .step { position: relative; padding: 16px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--sh-1); }
+.how .step .n { width: 30px; height: 30px; border-radius: 99px; display: grid; place-items: center; background: var(--brand-grad); color: #fff; font-weight: 800; font-size: 13px; margin-bottom: 10px; }
+.how .step b { display: block; font-size: 14.5px; margin-bottom: 4px; }
+.how .step span { font-size: 12.5px; color: var(--muted); line-height: 1.45; }
+.book-cta { display: flex; gap: 16px; align-items: center; justify-content: space-between; flex-wrap: wrap; border: 1.5px solid var(--brand); background: var(--brand-soft); }
+.book-cta .ico { width: 52px; height: 52px; border-radius: 16px; display: grid; place-items: center; background: var(--brand-grad); color: #fff; flex: none; }
+.step-label { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; }
+.step-label .n { width: 26px; height: 26px; border-radius: 99px; display: grid; place-items: center; background: var(--brand); color: #fff; font-weight: 800; font-size: 12px; flex: none; }
+.step-label h3 { margin: 0; }
+.doc-list { display: grid; gap: 10px; }
+.doc { display: flex; gap: 14px; align-items: flex-start; width: 100%; padding: 14px; border-radius: 16px; border: 1.5px solid var(--line); background: var(--surface); cursor: pointer; text-align: left; transition: border-color .2s, background .2s; }
+.doc:hover { border-color: var(--line-strong); }
+.doc.on { border-color: var(--brand); background: var(--brand-soft); }
+.doc .avatar { width: 48px; height: 48px; flex: none; }
+.doc .info { min-width: 0; flex: 1; }
+.doc .info b { font-size: 15px; }
+.doc .fee { text-align: right; flex: none; }
+.doc .fee b { display: block; font-size: 15px; }
+.doc.any .avatar { background: var(--brand-grad); color: #fff; }
+.slot-grid { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); margin-top: 12px; }
+.slot { padding: 10px 6px; border-radius: 12px; border: 1.5px solid var(--line); background: var(--surface); font-weight: 700; font-size: 13.5px; cursor: pointer; }
+.slot:hover { border-color: var(--line-strong); }
+.slot.on { border-color: var(--brand); background: var(--brand); color: #fff; }
+.visit-card .when { display: flex; gap: 12px; align-items: center; }
+.visit-card .date-chip { width: 56px; padding: 8px 0; border-radius: 14px; background: var(--brand-soft); color: var(--brand); text-align: center; flex: none; }
+.visit-card .date-chip b { display: block; font-size: 20px; line-height: 1; }
+.visit-card .date-chip span { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+@media (max-width: 780px) {
+  .how { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .doc { flex-wrap: wrap; }
+  .doc .fee { text-align: left; width: 100%; display: flex; gap: 8px; align-items: baseline; padding-left: 62px; }
+}

@@ -8,9 +8,10 @@ const view = () => $("#view");
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const money = (n) => (n == null ? "—" : new Intl.NumberFormat(undefined, { style: "currency", currency: state.currency }).format(n));
 const parseIso = (iso) => new Date(iso + (/[zZ]|[+-]\d\d:\d\d$/.test(iso) ? "" : "Z"));
-const when = (iso) => (iso ? parseIso(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "—");
-const day = (iso) => (iso ? parseIso(iso).toLocaleDateString(undefined, { dateStyle: "medium" }) : "—");
-const time = (iso) => (iso ? parseIso(iso).toLocaleTimeString(undefined, { timeStyle: "short" }) : "—");
+const TZ = "Asia/Kolkata"; // the demo city runs on India time, wherever the viewer is
+const when = (iso) => (iso ? parseIso(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short", timeZone: TZ }) : "—");
+const day = (iso) => (iso ? parseIso(iso).toLocaleDateString(undefined, { dateStyle: "medium", timeZone: TZ }) : "—");
+const time = (iso) => (iso ? parseIso(iso).toLocaleTimeString(undefined, { timeStyle: "short", timeZone: TZ }) : "—");
 const mins = (m) => (m == null ? "—" : m < 90 ? `${m} min` : `${Math.round(m / 60)} h`);
 const initials = (s) => String(s || "?").replace(/^Dr\.?\s*/i, "").split(/\s+/).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
 const shortName = (s) => String(s || "").replace(" (Demo)", "");
@@ -86,12 +87,12 @@ const miniPill = (i, off = false) => `<div class="pill sm ${off ? "off" : pillCl
 
 /* ---------------------------------------------------------------- shell */
 const TABS = {
-  patient: [["home", "Home", "home"], ["rx", "Prescription", "rx"], ["cart", "Cart", "cart"], ["pharmacies", "Pharmacies", "store"], ["orders", "Tracking", "truck"], ["meds", "My Medicines", "pills"]],
+  patient: [["home", "Home", "home"], ["book", "Book a doctor", "stethoscope"], ["rx", "Prescription", "rx"], ["cart", "Cart", "cart"], ["pharmacies", "Pharmacies", "store", "desktop"], ["orders", "Tracking", "truck"], ["meds", "My Medicines", "pills"]],
   doctor: [["visits", "Home visits", "calendar"], ["prescriptions", "Prescriptions", "file"], ["clarifications", "Clarifications", "chat"]],
   pharmacist: [["queue", "Order queue", "inbox"]],
   courier: [["deliveries", "Deliveries", "truck"]],
 };
-const SHORT = { "My Medicines": "Medicines", "Home visits": "Visits", "Order queue": "Orders", Prescription: "Rx", Prescriptions: "Rx", Clarifications: "Questions" };
+const SHORT = { "Book a doctor": "Doctor", Tracking: "Track", "My Medicines": "Medicines", "Home visits": "Visits", "Order queue": "Orders", Prescription: "Rx", Prescriptions: "Rx", Clarifications: "Questions" };
 const GREETING = () => { const h = new Date().getHours(); return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening"; };
 
 async function boot() {
@@ -123,7 +124,7 @@ async function signIn(token) {
 function renderNav() {
   const tabs = TABS[state.role];
   $("#sideNav").innerHTML = tabs.map(([k, l, i]) => `<button class="nav-item ${k === state.tab ? "active" : ""}" data-tab="${k}">${ic(i)}<span>${l}</span>${k === "home" && state.unread ? `<span class="dot">${state.unread}</span>` : ""}</button>`).join("");
-  $("#bottomNav").innerHTML = tabs.map(([k, l, i]) => `<button class="${k === state.tab ? "active" : ""}" data-tab="${k}">${ic(i, "lg")}<span>${SHORT[l] || l}</span></button>`).join("");
+  $("#bottomNav").innerHTML = tabs.filter((t) => t[3] !== "desktop").map(([k, l, i]) => `<button class="${k === state.tab ? "active" : ""}" data-tab="${k}">${ic(i, "lg")}<span>${SHORT[l] || l}</span></button>`).join("");
   $$("[data-tab]").forEach((b) => (b.onclick = () => go(b.dataset.tab)));
 }
 
@@ -144,44 +145,185 @@ async function latestCartId() {
 }
 const SCREENS = {};
 
+const OPEN_VISIT = ["requested", "accepted", "in_progress"];
+const VISIT_LABEL = { requested: ["Waiting for doctor to confirm", "info", "clock"], accepted: ["Confirmed", "good", "check"], in_progress: ["Doctor is with you", "warn", "stethoscope"], completed: ["Completed", "brand", "check"], cancelled: ["Cancelled", "", "x"] };
+const HOW = [
+  ["Book a doctor", "Tell us what's wrong, pick the nearest verified doctor and a time."],
+  ["Doctor visits you", "The doctor examines you at home and e-signs your prescription."],
+  ["Choose your medicines", "Your cart fills itself. Pick a nearby licensed pharmacy and pay."],
+  ["Delivered to your door", "Track the courier live and share your delivery code at the door."],
+];
+const howSteps = () => `<div class="how">${HOW.map(([t, b], i) => `<div class="step"><div class="n">${i + 1}</div><b>${t}</b><span>${b}</span></div>`).join("")}</div>`;
+const dateChip = (iso) => { const d = parseIso(iso); return `<div class="date-chip"><b>${d.toLocaleDateString("en-IN", { day: "numeric", timeZone: TZ })}</b><span>${d.toLocaleDateString(undefined, { month: "short", timeZone: TZ })}</span></div>`; };
+const stars = (d) => `<span class="stars">★ ${d.rating.toFixed(1)}</span> <span class="muted">(${d.rating_count})</span>`;
+
+function visitCard(v) {
+  const [label, cls, icon] = VISIT_LABEL[v.status] || [v.status, "", "info"];
+  return `<article class="card visit-card"><div class="card-head"><div class="when">${dateChip(v.scheduled_for)}<div>
+      <h3>${esc(v.doctor.name)} ${v.doctor.license_verified ? `<span class="verified" title="Verified licence">${ic("badge")}</span>` : ""}</h3>
+      <div class="meta"><span>${ic("stethoscope")} ${esc(v.doctor.specialty)}</span><span>${ic("clock")} ${when(v.scheduled_for)}</span></div></div></div>
+      <span class="badge ${cls}">${ic(icon)} ${label}</span></div>
+    <div class="instructions"><b>Reason:</b> ${esc(v.reason)}</div>
+    <div class="row between small" style="margin-top:10px"><span class="muted">${ic("pin")} ${esc(v.address)}</span><span><b>${money(v.fee)}</b> <span class="muted">pay after the visit</span></span></div>
+    ${v.can_cancel ? `<div class="actions-bar"><button class="btn ghost sm danger" data-cancel="${v.id}">${ic("x")} Cancel booking</button></div>` : ""}</article>`;
+}
+function wireCancel(after) {
+  $$("[data-cancel]").forEach((b) => (b.onclick = () => guard(async () => {
+    if (!confirm("Cancel this home visit?")) return;
+    await post(`/api/patient/visits/${b.dataset.cancel}/cancel`); toast("Booking cancelled"); after();
+  })));
+}
+
 SCREENS.home = async () => {
-  const [notes, dash] = await Promise.all([api("/api/notifications"), api("/api/patient/medicines")]);
+  const [notes, dash, visits] = await Promise.all([api("/api/notifications"), api("/api/patient/medicines"), api("/api/patient/visits")]);
   const ready = notes.find((n) => n.link.startsWith("cart:") && !n.read);
   const active = dash.active_orders[0];
+  const upcoming = visits.filter((v) => OPEN_VISIT.includes(v.status)).sort((a, b) => a.scheduled_for.localeCompare(b.scheduled_for));
   const first = state.name.split(" ")[0];
   const activeRx = dash.prescriptions.filter((p) => p.status === "signed");
+  const bookBtn = (cls = "primary") => `<button class="btn ${cls}" data-go="book">${ic("stethoscope")} Book a home visit</button>`;
+  let hero;
+  if (ready) hero = `<h1>Your prescription is ready</h1><p>Your doctor has signed it. Review your medicines, choose what you'd like to order, and we'll match you with the best licensed pharmacy nearby.</p>
+        <div class="actions"><button class="btn primary" id="openCart">${ic("cart")} Review my medicines</button><button class="btn" id="openRx">${ic("rx")} View prescription</button></div>`;
+  else if (active) hero = `<h1>${esc(active.status_label)}</h1><p>Order ${esc(active.order_no)} from ${esc(shortName(active.pharmacy.name))}.</p>
+        <div class="actions"><button class="btn primary" data-go="orders">${ic("truck")} Track my order</button>${bookBtn("")}</div>`;
+  else if (upcoming.length) hero = `<h1>${upcoming[0].status === "requested" ? "Your visit request is with the doctor" : upcoming[0].status === "accepted" ? "Your doctor is confirmed" : "Your doctor is with you"}</h1>
+        <p>${esc(upcoming[0].doctor.name)} · ${when(upcoming[0].scheduled_for)}. After the visit, your prescription and medicine cart appear here automatically.</p>
+        <div class="actions">${bookBtn("")}</div>`;
+  else hero = `<h1>Need a doctor at home?</h1><p>Book a verified doctor near you in under a minute. They visit you at home, prescribe, and your medicines are delivered to your door.</p>
+        <div class="actions">${bookBtn()}<button class="btn" data-go="meds">${ic("pills")} My Medicines</button></div>`;
+  const showCta = ready || active;
   view().innerHTML = `
-    <section class="hero">
-      <div class="eyebrow">${GREETING()}, ${esc(first)}</div>
-      ${ready ? `<h1>Your prescription is ready</h1><p>Your doctor has signed it. Review your medicines, choose what you'd like to order, and we'll match you with the best licensed pharmacy nearby.</p>
-        <div class="actions"><button class="btn primary" id="openCart">${ic("cart")} Review my medicines</button><button class="btn" id="openRx">${ic("rx")} View prescription</button></div>`
-      : active ? `<h1>${esc(active.status_label)}</h1><p>Order ${esc(active.order_no)} from ${esc(shortName(active.pharmacy.name))}.</p>
-        <div class="actions"><button class="btn primary" data-go="orders">${ic("truck")} Track my order</button></div>`
-      : `<h1>From doctor visit to your doorstep</h1><p>Your doctor's prescriptions, nearby licensed pharmacies and home delivery, all in one place.</p>
-        <div class="actions"><button class="btn primary" data-go="meds">${ic("pills")} My Medicines</button></div>`}
-      <div class="stats"><div class="stat"><b>${activeRx.length}</b><span>Active prescriptions</span></div>
-        <div class="stat"><b>${dash.active_orders.length}</b><span>Orders in progress</span></div>
-        <div class="stat"><b>${dash.purchase_history.filter((o) => ["delivered", "picked_up"].includes(o.status)).length}</b><span>Delivered</span></div></div>
+    <section class="hero"><div class="eyebrow">${GREETING()}, ${esc(first)}</div>${hero}
+      <div class="stats"><div class="stat"><b>${upcoming.length}</b><span>Upcoming visits</span></div>
+        <div class="stat"><b>${activeRx.length}</b><span>Active prescriptions</span></div>
+        <div class="stat"><b>${dash.active_orders.length}</b><span>Orders in progress</span></div></div>
     </section>
+    ${showCta ? `<div class="card book-cta"><div class="row" style="flex-wrap:nowrap"><div class="ico">${ic("stethoscope", "lg")}</div><div><h3 style="margin:0">Need a doctor at home?</h3><span class="small muted">Verified doctors near you · visits from ${money(600)}</span></div></div>${bookBtn()}</div>` : ""}
+    ${upcoming.length ? `<div class="section-title">Your upcoming visit${upcoming.length > 1 ? "s" : ""}</div>${upcoming.map(visitCard).join("")}` : ""}
+    <div class="section-title">How Triyana works</div>${howSteps()}
+    <div class="section-title">Your health, in one place</div>
     <div class="grid tiles">
+      <div class="card lift tile" data-go="book"><div class="ico">${ic("stethoscope", "lg")}</div><b>Book a doctor</b><span class="small muted">Nearest verified doctors, at home</span></div>
       <div class="card lift tile" data-go="rx"><div class="ico">${ic("rx", "lg")}</div><b>Prescriptions</b><span class="small muted">Signed by your verified doctor</span></div>
       <div class="card lift tile" data-go="cart"><div class="ico blue">${ic("cart", "lg")}</div><b>Medicine cart</b><span class="small muted">Choose what to buy, and how much</span></div>
-      <div class="card lift tile" data-go="pharmacies"><div class="ico">${ic("store", "lg")}</div><b>Nearby pharmacies</b><span class="small muted">Compare price, speed and rating</span></div>
       <div class="card lift tile" id="openYana"><div class="ico gold">${ic("chat", "lg")}</div><b>Ask Yana</b><span class="small muted">"Find a pharmacy near my home"</span></div>
     </div>
     <div class="section-title">Notifications</div>
     <div class="card">${notes.length ? notes.slice(0, 8).map((n) => `
-      <div class="list-item"><div class="avatar">${ic(n.link.startsWith("order") ? "truck" : n.link.startsWith("cart") ? "rx" : "info")}</div>
+      <div class="list-item"><div class="avatar">${ic(n.link.startsWith("order") ? "truck" : n.link.startsWith("cart") ? "rx" : n.link.startsWith("visit") ? "stethoscope" : "info")}</div>
         <div class="grow"><div class="row between"><b>${esc(n.title)}</b><span class="tiny muted">${when(n.at)}</span></div>
-        <div class="small muted">${esc(n.body)}</div></div></div>`).join("") : `<p class="muted small" style="margin:0">You're all caught up. When your doctor signs a prescription, it will appear here.</p>`}</div>`;
+        <div class="small muted">${esc(n.body)}</div></div></div>`).join("") : `<p class="muted small" style="margin:0">You're all caught up.</p>`}</div>`;
   $$("[data-go]").forEach((b) => (b.onclick = () => go(b.dataset.go)));
   $("#openYana").onclick = () => openYana();
+  wireCancel(() => SCREENS.home());
   if (ready) {
     const markRead = () => post(`/api/notifications/${ready.id}/read`).catch(() => {});
     $("#openCart").onclick = () => { markRead(); state.unread = Math.max(0, state.unread - 1); go("cart", { cartId: +ready.link.split(":")[1] }); };
     $("#openRx").onclick = () => { markRead(); go("rx"); };
   }
 };
+
+const REASONS = [["Fever or cold", "bolt"], ["General check-up", "stethoscope"], ["Child is unwell", "user"], ["Elderly parent care", "shield"], ["Joint or back pain", "pin"], ["Follow-up visit", "calendar"]];
+const keyOf = (d) => d.toLocaleDateString("en-CA", { timeZone: TZ });
+const dayKey = (iso) => keyOf(parseIso(iso));
+function dayLabel(iso) {
+  const k = dayKey(iso);
+  if (k === keyOf(new Date())) return "Today";
+  if (k === keyOf(new Date(Date.now() + 864e5))) return "Tomorrow";
+  return parseIso(iso).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", timeZone: TZ });
+}
+
+SCREENS.book = async () => {
+  const [near, visits] = await Promise.all([api("/api/doctors"), api("/api/patient/visits")]);
+  const docs = near.doctors;
+  const b = { reason: "", details: "", doctor: null, day: null, slot: null, address: near.address };
+  let slots = [];
+  const loadSlots = async () => {
+    slots = await api(`/api/visit-slots${b.doctor ? `?doctor_id=${b.doctor}` : ""}`);
+    if (!slots.includes(b.slot)) b.slot = null;
+    const days = [...new Set(slots.map(dayKey))];
+    if (!days.includes(b.day)) b.day = days[0] || null;
+  };
+  await loadSlots();
+  const minFee = Math.min(...docs.map((d) => d.visit_fee));
+  const chosen = () => docs.find((d) => d.id === b.doctor);
+  const render = () => {
+    const days = [...new Set(slots.map(dayKey))];
+    const daySlots = slots.filter((s) => dayKey(s) === b.day);
+    const doc = chosen();
+    const reasonText = [b.reason, b.details.trim()].filter(Boolean).join(" · ");
+    const ok = b.reason && b.slot && b.address.trim();
+    const upcoming = visits.filter((v) => OPEN_VISIT.includes(v.status));
+    view().innerHTML = pageHead("Book a doctor home visit", `${ic("pin")} Verified doctors near <b>${esc(near.address)}</b>`) + `
+      <div class="split"><div>
+        <div class="card"><div class="step-label"><span class="n">1</span><h3>What do you need help with?</h3></div>
+          <div class="choice-grid">${REASONS.map(([r, i]) => `<button class="choice ${b.reason === r ? "on" : ""}" data-reason="${esc(r)}"><span class="ico">${ic(i)}</span><div><b>${r}</b></div></button>`).join("")}</div>
+          <label class="field" style="margin-top:14px">Tell the doctor more (optional)<textarea id="details" rows="2" placeholder="For example: fever since yesterday, 101°F">${esc(b.details)}</textarea></label></div>
+
+        <div class="card"><div class="step-label"><span class="n">2</span><h3>Choose a doctor</h3></div>
+          <div class="doc-list">
+            <button class="doc any ${b.doctor === null ? "on" : ""}" data-doc=""><div class="avatar">${ic("bolt")}</div><div class="info"><b>Nearest available doctor</b>
+              <div class="small muted">We send the closest verified doctor who is free at your time${docs[0] ? `, usually ${esc(docs[0].name)} (${docs[0].distance_km} km away)` : ""}.</div></div>
+              <div class="fee"><span class="badge brand">Fastest</span></div></button>
+            ${docs.map((d, n) => `<button class="doc ${b.doctor === d.id ? "on" : ""}" data-doc="${d.id}"><div class="avatar">${esc(initials(d.name))}</div>
+              <div class="info"><b>${esc(d.name)}</b> <span class="verified" title="Verified licence">${ic("badge")}</span>${n === 0 ? ` <span class="badge good">Nearest</span>` : ""}
+                <div class="small muted">${esc(d.specialty)} · ${d.experience_years} yrs experience</div>
+                <div class="meta small"><span>${stars(d)}</span><span>${ic("pin")} ${d.distance_km} km · can arrive in ~${d.arrives_in_min} min</span><span>${ic("chat")} ${esc(d.languages.join(", "))}</span></div>
+                ${d.next_slot ? `<div class="tiny muted" style="margin-top:4px">Next free: ${dayLabel(d.next_slot)}, ${time(d.next_slot)}</div>` : ""}</div>
+              <div class="fee"><b>${money(d.visit_fee)}</b><span class="tiny muted">per visit</span></div></button>`).join("")}
+          </div></div>
+
+        <div class="card"><div class="step-label"><span class="n">3</span><h3>Pick a time</h3></div>
+          ${days.length ? `<div class="seg">${days.map((k) => `<button class="${k === b.day ? "on" : ""}" data-day="${esc(k)}">${dayLabel(slots.find((s) => dayKey(s) === k))}</button>`).join("")}</div>
+          <div class="slot-grid">${daySlots.map((s) => `<button class="slot ${s === b.slot ? "on" : ""}" data-slot="${s}">${time(s)}</button>`).join("")}</div>`
+          : `<p class="muted small">No free times in the next few days. Try another doctor.</p>`}</div>
+
+        <div class="card"><div class="step-label"><span class="n">4</span><h3>Where should the doctor come?</h3></div>
+          <label class="field">Visit address<input id="addr" value="${esc(b.address)}"></label></div>
+      </div>
+      <aside class="sticky"><div class="card featured">
+        <h3>Your booking</h3>
+        <table class="price" style="margin-top:8px">
+          <tr><td>Reason</td><td>${esc(b.reason || "—")}</td></tr>
+          <tr><td>Doctor</td><td>${doc ? esc(doc.name) : "Nearest available"}</td></tr>
+          <tr><td>Time</td><td>${b.slot ? `${dayLabel(b.slot)}, ${time(b.slot)}` : "—"}</td></tr>
+          <tr class="total"><td>Visit fee</td><td>${doc ? money(doc.visit_fee) : `from ${money(minFee)}`}</td></tr></table>
+        <div class="notice info small">${ic("shield")}<span><b>Nothing to pay now.</b> You pay the doctor after the visit. Every doctor's licence is verified.</span></div>
+        <button class="btn primary block" id="bookBtn" ${ok ? "" : "disabled"}>${ic("check")} Confirm booking</button>
+        <p class="tiny muted" style="text-align:center;margin:10px 0 0">${ok ? "The doctor will confirm your request." : !b.reason ? "Choose a reason to continue" : "Pick a time to continue"}</p>
+      </div></aside></div>
+      ${upcoming.length ? `<div class="section-title">Your bookings</div>${upcoming.map(visitCard).join("")}` : ""}`;
+    $$("[data-reason]").forEach((x) => (x.onclick = () => { b.reason = x.dataset.reason; render(); }));
+    $("#details").oninput = (e) => { b.details = e.target.value; };
+    $("#addr").oninput = (e) => { b.address = e.target.value; const btn = $("#bookBtn"); btn.disabled = !(b.reason && b.slot && b.address.trim()); };
+    $$("[data-doc]").forEach((x) => (x.onclick = () => guard(async () => { b.doctor = x.dataset.doc ? +x.dataset.doc : null; await loadSlots(); render(); })));
+    $$("[data-day]").forEach((x) => (x.onclick = () => { b.day = x.dataset.day; render(); }));
+    $$("[data-slot]").forEach((x) => (x.onclick = () => { b.slot = x.dataset.slot; render(); }));
+    wireCancel(() => SCREENS.book());
+    $("#bookBtn").onclick = () => guard(async () => {
+      const v = await post("/api/patient/visits", { doctor_id: b.doctor, scheduled_for: b.slot, reason: reasonText, address: b.address });
+      bookedScreen(v);
+    });
+  };
+  render();
+};
+
+function bookedScreen(v) {
+  window.scrollTo({ top: 0 });
+  const isDemoDoctor = /Kavya/.test(v.doctor.name);
+  view().innerHTML = `<section class="hero"><div class="eyebrow">Booking ${esc(v.booking_ref)}</div>
+      <h1>Request sent to ${esc(v.doctor.name)}</h1>
+      <p>${esc(v.doctor.specialty)} · ${v.doctor.distance_km} km away · ${dayLabel(v.scheduled_for)}, ${time(v.scheduled_for)}. We'll let you know as soon as the doctor confirms.</p>
+      <div class="actions"><button class="btn primary" data-go="home">${ic("home")} Back to home</button></div></section>
+    ${visitCard(v)}
+    <div class="section-title">What happens next</div>
+    <div class="how">${[["Doctor confirms", "You get a notification when your request is accepted."], ["Doctor visits you", "They examine you at home and e-sign your prescription."], ["Your cart is ready", "Medicines appear in your cart. Choose a pharmacy and pay."], ["Delivered home", "Track the courier and share your code at the door."]]
+      .map(([t, s], i) => `<div class="step"><div class="n">${i + 1}</div><b>${t}</b><span>${s}</span></div>`).join("")}</div>
+    <div class="notice info" style="margin-top:16px">${ic("info")}<span>${isDemoDoctor ? "Demo tip: switch <b>Signed in as</b> to <b>Dr. Kavya</b> to see this request arrive in the doctor's app." : "Demo tip: only Dr. Kavya has a demo login. Book her (or \"Nearest available\") to follow the request into the doctor's app."}</span></div>`;
+  $$("[data-go]").forEach((x) => (x.onclick = () => go(x.dataset.go)));
+  wireCancel(() => go("home"));
+}
 
 SCREENS.rx = async () => {
   const list = await api("/api/patient/prescriptions");
@@ -454,7 +596,8 @@ SCREENS.visits = async () => {
       <p>Accept bookings, complete consultations and send e-signed prescriptions straight to your patient's cart.</p>
       <div class="stats"><div class="stat"><b>${visits.length}</b><span>Visits</span></div><div class="stat"><b>${visits.filter((v) => v.status === "requested").length}</b><span>New requests</span></div><div class="stat"><b>${visits.filter((v) => v.status === "completed").length}</b><span>Completed</span></div></div></section>` +
     (visits.map((v) => `<article class="card lift"><div class="card-head"><div class="row"><div class="avatar">${esc(initials(v.patient.name))}</div><div><h3>${esc(v.patient.name)}</h3>
-      <div class="meta"><span>${ic("id")} ${esc(v.patient.patient_ref)}</span><span>${ic("clock")} ${when(v.scheduled_for)}</span></div></div></div><span class="badge ${label[v.status][1]}">${label[v.status][0]}</span></div>
+      <div class="meta"><span>${ic("id")} ${esc(v.patient.patient_ref)}</span><span>${ic("clock")} ${when(v.scheduled_for)}</span>${v.booking_ref ? `<span>${ic("calendar")} ${esc(v.booking_ref)}</span>` : ""}</div>
+      <div class="meta"><span>${ic("pin")} ${esc(v.address)}</span></div></div></div><span class="badge ${label[v.status][1]}">${label[v.status][0]}</span></div>
       <div class="instructions">${esc(v.reason)}</div>
       <div class="actions-bar">${next[v.status] ? `<button class="btn primary sm" data-v="${v.id}" data-a="${next[v.status][0]}">${ic(next[v.status][2])} ${next[v.status][1]}</button>` : ""}
       ${["in_progress", "completed"].includes(v.status) ? `<button class="btn sm" data-rx="${v.id}">${ic("rx")} Write prescription</button>` : ""}</div></article>`).join("") || empty("calendar", "No visits scheduled"));
