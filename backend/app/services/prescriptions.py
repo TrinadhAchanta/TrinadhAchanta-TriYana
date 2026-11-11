@@ -47,10 +47,13 @@ def advance_visit(db: Session, user: User, visit_id: int, action: str) -> HomeVi
     visit.status = to
     if to == VisitStatus.completed:
         visit.completed_at = utcnow()
+    from . import dispatch
     if action == "accept":
+        dispatch.close_offers_for_visit(db, visit, accepted_by=user)
         notify(db, users_for_patient(db, visit.patient_id), "Doctor confirmed your visit",
                f"{visit.doctor.name} confirmed your home visit.", f"visit:{visit.id}")
     elif action == "start":
+        dispatch.end_trips_for(db, visit_id=visit.id)
         notify(db, users_for_patient(db, visit.patient_id), "Your doctor has arrived",
                f"{visit.doctor.name} has started your home visit.", f"visit:{visit.id}")
     audit.record(db, user, f"visit.{action}", "home_visit", visit.id)

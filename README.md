@@ -10,10 +10,25 @@ Digital Prescription → Suggested Medicine Cart → Patient Selection → Licen
 cd backend
 pip install -r requirements.txt
 uvicorn app.main:app --reload        # http://localhost:8000
-python -m pytest -q                  # 49 tests
+python -m pytest -q
 ```
 
 Or with Docker: `docker build -t triyana . && docker run -p 8000:8000 triyana`. To host a public demo, see [docs/DEPLOY.md](docs/DEPLOY.md).
+
+### Two apps, one backend
+
+| App | URL | Who | What |
+|---|---|---|---|
+| **Triyana** | `/` | Patients | Service tiles (Doctor now, book a visit, prescriptions, medicine cart, tracking, Yana), live map with ETA |
+| **Triyana Partner** | `/provider` | Doctors, couriers, pharmacists | Go online / offline, nearby request offers with a countdown, accept or decline, turn-by-turn navigation |
+
+Both are installable PWAs (Add to Home Screen) with their own sign-in; a patient token is refused by the Partner app and vice versa (`X-Triyana-App` header).
+
+**Dispatch (DoorDash/Dasher style)**, `services/dispatch.py`: a job goes to **one** provider at a time, nearest first. Only online, verified, not-busy providers within range get on-demand jobs. They have 45 s (`TRIYANA_OFFER_SECONDS`) to accept; a decline or timeout moves it to the next nearest. "Doctor now" visits go to online doctors; booked times go to the chosen doctor and, if declined, to the next nearest doctor free at that time. Packed delivery orders go to the nearest online courier, then pickup → patient.
+
+**Live tracking.** On acceptance a trip starts. GPS is simulated along the route on the server (`TRIYANA_SIM_SPEEDUP`, default 8× faster) and real phone GPS overrides it when the Partner app posts `/api/provider/location`. The Partner app swaps the starter route for a real road route with turn-by-turn steps from the free OSRM demo server when reachable. Maps use Leaflet (vendored in `frontend/vendor/leaflet`) with OpenStreetMap data and CARTO tiles. For production, self-host OSRM or use a licensed routing/tiles provider, since the public demo servers have usage limits.
+
+Demo walk-through: open `/` as Meera and tap **Doctor now**. In another tab open `/provider` as Dr. Carter, accept the request, and watch both maps move. Decline instead to see it go to Dr. Rohan, then Dr. Vikram. Native app-store builds (Capacitor or React Native around the same API) are the next step.
 
 The web app has a demo account switcher (patient, doctor, pharmacist, courier, hospital). Walk the journey: Dr. Carter accepts → starts → completes the visit → writes and signs a prescription → Meera reviews the cart, buys 3 of 5 tablets, removes another item, picks a pharmacy, authorises payment → Ravi reviews and dispenses → Asha delivers with Meera's handover code. Use **Reset demo** to start again.
 

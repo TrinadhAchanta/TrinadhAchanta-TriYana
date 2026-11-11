@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from .models import (
     AirspaceZone,
+    DispatchOffer,
     Doctor,
     Hospital,
     DoctorAvailability,
@@ -33,6 +34,10 @@ DEMO_TOKENS = {
     "courier": "demo-courier-greenleaf",
     "hospital": "demo-hospital-lotus",
     "hospital2": "demo-hospital-district",
+    "courier2": "demo-courier-kiran",
+    "doctor_rohan": "demo-doctor-rohan",
+    "doctor_sana": "demo-doctor-sana",
+    "doctor_vikram": "demo-doctor-vikram",
 }
 
 
@@ -181,12 +186,21 @@ def seed(db: Session) -> dict:
         "pharmacist2": User(name="Lina (Pharmacist, Sunrise)", role=Role.pharmacist,
                             token=DEMO_TOKENS["pharmacist2"], pharmacy_id=pharmacies[1].id),
         "courier": User(name="Asha (Courier, GreenLeaf)", role=Role.courier, token=DEMO_TOKENS["courier"],
-                        pharmacy_id=pharmacies[0].id),
+                        pharmacy_id=pharmacies[0].id, on_duty=True, lat=17.4425, lng=78.3530, vehicle="Scooter"),
+        "courier2": User(name="Kiran (Triyana courier)", role=Role.courier, token=DEMO_TOKENS["courier2"],
+                         on_duty=True, lat=17.4560, lng=78.3650, vehicle="Motorbike"),
         "hospital": User(name="Nisha (Pharmacy in-charge, Lotus Hospital)", role=Role.hospital,
                          token=DEMO_TOKENS["hospital"], hospital_id=hospitals["lotus"].id),
         "hospital2": User(name="Dev (Stores, District Hospital)", role=Role.hospital,
                           token=DEMO_TOKENS["hospital2"], hospital_id=hospitals["district"].id),
     }
+    # Provider app: doctors start online at their clinics (Dr. Sana starts offline).
+    carter_user = users["doctor"]
+    carter_user.on_duty, carter_user.lat, carter_user.lng, carter_user.vehicle = True, carter.lat, carter.lng, "Car"
+    for key, doc, online in (("doctor_rohan", others[0], True), ("doctor_sana", others[1], False),
+                             ("doctor_vikram", others[2], True)):
+        users[key] = User(name=doc.name, role=Role.doctor, token=DEMO_TOKENS[key], doctor_id=doc.id,
+                          on_duty=online, lat=doc.lat, lng=doc.lng, vehicle="Car")
     db.add_all(users.values())
     db.flush()
 
@@ -214,6 +228,9 @@ def seed(db: Session) -> dict:
     # Dr. Sana is away for the next two days, so Meera's follow-up shows the "book her next opening" path.
     for day in _local_days(now)[:2]:
         db.add(DoctorAvailability(doctor_id=sana.id, day=day.isoformat(), hours=[]))
+    db.flush()
+    db.add_all([DispatchOffer(kind="visit", visit_id=v.id, user_id=carter_user.id, distance_km=km)
+                for v, km in ((visit, 0.8), (visit2, 2.6))])
     db.commit()
     return {
         "patients": {"meera": meera.id, "arjun": arjun.id},

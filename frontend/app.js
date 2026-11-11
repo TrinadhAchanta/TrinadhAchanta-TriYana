@@ -1,7 +1,9 @@
 /* Triyana Home — premium client for the Prescription → Delivery journey (no build step). */
 "use strict";
 
-const state = { token: null, role: null, name: "", unread: 0, tab: null, ctx: {}, accounts: [], currency: "INR" };
+const APP = document.body.dataset.app || "patient"; // "patient" = Triyana, "provider" = Triyana Partner
+const state = { token: null, role: null, name: "", unread: 0, tab: null, ctx: {}, accounts: [], currency: "INR", timers: [], cleanups: [] };
+const TOKEN_KEY = `triyana.${APP}.token`;
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const view = () => $("#view");
@@ -65,7 +67,7 @@ function toast(msg, icon = "check") {
 async function api(path, opts = {}) {
   const res = await fetch(path, {
     method: opts.method || "GET",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${state.token}` },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${state.token}`, "X-Triyana-App": APP },
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
   const data = await res.json().catch(() => ({}));
@@ -92,32 +94,71 @@ const TABS = {
   patient: [["home", "Home", "home"], ["book", "Book a doctor", "stethoscope"], ["rx", "Prescription", "rx"], ["cart", "Cart", "cart"], ["pharmacies", "Pharmacies", "store", "desktop"], ["orders", "Tracking", "truck"], ["meds", "My Medicines", "pills"], ["privacy", "Privacy & consent", "shield", "desktop"]],
   doctor: [["visits", "Home visits", "calendar"], ["availability", "My hours", "clock"], ["prescriptions", "Prescriptions", "file"], ["clarifications", "Clarifications", "chat"]],
   pharmacist: [["queue", "Order queue", "inbox"], ["shipments", "Hospital drones", "drone"]],
-  courier: [["deliveries", "Deliveries", "truck"]],
+  courier: [["dash", "Dashboard", "bolt"], ["deliveries", "Deliveries", "truck"]],
   hospital: [["shipments", "Deliveries", "drone"], ["send", "Send or request", "bolt"], ["coverage", "Coverage", "pin"]],
 };
-const SHORT = { "Book a doctor": "Doctor", Tracking: "Track", "My Medicines": "Medicines", "Home visits": "Visits", "My hours": "Hours", "Order queue": "Orders", Prescription: "Rx", Prescriptions: "Rx", Clarifications: "Questions", "Hospital drones": "Drones", "Send or request": "Send" };
+if (APP === "provider") TABS.doctor.unshift(["dash", "Dashboard", "bolt"]);
+const SHORT = { Dashboard: "Home", "Book a doctor": "Doctor", Tracking: "Track", "My Medicines": "Medicines", "Home visits": "Visits", "My hours": "Hours", "Order queue": "Orders", Prescription: "Rx", Prescriptions: "Rx", Clarifications: "Questions", "Hospital drones": "Drones", "Send or request": "Send" };
 const GREETING = () => { const h = new Date().getHours(); return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening"; };
 
 async function boot() {
   ["#markA", "#markB"].forEach((s) => ($(s).innerHTML = ic("logo")));
   $("#flagIco").innerHTML = ic("info");
-  const r = await fetch("/api/demo/accounts");
+  const r = await fetch(`/api/demo/accounts?app=${APP}`);
   state.accounts = await r.json();
   const opts = state.accounts.map((a) => `<option value="${esc(a.token)}">${esc(a.label)}</option>`).join("");
   $("#account").innerHTML = opts; $("#accountMobile").innerHTML = opts;
-  let saved = null; try { saved = localStorage.getItem("triyana.token"); } catch {}
-  const start = saved && state.accounts.some((a) => a.token === saved) ? saved : state.accounts[0].token;
   ["#account", "#accountMobile"].forEach((s) => ($(s).onchange = (e) => signIn(e.target.value)));
   $("#reset").onclick = () => guard(async () => { await fetch("/api/demo/reset", { method: "POST" }); toast("Demo data restored"); signIn(state.token); });
-  setupYana();
-  signIn(start);
+  $$(".sign-out").forEach((b) => (b.onclick = signOut));
+  if (APP === "patient") setupYana();
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+  let saved = null; try { saved = localStorage.getItem(TOKEN_KEY); } catch {}
+  if (saved && state.accounts.some((a) => a.token === saved)) signIn(saved); else loginScreen();
+}
+
+function stopLive() {
+  state.timers.forEach(clearInterval); state.timers = [];
+  state.cleanups.forEach((f) => { try { f(); } catch {} }); state.cleanups = [];
+}
+
+/* Each app has its own sign-in: patients use Triyana, providers use Triyana Partner. */
+function loginScreen() {
+  stopLive();
+  document.body.classList.add("signed-out");
+  const partner = APP === "provider";
+  const groups = {};
+  state.accounts.forEach((a) => {
+    const k = partner ? (a.label.split("·")[1] || "").trim().split(" ")[0] || "account" : "patient";
+    (groups[k] = groups[k] || []).push(a);
+  });
+  const icon = { doctor: "stethoscope", courier: "truck", pharmacist: "store", patient: "user" };
+  $("#login").innerHTML = `<div class="login-card">
+      <div class="brand"><div class="mark">${ic("logo")}</div><div><b>${partner ? "Triyana Partner" : "Triyana"}</b><small>${partner ? "For doctors, couriers & pharmacists" : "Home healthcare"}</small></div></div>
+      <h1>${partner ? "Go online. Get nearby visits and deliveries." : "Doctors, medicines and care, at your door."}</h1>
+      <p class="muted">${partner ? "Accept requests from patients near you and navigate there turn by turn." : "Book a verified doctor now or for later, get your prescription, and track your medicines live."}</p>
+      ${Object.entries(groups).map(([g, list]) => `<div class="section-title">${partner ? `${esc(g)}s` : "Choose a demo account"}</div>
+        <div class="login-list">${list.map((a) => `<button class="login-acc" data-token="${esc(a.token)}"><span class="avatar">${ic(icon[g] || "user")}</span><span class="grow"><b>${esc(a.label.split("·")[0].replace(/\s*\(.*\)/, ""))}</b><span class="tiny muted">${esc((a.label.split("·")[1] || "Patient").trim())}</span></span>${ic("arrow")}</button>`).join("")}</div>`).join("")}
+      <div class="demo-flag">${ic("info")}<span>Demo · fictional people and data. ${partner ? `Patients use <a href="/">the Triyana app</a>.` : `Doctors and couriers use <a href="/provider">Triyana Partner</a>.`}</span></div>
+    </div>`;
+  $$("[data-token]").forEach((b) => (b.onclick = () => signIn(b.dataset.token)));
+}
+
+function signOut() {
+  try { localStorage.removeItem(TOKEN_KEY); } catch {}
+  state.token = null;
+  $("#yanaPanel").classList.remove("open"); $("#yanaBtn").hidden = true;
+  loginScreen();
 }
 
 async function signIn(token) {
+  stopLive();
+  document.body.classList.remove("signed-out");
   state.token = token;
   $("#account").value = token; $("#accountMobile").value = token;
-  try { localStorage.setItem("triyana.token", token); } catch {}
-  const me = await api("/api/me");
+  try { localStorage.setItem(TOKEN_KEY, token); } catch {}
+  let me;
+  try { me = await api("/api/me"); } catch (e) { toast(e.message, "alert"); return signOut(); }
   Object.assign(state, { role: me.role, name: me.name, unread: me.unread_notifications, ctx: {}, hospitalId: me.hospital_id });
   $("#yanaBtn").hidden = me.role !== "patient";
   $("#yanaPanel").classList.remove("open");
@@ -137,6 +178,7 @@ function renderNav() {
 
 function go(tab, ctx = {}) {
   clearInterval(state.poll);
+  stopLive();
   state.tab = tab; Object.assign(state.ctx, ctx);
   renderNav();
   view().innerHTML = `<div class="skeleton" style="height:180px"></div><div class="skeleton"></div><div class="skeleton"></div>`;
@@ -161,14 +203,16 @@ const stars = (d) => `<span class="stars">★ ${d.rating.toFixed(1)}</span> <spa
 function visitCard(v) {
   const [label, cls, icon] = VISIT_LABEL[v.status] || [v.status, "", "info"];
   return `<article class="card visit-card"><div class="card-head"><div class="when">${dateChip(v.scheduled_for)}<div>
-      <h3>${esc(v.doctor.name)} ${v.doctor.license_verified ? `<span class="verified" title="Verified licence">${ic("badge")}</span>` : ""}</h3>
-      <div class="meta"><span>${ic("stethoscope")} ${esc(v.doctor.specialty)}</span><span>${ic("clock")} ${when(v.scheduled_for)}</span>${v.follow_up_of ? `<span class="badge premium">${ic("later")} Follow-up</span>` : ""}</div></div></div>
+      <h3>${v.doctor ? `${esc(v.doctor.name)} ${v.doctor.license_verified ? `<span class="verified" title="Verified licence">${ic("badge")}</span>` : ""}` : "Finding the nearest doctor…"}</h3>
+      <div class="meta">${v.doctor ? `<span>${ic("stethoscope")} ${esc(v.doctor.specialty)}</span>` : `<span>${ic("bolt")} Doctor now</span>`}<span>${ic("clock")} ${when(v.scheduled_for)}</span>${v.follow_up_of ? `<span class="badge premium">${ic("later")} Follow-up</span>` : ""}</div></div></div>
       <span class="badge ${cls}">${ic(icon)} ${label}</span></div>
     <div class="instructions"><b>Reason:</b> ${esc(v.reason)}</div>
     <div class="row between small" style="margin-top:10px"><span class="muted">${ic("pin")} ${esc(v.address)}</span><span><b>${money(v.fee)}</b> <span class="muted">pay after the visit</span></span></div>
-    ${v.can_cancel ? `<div class="actions-bar"><button class="btn ghost sm danger" data-cancel="${v.id}">${ic("x")} Cancel booking</button></div>` : ""}</article>`;
+    <div class="actions-bar">${v.status === "requested" && v.on_demand || v.status === "accepted" ? `<button class="btn primary sm" data-live-visit="${v.id}">${ic("pin")} ${v.on_demand ? "Track live" : "Live map"}</button>` : ""}
+    ${v.can_cancel ? `<button class="btn ghost sm danger" data-cancel="${v.id}">${ic("x")} Cancel booking</button>` : ""}</div></article>`;
 }
 function wireCancel(after) {
+  $$("[data-live-visit]").forEach((b) => (b.onclick = () => liveScreen("visit", +b.dataset.liveVisit)));
   $$("[data-cancel]").forEach((b) => (b.onclick = () => guard(async () => {
     if (!confirm("Cancel this home visit?")) return;
     await post(`/api/patient/visits/${b.dataset.cancel}/cancel`); toast("Booking cancelled"); after();
@@ -195,29 +239,23 @@ SCREENS.home = async () => {
         <div class="actions">${bookBtn()}<button class="btn" data-go="meds">${ic("pills")} My Medicines</button></div>`;
   const showCta = ready || active;
   view().innerHTML = `
-    <section class="hero"><div class="eyebrow">${GREETING()}, ${esc(first)}</div>${hero}
+    <section class="hero home-hero"><div class="eyebrow">${GREETING()}, ${esc(first)}</div>${hero}
       <div class="stats"><div class="stat"><b>${upcoming.length}</b><span>Upcoming visits</span></div>
         <div class="stat"><b>${activeRx.length}</b><span>Active prescriptions</span></div>
         <div class="stat"><b>${dash.active_orders.length}</b><span>Orders in progress</span></div></div>
     </section>
-    ${showCta ? `<div class="card book-cta"><div class="row" style="flex-wrap:nowrap"><div class="ico">${ic("stethoscope", "lg")}</div><div><h3 style="margin:0">Need a doctor at home?</h3><span class="small muted">Verified doctors near you · visits from ${money(600)}</span></div></div>${bookBtn()}</div>` : ""}
+    <div id="liveSlot"></div>
+    ${servicesHTML()}
     ${upcoming.length ? `<div class="section-title">Your upcoming visit${upcoming.length > 1 ? "s" : ""}</div>${upcoming.map(visitCard).join("")}` : ""}
-    <div class="section-title">Your health, in one place</div>
-    <div class="grid tiles">
-      <div class="card lift tile" data-go="book"><div class="ico">${ic("stethoscope", "lg")}</div><b>Book a doctor</b><span class="small muted">Nearest verified doctors, at home</span></div>
-      <div class="card lift tile" data-go="rx"><div class="ico">${ic("rx", "lg")}</div><b>Prescriptions</b><span class="small muted">Signed by your verified doctor</span></div>
-      <div class="card lift tile" data-go="cart"><div class="ico blue">${ic("cart", "lg")}</div><b>Medicine cart</b><span class="small muted">Choose what to buy, and how much</span></div>
-      <div class="card lift tile" data-go="privacy"><div class="ico">${ic("shield", "lg")}</div><b>Privacy & consent</b><span class="small muted">See, download or erase your data</span></div>
-      <div class="card lift tile" id="openYana"><div class="ico gold">${ic("chat", "lg")}</div><b>Ask Yana</b><span class="small muted">"Find a pharmacy near my home"</span></div>
-    </div>
     <div class="section-title">Notifications</div>
     <div class="card">${notes.length ? notes.slice(0, 8).map((n) => `
       <div class="list-item"><div class="avatar">${ic(n.link.startsWith("order") ? "truck" : n.link.startsWith("cart") ? "rx" : n.link.startsWith("visit") ? "stethoscope" : "info")}</div>
         <div class="grow"><div class="row between"><b>${esc(n.title)}</b><span class="tiny muted">${when(n.at)}</span></div>
         <div class="small muted">${esc(n.body)}</div></div></div>`).join("") : `<p class="muted small" style="margin:0">You're all caught up.</p>`}</div>`;
   $$("[data-go]").forEach((b) => (b.onclick = () => go(b.dataset.go)));
-  $("#openYana").onclick = () => openYana();
+  wireServices();
   wireCancel(() => SCREENS.home());
+  patientLiveBanner(visits, dash.active_orders);
   if (ready) {
     const markRead = () => post(`/api/notifications/${ready.id}/read`).catch(() => {});
     $("#openCart").onclick = () => { markRead(); state.unread = Math.max(0, state.unread - 1); go("cart", { cartId: +ready.link.split(":")[1] }); };
@@ -301,7 +339,7 @@ SCREENS.book = async () => {
           <div class="seg">${days.map((k) => `<button class="${k === b.day ? "on" : ""}" data-day="${esc(k)}">${dayLabel(slots.find((s) => dayKey(s) === k))}</button>`).join("")}</div>
           <div class="slot-grid">${daySlots.map((s) => `<button class="slot ${s === b.slot ? "on" : ""}" data-slot="${s}">${time(s)}</button>`).join("")}</div>`
       : `<p class="muted small">No free times in the next 7 days. Try another doctor.</p>`;
-    view().innerHTML = pageHead(isFollowUp() ? "Book a follow-up visit" : "Book a doctor home visit", `${ic("pin")} Verified doctors near <b>${esc(near.address)}</b>`) + `
+    view().innerHTML = pageHead(isFollowUp() ? "Book a follow-up visit" : "Book a doctor home visit", `${ic("pin")} Verified doctors near <b>${esc(near.address)}</b>`) + doctorNowBanner() + `
       <div class="split"><div>
         <div class="card"><div class="step-label"><span class="n">1</span><h3>What do you need help with?</h3></div>
           <div class="choice-grid">${REASONS.map(([r, i]) => `<button class="choice ${b.reason === r ? "on" : ""}" data-reason="${esc(r)}"><span class="ico">${ic(i)}</span><div><b>${r}</b></div></button>`).join("")}</div>
@@ -353,6 +391,7 @@ SCREENS.book = async () => {
     $$("[data-day]").forEach((x) => (x.onclick = () => { b.day = x.dataset.day; render(); }));
     $$("[data-slot]").forEach((x) => (x.onclick = () => { b.slot = x.dataset.slot; render(); }));
     wireCancel(() => SCREENS.book());
+    wireServices();
     $("#bookBtn").onclick = () => guard(async () => {
       const v = await post("/api/patient/visits", {
         doctor_id: b.mode === "doctor" ? b.doctor : null, scheduled_for: b.mode === "asap" ? "" : b.slot, asap: b.mode === "asap",
@@ -366,7 +405,7 @@ SCREENS.book = async () => {
 
 function bookedScreen(v) {
   window.scrollTo({ top: 0 });
-  const isDemoDoctor = /Carter/.test(v.doctor.name);
+  const isDemoDoctor = true;
   view().innerHTML = `<section class="hero"><div class="eyebrow">Booking ${esc(v.booking_ref)}</div>
       <h1>Request sent to ${esc(v.doctor.name)}</h1>
       <p>${esc(v.doctor.specialty)} · ${v.doctor.distance_km} km away · ${dayLabel(v.scheduled_for)}, ${time(v.scheduled_for)}. We'll let you know as soon as the doctor confirms.</p>
@@ -375,7 +414,7 @@ function bookedScreen(v) {
     <div class="section-title">What happens next</div>
     <div class="how">${[["Doctor confirms", "You get a notification when your request is accepted."], ["Doctor visits you", "They examine you at home and e-sign your prescription."], ["Your cart is ready", "Medicines appear in your cart. Choose a pharmacy and pay."], ["Delivered home", "Track the courier and share your code at the door."]]
       .map(([t, s], i) => `<div class="step"><div class="n">${i + 1}</div><b>${t}</b><span>${s}</span></div>`).join("")}</div>
-    <div class="notice info" style="margin-top:16px">${ic("info")}<span>${isDemoDoctor ? "Demo tip: switch <b>Signed in as</b> to <b>Dr. Carter</b> to see this request arrive in the doctor's app." : "Demo tip: only Dr. Carter has a demo login. Book her (or \"Nearest available\") to follow the request into the doctor's app."}</span></div>`;
+    <div class="notice info" style="margin-top:16px">${ic("info")}<span>${isDemoDoctor ? `Demo tip: open <a href="/provider" target="_blank">Triyana Partner</a> and sign in as <b>${esc(v.doctor.name)}</b> to see this request arrive and accept it.` : ""}</span></div>`;
   $$("[data-go]").forEach((x) => (x.onclick = () => go(x.dataset.go)));
   wireCancel(() => go("home"));
 }
@@ -626,6 +665,7 @@ SCREENS.orders = async () => {
     all.length > 1 ? `<select id="pickOrder">${all.map((x) => `<option value="${x.id}" ${x.id === o.id ? "selected" : ""}>${esc(x.order_no)} · ${esc(x.status_label)}</option>`).join("")}</select>` : "") + `
     <section class="hero"><div class="eyebrow">${o.fulfillment === "pickup" ? "Pickup order" : esc(DELIV[o.delivery_option]?.[1] || "") + " delivery"}</div>
       <h1>${esc(o.status_label)}</h1><p>${esc(last.note)}</p>
+      ${o.delivery && !["delivered", "cancelled", "rejected"].includes(o.status) ? `<div class="actions"><button class="btn primary" id="liveOrder">${ic("pin")} ${o.delivery.courier ? `Track ${esc(o.delivery.courier)} live` : "Live map"}</button></div>` : ""}
       ${bad ? "" : `<div class="progress"><i style="width:${Math.round((doneCount / steps.length) * 100)}%"></i></div>
       <div class="stats">${o.delivery?.eta && o.status !== "delivered" ? `<div class="stat"><b>${time(o.delivery.eta)}</b><span>Estimated arrival</span></div>` : ""}
         <div class="stat"><b>${doneCount}/${steps.length}</b><span>Steps complete</span></div><div class="stat"><b>${money(o.price.total)}</b><span>Payment ${esc(o.payment.status)}</span></div></div>`}
@@ -642,7 +682,7 @@ SCREENS.orders = async () => {
         ${o.items.map((i) => `<tr><td><b>${esc(i.medicine)}</b> ${schedBadge(i.india_schedule)}</td><td>${i.prescribed_quantity}</td><td>${i.requested_quantity}</td><td>${i.approved_quantity ?? `<span class="badge warn">Pending</span>`}</td></tr>`).join("")}</table></div></div>
     </div><aside class="sticky">
       ${o.delivery && o.status !== "delivered" ? `<div class="code-box"><div class="tiny" style="opacity:.8">${o.mission?.mode === "drone" ? "SHARE THIS CODE WHEN THE DRONE ARRIVES" : "SHARE THIS CODE WITH YOUR COURIER"}</div><div class="code">${esc(o.delivery.handover_code)}</div><div class="tiny" style="opacity:.8">Proof of delivery</div></div>` : ""}
-      ${o.delivery ? `<div class="card"><div class="row"><div class="avatar">${esc(initials(o.delivery.courier))}</div><div><b>${esc(o.delivery.courier)}</b><div class="tiny muted">${esc(o.delivery.provider)} · ${esc(o.delivery.tracking_ref)}</div></div></div>
+      ${o.delivery ? `<div class="card"><div class="row"><div class="avatar">${o.delivery.courier ? esc(initials(o.delivery.courier)) : ic("truck")}</div><div><b>${esc(o.delivery.courier || "Finding the nearest courier…")}</b><div class="tiny muted">${esc(o.delivery.provider)} · ${esc(o.delivery.tracking_ref)}</div></div></div>
         <div class="row small" style="margin-top:12px">${o.delivery.cold_chain ? `<span class="badge info">${ic("snow")} Temperature controlled</span>` : ""}${o.delivery.id_check_required ? `<span class="badge warn">${ic("id")} Photo ID required</span>` : ""}<span class="badge">${ic("sign")} Signature</span></div>
         ${o.delivery.proof_of_delivery ? `<div class="notice good">${ic("check")}<span>Delivered to ${esc(o.delivery.proof_of_delivery.recipient)}</span></div>` : ""}</div>` : ""}
       <div class="card"><h3>Payment</h3><table class="price" style="margin-top:6px"><tr><td>Subtotal</td><td>${money(o.price.subtotal)}</td></tr><tr><td>Delivery</td><td>${money(o.price.delivery_fee)}</td></tr><tr><td>Taxes</td><td>${money(o.price.tax)}</td></tr>
@@ -651,6 +691,7 @@ SCREENS.orders = async () => {
         ${["prescription_received", "pharmacist_reviewing", "awaiting_clarification", "order_accepted"].includes(o.status) ? `<button class="btn danger block" id="cancel" style="margin-top:14px">Cancel order</button>` : ""}</div>
     </aside></div>`;
   if (o.mission && ["in_flight", "in_transit"].includes(o.mission.status)) state.poll = setInterval(() => state.tab === "orders" && SCREENS.orders(), 15000);
+  const lo = $("#liveOrder"); if (lo) lo.onclick = () => liveScreen("delivery", o.id);
   const pick = $("#pickOrder"); if (pick) pick.onchange = () => { state.ctx.orderId = +pick.value; SCREENS.orders(); };
   const c = $("#cancel");
   if (c) c.onclick = () => guard(async () => { if (!confirm("Cancel this order? Any payment hold will be released or refunded.")) return; await post(`/api/orders/${o.id}/cancel`, { reason: "Cancelled by patient" }); toast("Order cancelled"); SCREENS.orders(); });
@@ -914,26 +955,6 @@ function pharmacistActions(o) {
   }
 }
 
-/* --------------------------------------------------------------- courier */
-SCREENS.deliveries = async () => {
-  const orders = (await api("/api/pharmacy/orders")).filter((o) => o.fulfillment === "delivery" && ["ready_for_pickup", "out_for_delivery", "delivered"].includes(o.status));
-  view().innerHTML = `<section class="hero"><div class="eyebrow">${esc(state.name)}</div><h1>Your deliveries</h1><p>Collect packed orders, deliver with care and confirm with the patient's handover code.</p>
-    <div class="stats"><div class="stat"><b>${orders.filter((o) => o.status === "ready_for_pickup").length}</b><span>To collect</span></div><div class="stat"><b>${orders.filter((o) => o.status === "out_for_delivery").length}</b><span>On the road</span></div><div class="stat"><b>${orders.filter((o) => o.status === "delivered").length}</b><span>Delivered</span></div></div></section>` +
-    (orders.map((o) => `<article class="card"><div class="card-head"><div class="row"><div class="avatar">${esc(initials(o.patient.name))}</div><div><h3>${esc(o.patient.name)}</h3><div class="tiny muted">${esc(o.order_no)} · ${esc(o.delivery?.tracking_ref)}</div></div></div><span class="badge brand">${esc(o.status_label)}</span></div>
-      <div class="row small">${o.delivery?.cold_chain ? `<span class="badge info">${ic("snow")} Keep cold</span>` : ""}${o.delivery?.id_check_required ? `<span class="badge warn">${ic("id")} Check photo ID</span>` : ""}<span class="badge">${ic("clock")} ETA ${time(o.delivery?.eta)}</span></div>
-      ${o.status === "ready_for_pickup" ? `<button class="btn primary block" style="margin-top:14px" data-dispatch="${o.id}">${ic("truck")} Collect & start delivery</button>` : ""}
-      ${o.status === "out_for_delivery" ? `<div class="form-grid" style="margin-top:14px"><label>Handover code<input id="code${o.id}" inputmode="numeric" placeholder="4 digits"></label><label>Received by<input id="who${o.id}" placeholder="Name"></label></div>
-        <label class="check" style="margin-top:10px"><input type="checkbox" id="id${o.id}"><span>Photo ID checked</span></label><button class="btn primary block" style="margin-top:12px" data-deliver="${o.id}">${ic("check")} Confirm delivery</button>` : ""}
-      ${o.status === "delivered" ? `<div class="notice good">${ic("check")}<span>Delivered · proof recorded</span></div>` : ""}</article>`).join("") || empty("truck", "No deliveries assigned", "Packed orders from your pharmacy will appear here."));
-  $$("[data-dispatch]").forEach((b) => (b.onclick = () => guard(async () => { await post(`/api/pharmacy/orders/${b.dataset.dispatch}/dispatch`); SCREENS.deliveries(); })));
-  $$("[data-deliver]").forEach((b) => (b.onclick = () => guard(async () => {
-    const id = b.dataset.deliver;
-    await post(`/api/orders/${id}/handover`, { code: $(`#code${id}`).value, recipient_name: $(`#who${id}`).value || "Patient", id_verified: $(`#id${id}`).checked });
-    toast("Delivered. Proof of delivery recorded."); SCREENS.deliveries();
-  })));
-};
-
-
 /* ------------------------------------------------------------ drone map */
 const KM_LAT = 111.0;
 function routeMap({ points, lines = [], zones = [], drone = null }) {
@@ -1147,4 +1168,4 @@ function setupYana() {
   }
 }
 
-boot();
+/* boot() runs from live.js once every screen is registered. */

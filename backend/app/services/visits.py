@@ -10,6 +10,7 @@ from .. import audit
 from ..adapters.geo import haversine_km
 from ..errors import Conflict, NotFound, Unprocessable
 from ..models import Doctor, DoctorAvailability, HomeVisit, Patient, User, VisitStatus, utcnow
+from . import dispatch
 from .common import new_ref, notify, users_for_doctor, users_for_patient
 
 SERVICE_RADIUS_KM = 15.0
@@ -208,6 +209,7 @@ def book(db: Session, user: User, doctor_id: int | None, scheduled_for: str, rea
                       follow_up_of_id=prev.id if prev else None)
     db.add(visit)
     db.flush()
+    dispatch.offer_booked_visit(db, visit)
     local = when.replace(tzinfo=timezone.utc).astimezone(LOCAL_TZ).strftime("%a %d %b, %I:%M %p")
     kind = "follow-up visit" if prev else "home visit"
     seen_before = " You saw them before." if prev and prev.doctor_id == doc.id else ""
@@ -270,12 +272,33 @@ def set_availability(db: Session, user: User, day: str, hours: list[int]) -> dic
     return _day_dict(days[day], hours, booked, now)
 
 
+def book_now(db: Session, user: User, reason: str, address: str) -> HomeVisit:
+    """"Doctor now": offered to the nearest online doctor, who has a short time to accept (DoorDash style)."""
+    patient = db.get(Patient, user.patient_id)
+    probe = HomeVisit(id=0, patient_id=patient.id)
+    if not dispatch.candidates(db, "visit", probe):
+        raise Conflict("no_doctor_online", "No doctors are online near you right now. Please book a time instead.")
+    fees = [d.visit_fee for d, _ in _nearby_doctors(db, patient)]
+    visit = HomeVisit(doctor_id=None, patient_id=patient.id, status=VisitStatus.requested, on_demand=True,
+                      reason=reason.strip(), scheduled_for=utcnow().replace(second=0, microsecond=0),
+                      booking_ref=new_ref("BK"), address=(address.strip() or patient.address),
+                      fee=max(fees) if fees else 800)
+    db.add(visit)
+    db.flush()
+    dispatch.offer_on_demand_visit(db, visit)
+    notify(db, users_for_patient(db, patient.id), "Finding your doctor",
+           "We're asking the nearest available doctor. You'll see them on the map as soon as they accept.", f"visit:{visit.id}")
+    audit.record(db, user, "visit.book_now", "home_visit", visit.id)
+    db.commit()
+    return visit
+
+
 def visit_to_dict(v: HomeVisit, patient: Patient | None = None) -> dict:
-    km = _distance(v.doctor, patient) if patient else None
+    km = _distance(v.doctor, patient) if patient and v.doctor else None
     return {
         "id": v.id, "booking_ref": v.booking_ref, "status": v.status.value, "reason": v.reason,
-        "scheduled_for": v.scheduled_for.isoformat(), "address": v.address, "fee": v.fee,
-        "doctor": doctor_to_dict(v.doctor, km),
+        "scheduled_for": v.scheduled_for.isoformat(), "address": v.address, "fee": v.fee, "on_demand": v.on_demand,
+        "doctor": doctor_to_dict(v.doctor, km) if v.doctor else None,
         "follow_up_of": follow_up_info(v),
         "can_cancel": v.status in (VisitStatus.requested, VisitStatus.accepted),
     }
@@ -295,7 +318,9 @@ def cancel(db: Session, user: User, visit_id: int) -> HomeVisit:
     if v.status not in (VisitStatus.requested, VisitStatus.accepted):
         raise Conflict("bad_visit_state", "This visit can no longer be cancelled.")
     v.status = VisitStatus.cancelled
-    notify(db, users_for_doctor(db, v.doctor_id), "Home visit cancelled",
+    dispatch.close_offers_for_visit(db, v)
+    dispatch.end_trips_for(db, visit_id=v.id)
+    notify(db, users_for_doctor(db, v.doctor_id) if v.doctor_id else [], "Home visit cancelled",
            f"{v.patient.name} cancelled their visit.", f"visit:{v.id}")
     audit.record(db, user, "visit.cancel", "home_visit", v.id)
     db.commit()

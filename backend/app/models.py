@@ -111,6 +111,12 @@ class User(Base):
     doctor_id: Mapped[int | None] = mapped_column(ForeignKey("doctors.id"))
     pharmacy_id: Mapped[int | None] = mapped_column(ForeignKey("pharmacies.id"))
     hospital_id: Mapped[int | None] = mapped_column(ForeignKey("hospitals.id"))
+    # Provider app: availability ("Go online") and last known location.
+    on_duty: Mapped[bool] = mapped_column(Boolean, default=False)
+    lat: Mapped[float | None] = mapped_column(Float)
+    lng: Mapped[float | None] = mapped_column(Float)
+    vehicle: Mapped[str] = mapped_column(String(40), default="")
+    loc_updated_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
 class Patient(Base):
@@ -150,7 +156,8 @@ class Doctor(Base):
 class HomeVisit(Base):
     __tablename__ = "home_visits"
     id: Mapped[int] = mapped_column(primary_key=True)
-    doctor_id: Mapped[int] = mapped_column(ForeignKey("doctors.id"))
+    doctor_id: Mapped[int | None] = mapped_column(ForeignKey("doctors.id"))  # None while dispatch is searching
+    on_demand: Mapped[bool] = mapped_column(Boolean, default=False)  # "Doctor now" vs a booked time
     patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"))
     status: Mapped[VisitStatus] = mapped_column(Enum(VisitStatus), default=VisitStatus.requested)
     reason: Mapped[str] = mapped_column(EncryptedText, default="")
@@ -450,6 +457,7 @@ class DeliveryAssignment(Base):
     provider: Mapped[str] = mapped_column(String(40))
     option: Mapped[str] = mapped_column(String(20))
     courier_name: Mapped[str | None] = mapped_column(String(80))
+    courier_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     tracking_ref: Mapped[str] = mapped_column(String(40))
     eta: Mapped[datetime | None] = mapped_column(DateTime)
     handover_code: Mapped[str] = mapped_column(EncryptedText)
@@ -459,6 +467,50 @@ class DeliveryAssignment(Base):
     proof_of_delivery: Mapped[dict | None] = mapped_column(JSON)
 
     order = relationship("PharmacyOrder", back_populates="delivery")
+
+
+class DispatchOffer(Base):
+    """A job offered to one provider at a time, nearest first (DoorDash/Dasher style)."""
+    __tablename__ = "dispatch_offers"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    kind: Mapped[str] = mapped_column(String(16))            # visit | delivery
+    visit_id: Mapped[int | None] = mapped_column(ForeignKey("home_visits.id"), index=True)
+    order_id: Mapped[int | None] = mapped_column(ForeignKey("pharmacy_orders.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    status: Mapped[str] = mapped_column(String(16), default="offered")  # offered|accepted|declined|expired|withdrawn
+    distance_km: Mapped[float] = mapped_column(Float, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime)  # None = waits for an answer (booked times)
+    responded_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    user = relationship("User")
+    visit = relationship("HomeVisit")
+    order = relationship("PharmacyOrder")
+
+
+class Trip(Base):
+    """A provider travelling to a place. Position is simulated along the route unless real GPS is sent."""
+    __tablename__ = "trips"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    visit_id: Mapped[int | None] = mapped_column(ForeignKey("home_visits.id"), index=True)
+    order_id: Mapped[int | None] = mapped_column(ForeignKey("pharmacy_orders.id"), index=True)
+    leg: Mapped[str] = mapped_column(String(16))             # to_patient | to_pharmacy
+    dest_label: Mapped[str] = mapped_column(String(160), default="")
+    route: Mapped[list] = mapped_column(JSON, default=list)  # [[lat, lng], ...]
+    steps: Mapped[list] = mapped_column(JSON, default=list)  # [{text, along_m, type, modifier}]
+    distance_m: Mapped[float] = mapped_column(Float, default=0)
+    duration_s: Mapped[float] = mapped_column(Float, default=0)
+    source: Mapped[str] = mapped_column(String(16), default="synthetic")  # synthetic | osrm
+    speedup: Mapped[float] = mapped_column(Float, default=8)
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    arrived_at: Mapped[datetime | None] = mapped_column(DateTime)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime)
+    gps_lat: Mapped[float | None] = mapped_column(Float)
+    gps_lng: Mapped[float | None] = mapped_column(Float)
+    gps_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    user = relationship("User")
 
 
 class TrackingEvent(Base):

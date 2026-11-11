@@ -40,6 +40,7 @@ from ..models import (
 )
 from . import drones as drone_svc
 from .carts import get_cart_for_patient
+from . import dispatch
 from .common import ensure_order_access, get_or_404, new_ref, notify, users_for_doctor, users_for_patient, users_for_pharmacy
 from .dispensing_rules import achievable_quantities, evaluate_quantity_request, policy_for
 from .matching import match_pharmacies
@@ -510,7 +511,7 @@ def advance(db: Session, user: User, order_id: int, action: str) -> PharmacyOrde
                     msg = _fallback_to_road(db, order, mission.fallback_reason)
                     db.delete(mission)
                 booking = courier.book(order.delivery_option, dist, 0, order.scheduled_for)
-                provider, courier_name, ref = courier.name, booking.courier_name, booking.tracking_ref
+                provider, courier_name, ref = "triyana-dispatch", None, booking.tracking_ref
                 eta, code = booking.eta, booking.handover_code
             db.add(DeliveryAssignment(
                 order_id=order.id, provider=provider, option=order.delivery_option,
@@ -520,6 +521,12 @@ def advance(db: Session, user: User, order_id: int, action: str) -> PharmacyOrde
                 id_check_required=any(m.id_check_required for m in meds),
                 signature_required=True,
             ))
+            if not (mission is not None and mission.mode == "drone"):
+                db.flush()
+                db.refresh(order)
+                dispatch.offer_delivery(db, order)  # nearest online courier gets it first
+                msg = ("Your order is packed. We're finding the nearest courier."
+                       if msg == "Your order is packed and waiting for the courier." else f"{msg} We're finding the nearest courier.")
         else:
             msg = "Your order is ready to collect. Bring photo ID."
     if action == "dispatch" and order.fulfillment != "delivery":
@@ -529,6 +536,16 @@ def advance(db: Session, user: User, order_id: int, action: str) -> PharmacyOrde
         if mission is not None:
             drone_svc.launch(mission)
             msg = "Your medicines are in the air. Keep your handover code ready."
+        else:
+            d = order.delivery
+            if d.courier_user_id not in (None, user.id):
+                raise Conflict("not_your_delivery", "Another courier is collecting this order.")
+            d.courier_user_id, d.courier_name = user.id, user.name.split(" (")[0]
+            dispatch.close_offers_for_order(db, order, user)
+            p = db.get(Patient, order.patient_id)
+            dispatch.start_trip(db, user, order_id=order.id, leg="to_patient", dest=(p.lat, p.lng),
+                                dest_label=f"{p.name.split()[0]}'s home")
+            msg = f"{d.courier_name} has your medicines and is on the way."
     _event(db, order, to, msg)
     audit.record(db, user, f"order.{action}", "order", order.id)
     _notify_patient(db, order, msg)
@@ -551,10 +568,13 @@ def complete_handover(db: Session, user: User, order_id: int, code: str, recipie
             raise Unprocessable("bad_handover_code", "Handover code doesn't match.")
         if d.id_check_required and not id_verified:
             raise Unprocessable("id_check_required", "This delivery requires an identity check.")
+        if d.courier_user_id not in (None, user.id):
+            raise Conflict("not_your_delivery", "This delivery belongs to another courier.")
         d.proof_of_delivery = {"recipient": recipient_name, "id_verified": id_verified, "code_matched": True}
         mission = order_mission(db, order.id)
         if mission is not None:
             drone_svc.confirm(mission, recipient_name or "Patient", temperature_ok=True)
+        dispatch.end_trips_for(db, order_id=order.id)
         _event(db, order, OrderStatus.delivered, f"Delivered to {recipient_name}.")
     else:
         if user.role != Role.pharmacist or order.status != OrderStatus.ready_for_pickup:

@@ -1,0 +1,16 @@
+{
+  "name": "Triyana",
+  "short_name": "Triyana",
+  "description": "Doctors at home, prescriptions and medicine delivery.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f4f6f5",
+  "theme_color": "#062e29",
+  "icons": [
+    {"src": "/static/icons/patient-192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "/static/icons/patient-512.png", "sizes": "512x512", "type": "image/png"},
+    {"src": "/static/icons/patient.svg", "sizes": "any", "type": "image/svg+xml"}
+  ]
+}

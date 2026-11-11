@@ -17,6 +17,7 @@ from . import audit
 from .adapters.payments import INDIA_METHODS, SUPPORTED_METHODS
 from .db import Base, engine, get_db, SessionLocal
 from .deps import current_user, require
+from .routers.live import router as live_router
 from .errors import DomainError, NotFound
 from .models import (
     AuditLog,
@@ -691,18 +692,24 @@ def prescription_audit(rx_id: int, user: User = Depends(require(Role.doctor)), d
 
 
 # ------------------------------------------------------------------- demo
+DEMO_APPS = {
+    "patient": {"patient": "Meera (patient)", "patient2": "Arjun (patient)",
+                "hospital": "Nisha · hospital (Lotus Hospital)", "hospital2": "Dev · hospital (District Hospital)"},
+    "provider": {
+        "doctor": "Dr. Carter · doctor", "doctor_rohan": "Dr. Rohan · doctor", "doctor_vikram": "Dr. Vikram · doctor",
+        "doctor_sana": "Dr. Sana · doctor", "courier": "Asha · courier (GreenLeaf)", "courier2": "Kiran · courier",
+        "pharmacist": "Ravi · pharmacist (GreenLeaf)", "pharmacist2": "Lina · pharmacist (Sunrise)",
+    },
+}
+
+
 @app.get("/api/demo/accounts")
-def demo_accounts():
+def demo_accounts(app_name: Literal["patient", "provider"] | None = Query(None, alias="app")):
     if os.environ.get("TRIYANA_DEMO", "1") != "1":
         raise NotFound("not_found", "Not available.")
     from .seed import DEMO_TOKENS
-    labels = {
-        "patient": "Meera (patient)", "patient2": "Arjun (patient)", "doctor": "Dr. Carter (verified doctor)",
-        "pharmacist": "Ravi (GreenLeaf pharmacist)", "pharmacist2": "Lina (Sunrise pharmacist)",
-        "courier": "Asha (GreenLeaf courier)",
-        "hospital": "Nisha (Lotus Hospital)", "hospital2": "Dev (District Hospital)",
-    }
-    return [{"key": k, "label": v, "token": DEMO_TOKENS[k]} for k, v in labels.items()]
+    apps = [app_name] if app_name else list(DEMO_APPS)
+    return [{"key": k, "label": v, "token": DEMO_TOKENS[k], "app": a} for a in apps for k, v in DEMO_APPS[a].items()]
 
 
 @app.post("/api/demo/reset")
@@ -717,6 +724,8 @@ def demo_reset():
     return {"ok": True}
 
 
+app.include_router(live_router)
+
 # --------------------------------------------------------------- frontend
 FRONTEND = Path(__file__).resolve().parents[2] / "frontend"
 if FRONTEND.exists():
@@ -724,7 +733,18 @@ if FRONTEND.exists():
 
     @app.get("/")
     def index():
+        """Triyana: the patient app."""
         return FileResponse(FRONTEND / "index.html")
+
+    @app.get("/provider")
+    def provider_app():
+        """Triyana Partner: the app for doctors, couriers and pharmacists."""
+        return FileResponse(FRONTEND / "provider.html")
+
+    @app.get("/sw.js")
+    def service_worker():
+        return FileResponse(FRONTEND / "sw.js", media_type="text/javascript",
+                            headers={"Service-Worker-Allowed": "/"})
 
 
 @app.on_event("startup")

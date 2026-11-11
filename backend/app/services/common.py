@@ -4,7 +4,7 @@ from __future__ import annotations
 import secrets
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from ..errors import Forbidden, NotFound
 from ..models import (
@@ -50,8 +50,15 @@ def ensure_prescription_access(user: User, rx: Prescription, db: Session) -> Non
 def ensure_order_access(user: User, order: PharmacyOrder) -> None:
     if user.role == Role.patient and user.patient_id == order.patient_id:
         return
-    if user.role in (Role.pharmacist, Role.courier) and user.pharmacy_id == order.pharmacy_id:
+    if user.role in (Role.pharmacist, Role.courier) and user.pharmacy_id and user.pharmacy_id == order.pharmacy_id:
         return
+    if user.role == Role.courier:
+        # Independent couriers see an order once it is offered to or taken by them.
+        if order.delivery and order.delivery.courier_user_id == user.id:
+            return
+        from .dispatch import has_open_offer
+        if has_open_offer(object_session(order), user, order.id):
+            return
     raise NotFound("not_found", "Order not found.")
 
 
