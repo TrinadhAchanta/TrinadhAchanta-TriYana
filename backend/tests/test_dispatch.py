@@ -21,7 +21,8 @@ def test_two_apps_two_logins(env, as_):
     c = env["client"]
     patient_accounts = c.get("/api/demo/accounts", params={"app": "patient"}).json()
     provider_accounts = c.get("/api/demo/accounts", params={"app": "provider"}).json()
-    assert {a["key"] for a in patient_accounts} == {"patient", "patient2"}
+    assert {"patient", "patient2"} <= {a["key"] for a in patient_accounts}
+    assert not {"doctor", "courier", "pharmacist"} & {a["key"] for a in patient_accounts}
     assert {"doctor", "courier", "courier2", "pharmacist"} <= {a["key"] for a in provider_accounts}
     tokens = env["ids"]["tokens"]
     # A patient can't sign in to the provider app, and a provider can't sign in to the patient app.

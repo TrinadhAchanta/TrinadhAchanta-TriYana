@@ -243,3 +243,7 @@ body.live-mode .yana-fab, body.live-mode .yana-panel { display: none; }
   .topbar select { max-width: 46%; }
   .topbar .sign-out { padding: 6px 8px; }
 }
+@media (max-width: 780px) {
+  .home-hero .stats { display: none; }
+  .home-hero p { font-size: 14px; }
+}

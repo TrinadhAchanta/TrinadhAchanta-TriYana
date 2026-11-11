@@ -239,7 +239,7 @@ SCREENS.home = async () => {
         <div class="actions">${bookBtn()}<button class="btn" data-go="meds">${ic("pills")} My Medicines</button></div>`;
   const showCta = ready || active;
   view().innerHTML = `
-    <section class="hero"><div class="eyebrow">${GREETING()}, ${esc(first)}</div>${hero}
+    <section class="hero home-hero"><div class="eyebrow">${GREETING()}, ${esc(first)}</div>${hero}
       <div class="stats"><div class="stat"><b>${upcoming.length}</b><span>Upcoming visits</span></div>
         <div class="stat"><b>${activeRx.length}</b><span>Active prescriptions</span></div>
         <div class="stat"><b>${dash.active_orders.length}</b><span>Orders in progress</span></div></div>
