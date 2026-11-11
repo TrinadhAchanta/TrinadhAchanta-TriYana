@@ -1,7 +1,6 @@
 """Fictional demonstration data. No real patients, doctors, pharmacies or payments."""
 from __future__ import annotations
 
-from datetime import timedelta
 
 from sqlalchemy.orm import Session
 
@@ -37,10 +36,30 @@ def seed(db: Session) -> dict:
     arjun = Patient(name="Arjun Sample", patient_ref="PT-DEMO-002", date_of_birth="1985-09-30",
                     address="88 Banyan Road, Demo City", lat=17.4500, lng=78.3800, jurisdiction="DEMO-IN")
     kavya = Doctor(name="Dr. Kavya Fictional", specialty="General Medicine", license_no="DEMO-MCI-55821",
-                   license_verified=True, jurisdiction="DEMO-IN", rating=4.9)
+                   license_verified=True, jurisdiction="DEMO-IN", rating=4.9, rating_count=412,
+                   experience_years=12, visit_fee=600, languages=["English", "Hindi", "Telugu"],
+                   about="Fever, infections, BP and sugar checks, and everyday family care at home.",
+                   lat=17.4460, lng=78.3560, area="Lotus Lane clinic")
     unverified = Doctor(name="Dr. Pending Check", specialty="General Medicine", license_no="DEMO-MCI-00000",
                         license_verified=False, jurisdiction="DEMO-IN", rating=0)
-    db.add_all([meera, arjun, kavya, unverified])
+    others = [
+        Doctor(name="Dr. Rohan Example", specialty="Child Health (Paediatrics)", license_no="DEMO-MCI-61204",
+               license_verified=True, jurisdiction="DEMO-IN", rating=4.8, rating_count=268, experience_years=9,
+               visit_fee=700, languages=["English", "Hindi"],
+               about="Home visits for babies and children: fever, coughs, colds and growth checks.",
+               lat=17.4290, lng=78.3380, area="Lake View"),
+        Doctor(name="Dr. Sana Sample", specialty="Elderly Care (Geriatrics)", license_no="DEMO-MCI-47719",
+               license_verified=True, jurisdiction="DEMO-IN", rating=4.9, rating_count=530, experience_years=15,
+               visit_fee=800, languages=["English", "Urdu", "Telugu"],
+               about="Care for parents and grandparents at home: BP, diabetes, mobility and medicine reviews.",
+               lat=17.4620, lng=78.3720, area="Ring Road"),
+        Doctor(name="Dr. Vikram Demo", specialty="Bones & Joints (Orthopaedics)", license_no="DEMO-MCI-58833",
+               license_verified=True, jurisdiction="DEMO-IN", rating=4.7, rating_count=190, experience_years=11,
+               visit_fee=900, languages=["English", "Hindi", "Kannada"],
+               about="Back, knee and joint pain, sprains and post-surgery follow-ups at home.",
+               lat=17.4880, lng=78.4010, area="Hill Park"),
+    ]
+    db.add_all([meera, arjun, kavya, unverified, *others])
     db.flush()
 
     meds = {
@@ -117,11 +136,15 @@ def seed(db: Session) -> dict:
     db.add_all(users.values())
     db.flush()
 
+    from .services.visits import _all_slots  # aligned to real bookable slots
+    slots = _all_slots(now)
     visit = HomeVisit(doctor_id=kavya.id, patient_id=meera.id, status=VisitStatus.requested,
-                      reason="Fever and body ache (fictional)", scheduled_for=now + timedelta(hours=1))
+                      reason="Fever and body ache (fictional)", scheduled_for=slots[0],
+                      booking_ref="BK-DEMO0001", fee=kavya.visit_fee, address=meera.address)
     visit2 = HomeVisit(doctor_id=kavya.id, patient_id=arjun.id, status=VisitStatus.requested,
-                       reason="Follow-up (fictional)", scheduled_for=now + timedelta(hours=3))
-    visit3 = HomeVisit(doctor_id=unverified.id, patient_id=meera.id, status=VisitStatus.in_progress,
+                       reason="Follow-up (fictional)", scheduled_for=slots[2],
+                       booking_ref="BK-DEMO0002", fee=kavya.visit_fee, address=arjun.address)
+    visit3 = HomeVisit(doctor_id=unverified.id, patient_id=arjun.id, status=VisitStatus.in_progress,
                        reason="(fictional)", scheduled_for=now)
     db.add_all([visit, visit2, visit3])
     db.commit()

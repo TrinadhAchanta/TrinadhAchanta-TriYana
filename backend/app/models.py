@@ -132,6 +132,14 @@ class Doctor(Base):
     license_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     jurisdiction: Mapped[str] = mapped_column(String(16))
     rating: Mapped[float] = mapped_column(Float, default=0)
+    rating_count: Mapped[int] = mapped_column(Integer, default=0)
+    experience_years: Mapped[int] = mapped_column(Integer, default=0)
+    visit_fee: Mapped[float] = mapped_column(Float, default=500)
+    languages: Mapped[list] = mapped_column(JSON, default=list)
+    about: Mapped[str] = mapped_column(String(300), default="")
+    lat: Mapped[float] = mapped_column(Float, default=0)
+    lng: Mapped[float] = mapped_column(Float, default=0)
+    area: Mapped[str] = mapped_column(String(80), default="")
 
 
 class HomeVisit(Base):
@@ -143,6 +151,10 @@ class HomeVisit(Base):
     reason: Mapped[str] = mapped_column(EncryptedText, default="")
     scheduled_for: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    booking_ref: Mapped[str | None] = mapped_column(String(24))
+    address: Mapped[str] = mapped_column(EncryptedText, default="")
+    fee: Mapped[float | None] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     doctor = relationship("Doctor")
     patient = relationship("Patient")

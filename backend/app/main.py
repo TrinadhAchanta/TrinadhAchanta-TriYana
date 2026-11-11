@@ -41,6 +41,7 @@ from .models import (
 from .services import carts as cart_svc
 from .services import orders as order_svc
 from .services import prescriptions as rx_svc
+from .services import visits as visit_svc
 from .services import yana as yana_svc
 from .services.common import ensure_order_access, ensure_prescription_access, get_or_404
 from .services.dispensing_rules import policy_for
@@ -231,12 +232,50 @@ def payment_methods():
     return [{"code": k, "label": v} for k, v in SUPPORTED_METHODS.items()]
 
 
+# ------------------------------------------------------------------ patient booking
+class BookingIn(BaseModel):
+    doctor_id: int | None = None  # None = nearest available doctor
+    scheduled_for: str = Field(min_length=10, max_length=40)
+    reason: str = Field(min_length=2, max_length=300)
+    address: str = Field(default="", max_length=300)
+
+
+@app.get("/api/doctors")
+def nearby_doctors(user: User = Depends(require(Role.patient)), db: Session = Depends(get_db)):
+    patient = db.get(Patient, user.patient_id)
+    return {"address": patient.address, "radius_km": visit_svc.SERVICE_RADIUS_KM,
+            "doctors": visit_svc.list_doctors(db, patient)}
+
+
+@app.get("/api/visit-slots")
+def visit_slots(doctor_id: int | None = None, user: User = Depends(require(Role.patient)), db: Session = Depends(get_db)):
+    return visit_svc.slots_for(db, db.get(Patient, user.patient_id), doctor_id)
+
+
+@app.get("/api/patient/visits")
+def patient_visits(user: User = Depends(require(Role.patient)), db: Session = Depends(get_db)):
+    return visit_svc.list_for_patient(db, user)
+
+
+@app.post("/api/patient/visits", status_code=201)
+def book_visit(body: BookingIn, user: User = Depends(require(Role.patient)), db: Session = Depends(get_db)):
+    v = visit_svc.book(db, user, body.doctor_id, body.scheduled_for, body.reason, body.address)
+    return visit_svc.visit_to_dict(v, db.get(Patient, user.patient_id))
+
+
+@app.post("/api/patient/visits/{visit_id}/cancel")
+def cancel_visit(visit_id: int, user: User = Depends(require(Role.patient)), db: Session = Depends(get_db)):
+    v = visit_svc.cancel(db, user, visit_id)
+    return {"id": v.id, "status": v.status.value}
+
+
 # ------------------------------------------------------------------ doctor
 @app.get("/api/doctor/visits")
 def doctor_visits(user: User = Depends(require(Role.doctor)), db: Session = Depends(get_db)):
     rows = db.scalars(select(HomeVisit).where(HomeVisit.doctor_id == user.doctor_id).order_by(HomeVisit.id)).all()
     return [{"id": v.id, "status": v.status.value, "patient": {"id": v.patient_id, "name": v.patient.name,
-             "patient_ref": v.patient.patient_ref}, "reason": v.reason,
+             "patient_ref": v.patient.patient_ref}, "reason": v.reason, "address": v.address or v.patient.address,
+             "booking_ref": v.booking_ref, "fee": v.fee,
              "scheduled_for": v.scheduled_for.isoformat()} for v in rows]
 
 
