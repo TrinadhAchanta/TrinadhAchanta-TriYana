@@ -19,6 +19,11 @@ def env():
     Session = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
     with Session() as s:
         ids = seed(s)
+        # Demo patients start without consent; tests act as patients who already agreed (DPDP).
+        from app.models import Consent, User
+        for u in s.query(User).filter(User.patient_id.isnot(None)):
+            s.add(Consent(user_id=u.id, purpose="care", granted=True, notice_version="test"))
+        s.commit()
 
     def override():
         db = Session()

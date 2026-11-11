@@ -19,6 +19,7 @@ from ..models import (
 )
 from .common import notify, users_for_doctor
 from .dispensing_rules import COURSE_WARNING, achievable_quantities, evaluate_quantity_request, policy_for
+from .india import SCHEDULE_X_NOTE, online_blocked, schedule_info
 from .matching import match_pharmacies
 
 DECLINE_MESSAGE = (
@@ -75,6 +76,8 @@ def serialize_cart(db: Session, cart: SuggestedCart) -> dict:
             "form": med.form,
             "unit": med.unit,
             "schedule": med.schedule.value,
+            "india_schedule": schedule_info(med, rx.jurisdiction),
+            "online_sale_blocked": online_blocked(med, rx.jurisdiction),
             "prescribed": {
                 "quantity": pi.quantity,
                 "dosage": pi.dosage,
@@ -130,6 +133,8 @@ def set_status(db: Session, user: User, item_id: int, action: str) -> dict:
     }
     if action not in mapping:
         raise Unprocessable("bad_action", "Unknown cart action.")
+    if action == "add" and online_blocked(item.prescription_item.medication, item.cart.prescription.jurisdiction):
+        raise Unprocessable("schedule_x_online_sale", SCHEDULE_X_NOTE)
     item.status = mapping[action]
     audit.record(db, user, f"cart.item_{action}", "cart_item", item.id,
                  prescription_item_id=item.prescription_item_id)
@@ -142,6 +147,8 @@ def request_quantity(db: Session, user: User, item_id: int, requested: int) -> d
     item = get_item(db, user, item_id)
     pi = item.prescription_item
     rx = item.cart.prescription
+    if online_blocked(pi.medication, rx.jurisdiction):
+        raise Unprocessable("schedule_x_online_sale", SCHEDULE_X_NOTE)
     decision = evaluate_quantity_request(
         med=pi.medication, prescribed=pi.quantity, requested=requested, jurisdiction=rx.jurisdiction
     )

@@ -27,6 +27,7 @@ class JurisdictionPolicy:
     partial_fill_blocked_for: frozenset = field(default_factory=lambda: frozenset({MedSchedule.controlled}))
     drone_delivery_permitted: bool = False
     prescription_validity_days: int = 30
+    india_schedules: bool = False  # apply Indian drug schedule rules (H, H1, X)
 
 
 POLICIES: dict[str, JurisdictionPolicy] = {
@@ -34,7 +35,7 @@ POLICIES: dict[str, JurisdictionPolicy] = {
         code="DEMO-IN", name="Demo Region (India-style)", currency="INR", tax_rate=0.12,
         partial_fill_allowed=True,
         prescriber_auth_for=frozenset({MedSchedule.restricted}),
-        drone_delivery_permitted=False, prescription_validity_days=30,
+        drone_delivery_permitted=False, prescription_validity_days=30, india_schedules=True,
     ),
     "DEMO-US": JurisdictionPolicy(
         code="DEMO-US", name="Demo Region (US-style)", currency="USD", tax_rate=0.0,

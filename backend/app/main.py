@@ -14,7 +14,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from . import audit
-from .adapters.payments import SUPPORTED_METHODS
+from .adapters.payments import INDIA_METHODS, SUPPORTED_METHODS
 from .db import Base, engine, get_db, SessionLocal
 from .deps import current_user, require
 from .errors import DomainError, NotFound
@@ -41,10 +41,12 @@ from .models import (
 from .services import carts as cart_svc
 from .services import orders as order_svc
 from .services import prescriptions as rx_svc
+from .services import privacy as privacy_svc
 from .services import visits as visit_svc
 from .services import yana as yana_svc
 from .services.common import ensure_order_access, ensure_prescription_access, get_or_404
 from .services.dispensing_rules import policy_for
+from .services.india import schedule_info
 from .services.matching import SORTS, match_pharmacies, match_to_dict
 
 app = FastAPI(title="Triyana Home — Prescriptions to Delivery", version="1.0.0")
@@ -121,6 +123,7 @@ class ReviewIn(BaseModel):
     decision: str
     notes: str = ""
     adjustments: dict[int, int] | None = None
+    h1_register_confirmed: bool = False
 
 
 class ClarifyIn(BaseModel):
@@ -157,7 +160,8 @@ def rx_to_dict(rx: Prescription, include_integrity: bool = True) -> dict:
         "patient": {"name": rx.patient.name, "patient_ref": rx.patient.patient_ref,
                     "date_of_birth": rx.patient.date_of_birth},
         "doctor": {"name": d.name, "specialty": d.specialty, "license_no": d.license_no,
-                   "license_verified": d.license_verified},
+                   "license_verified": d.license_verified, "medical_council": d.medical_council,
+                   "qualification": d.qualification, "registration_year": d.registration_year},
         "jurisdiction": rx.jurisdiction,
         "consultation_date": rx.consultation_date.isoformat(),
         "valid_until": rx.valid_until.isoformat() if rx.valid_until else None,
@@ -173,6 +177,7 @@ def rx_to_dict(rx: Prescription, include_integrity: bool = True) -> dict:
                 "strength": i.medication.strength,
                 "form": i.medication.form,
                 "unit": i.medication.unit,
+                "india_schedule": schedule_info(i.medication, rx.jurisdiction),
                 "dosage": i.dosage,
                 "frequency": i.frequency,
                 "duration_days": i.duration_days,
@@ -223,13 +228,86 @@ def read_notification(nid: int, user: User = Depends(current_user), db: Session 
 @app.get("/api/catalog/medications")
 def medications(user: User = Depends(require(Role.doctor, Role.pharmacist)), db: Session = Depends(get_db)):
     return [{"id": m.id, "brand_name": m.brand_name, "generic_name": m.generic_name, "strength": m.strength,
-             "form": m.form, "unit": m.unit, "schedule": m.schedule.value, "pack_sizes": m.pack_sizes}
+             "form": m.form, "unit": m.unit, "schedule": m.schedule.value, "pack_sizes": m.pack_sizes,
+             "india_schedule": m.india_schedule}
             for m in db.scalars(select(Medication).order_by(Medication.brand_name))]
 
 
 @app.get("/api/payment-methods")
 def payment_methods():
-    return [{"code": k, "label": v} for k, v in SUPPORTED_METHODS.items()]
+    return [{"code": k, "label": SUPPORTED_METHODS[k]} for k in INDIA_METHODS]
+
+
+@app.get("/api/payment-config")
+def payment_config():
+    gw = order_svc.get_gateway()
+    return {"gateway": gw.name, "test_mode": getattr(gw, "test_mode", True),
+            "key_id": getattr(gw, "key_id", None)}
+
+
+class IntentIn(BaseModel):
+    pharmacy_id: int
+    fulfillment: str
+    delivery_option: str | None = None
+
+
+@app.post("/api/carts/{cart_id}/payment-intent")
+def payment_intent(cart_id: int, body: IntentIn, user: User = Depends(require(Role.patient)), db: Session = Depends(get_db)):
+    privacy_svc.require_care(db, user)
+    return order_svc.payment_intent(db, user, cart_id, pharmacy_id=body.pharmacy_id, fulfillment=body.fulfillment,
+                                    delivery_option=body.delivery_option)
+
+
+# ------------------------------------------------------------------ privacy (DPDP Act 2023)
+class ConsentIn(BaseModel):
+    purpose: str
+    granted: bool
+    language: str = "en"
+
+
+class DataRequestIn(BaseModel):
+    kind: Literal["erasure", "correction"]
+    details: str = Field(default="", max_length=1000)
+
+
+@app.get("/api/privacy/notice")
+def privacy_notice():
+    return {**privacy_svc.NOTICE, "purposes": privacy_svc.PURPOSES}
+
+
+@app.get("/api/consents")
+def get_consents(user: User = Depends(require(Role.patient)), db: Session = Depends(get_db)):
+    return {"notice_version": privacy_svc.NOTICE_VERSION, "consents": privacy_svc.current(db, user),
+            "history": privacy_svc.history(db, user)}
+
+
+@app.post("/api/consents")
+def set_consent(body: ConsentIn, user: User = Depends(require(Role.patient)), db: Session = Depends(get_db)):
+    return {"consents": privacy_svc.record(db, user, body.purpose, body.granted, body.language)}
+
+
+@app.get("/api/patient/my-data")
+def my_data(user: User = Depends(require(Role.patient)), db: Session = Depends(get_db)):
+    """DPDP right to access: a copy of the patient's own data."""
+    patient = db.get(Patient, user.patient_id)
+    audit.record(db, user, "privacy.data_exported", "patient", patient.id)
+    db.commit()
+    return {
+        "profile": {"name": patient.name, "patient_ref": patient.patient_ref, "date_of_birth": patient.date_of_birth,
+                    "address": patient.address},
+        "visits": visit_svc.list_for_patient(db, user),
+        "prescriptions": [rx_to_dict(rx, include_integrity=False) for rx in rx_svc.list_for_patient(db, user.patient_id)],
+        "orders": [order_svc.serialize_order(db, o, user) for o in db.scalars(
+            select(PharmacyOrder).where(PharmacyOrder.patient_id == patient.id).order_by(PharmacyOrder.id))],
+        "consents": privacy_svc.history(db, user),
+    }
+
+
+@app.post("/api/patient/data-requests", status_code=201)
+def data_request(body: DataRequestIn, user: User = Depends(require(Role.patient)), db: Session = Depends(get_db)):
+    req = privacy_svc.data_request(db, user, body.kind, body.details)
+    return {"reference": req.reference, "kind": req.kind, "status": req.status,
+            "respond_within_days": privacy_svc.NOTICE["grievance_officer"]["respond_within_days"]}
 
 
 # ------------------------------------------------------------------ patient booking
@@ -259,6 +337,7 @@ def patient_visits(user: User = Depends(require(Role.patient)), db: Session = De
 
 @app.post("/api/patient/visits", status_code=201)
 def book_visit(body: BookingIn, user: User = Depends(require(Role.patient)), db: Session = Depends(get_db)):
+    privacy_svc.require_care(db, user)
     v = visit_svc.book(db, user, body.doctor_id, body.scheduled_for, body.reason, body.address)
     return visit_svc.visit_to_dict(v, db.get(Patient, user.patient_id))
 
@@ -390,6 +469,7 @@ def cart_pharmacies(cart_id: int, sort: str = Query("nearest"), user: User = Dep
 
 @app.post("/api/carts/{cart_id}/checkout", status_code=201)
 def checkout(cart_id: int, body: CheckoutIn, user: User = Depends(require(Role.patient)), db: Session = Depends(get_db)):
+    privacy_svc.require_care(db, user)
     order = order_svc.checkout(
         db, user, cart_id, pharmacy_id=body.pharmacy_id, fulfillment=body.fulfillment,
         delivery_option=body.delivery_option, scheduled_for=body.scheduled_for,
@@ -480,7 +560,8 @@ def start_review(order_id: int, user: User = Depends(require(Role.pharmacist)), 
 
 @app.post("/api/pharmacy/orders/{order_id}/review")
 def review_order(order_id: int, body: ReviewIn, user: User = Depends(require(Role.pharmacist)), db: Session = Depends(get_db)):
-    order = order_svc.review(db, user, order_id, body.decision, body.notes, body.adjustments)
+    order = order_svc.review(db, user, order_id, body.decision, body.notes, body.adjustments,
+                             body.h1_register_confirmed)
     return order_svc.serialize_order(db, order, user)
 
 
@@ -528,7 +609,7 @@ def demo_accounts():
         raise NotFound("not_found", "Not available.")
     from .seed import DEMO_TOKENS
     labels = {
-        "patient": "Meera (patient)", "patient2": "Arjun (patient)", "doctor": "Dr. Kavya (verified doctor)",
+        "patient": "Meera (patient)", "patient2": "Arjun (patient)", "doctor": "Dr. Carter (verified doctor)",
         "pharmacist": "Ravi (GreenLeaf pharmacist)", "pharmacist2": "Lina (Sunrise pharmacist)",
         "courier": "Asha (GreenLeaf courier)",
     }

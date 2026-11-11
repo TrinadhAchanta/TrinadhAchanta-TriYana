@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from .. import audit
 from ..errors import Conflict, Forbidden, NotFound, Unprocessable
 from ..models import (
+    CartItemStatus,
     CartItem,
     HomeVisit,
     Medication,
@@ -25,6 +26,7 @@ from ..models import (
 from ..security import canonical_hash, sign_prescription, verify_prescription_signature
 from .common import ensure_visit_doctor, get_or_404, new_ref, notify, users_for_patient
 from .dispensing_rules import policy_for
+from .india import SCHEDULE_X_NOTE, online_blocked
 
 # ------------------------------------------------------------------- visits
 VISIT_FLOW = {
@@ -220,11 +222,14 @@ def build_suggested_cart(db: Session, rx: Prescription) -> SuggestedCart:
     db.add(cart)
     db.flush()
     for item in rx.items:
+        blocked = online_blocked(item.medication, rx.jurisdiction)
         db.add(CartItem(
             cart_id=cart.id,
             prescription_item_id=item.id,
             requested_quantity=item.quantity,
-            quantity_status=QuantityStatus.full,
+            quantity_status=QuantityStatus.not_permitted if blocked else QuantityStatus.full,
+            quantity_note=SCHEDULE_X_NOTE if blocked else "",
+            status=CartItemStatus.removed if blocked else CartItemStatus.in_cart,
         ))
     audit.record(db, None, "cart.suggested_created", "cart", cart.id, prescription_id=rx.id)
     db.flush()

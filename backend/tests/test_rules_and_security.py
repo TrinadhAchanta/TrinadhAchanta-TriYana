@@ -144,7 +144,10 @@ def test_restricted_medicine_needs_prescriber_authorisation(env, as_):
     assert clar["reason"] == "partial_quantity_authorization"
     doc.post(f"/api/clarifications/{clar['id']}/respond", {"response": "OK for 6", "authorize": True})
     order = _checkout(patient, cart_id, gl, "restricted-02").json()
+    # Amoxidemo is Schedule H1 (demo classification): the H1 register entry must be confirmed first.
     r = pharmacist.post(f"/api/pharmacy/orders/{order['id']}/review", {"decision": "approve"})
+    assert r.status_code == 422 and r.json()["detail"]["code"] == "h1_register_required"
+    r = pharmacist.post(f"/api/pharmacy/orders/{order['id']}/review", {"decision": "approve", "h1_register_confirmed": True})
     assert r.status_code == 200 and r.json()["items"][0]["approved_quantity"] == 6
 
 
