@@ -90,12 +90,12 @@ const miniPill = (i, off = false) => `<div class="pill sm ${off ? "off" : pillCl
 /* ---------------------------------------------------------------- shell */
 const TABS = {
   patient: [["home", "Home", "home"], ["book", "Book a doctor", "stethoscope"], ["rx", "Prescription", "rx"], ["cart", "Cart", "cart"], ["pharmacies", "Pharmacies", "store", "desktop"], ["orders", "Tracking", "truck"], ["meds", "My Medicines", "pills"], ["privacy", "Privacy & consent", "shield", "desktop"]],
-  doctor: [["visits", "Home visits", "calendar"], ["prescriptions", "Prescriptions", "file"], ["clarifications", "Clarifications", "chat"]],
+  doctor: [["visits", "Home visits", "calendar"], ["availability", "My hours", "clock"], ["prescriptions", "Prescriptions", "file"], ["clarifications", "Clarifications", "chat"]],
   pharmacist: [["queue", "Order queue", "inbox"], ["shipments", "Hospital drones", "drone"]],
   courier: [["deliveries", "Deliveries", "truck"]],
   hospital: [["shipments", "Deliveries", "drone"], ["send", "Send or request", "bolt"], ["coverage", "Coverage", "pin"]],
 };
-const SHORT = { "Book a doctor": "Doctor", Tracking: "Track", "My Medicines": "Medicines", "Home visits": "Visits", "Order queue": "Orders", Prescription: "Rx", Prescriptions: "Rx", Clarifications: "Questions", "Hospital drones": "Drones", "Send or request": "Send" };
+const SHORT = { "Book a doctor": "Doctor", Tracking: "Track", "My Medicines": "Medicines", "Home visits": "Visits", "My hours": "Hours", "Order queue": "Orders", Prescription: "Rx", Prescriptions: "Rx", Clarifications: "Questions", "Hospital drones": "Drones", "Send or request": "Send" };
 const GREETING = () => { const h = new Date().getHours(); return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening"; };
 
 async function boot() {
@@ -162,7 +162,7 @@ function visitCard(v) {
   const [label, cls, icon] = VISIT_LABEL[v.status] || [v.status, "", "info"];
   return `<article class="card visit-card"><div class="card-head"><div class="when">${dateChip(v.scheduled_for)}<div>
       <h3>${esc(v.doctor.name)} ${v.doctor.license_verified ? `<span class="verified" title="Verified licence">${ic("badge")}</span>` : ""}</h3>
-      <div class="meta"><span>${ic("stethoscope")} ${esc(v.doctor.specialty)}</span><span>${ic("clock")} ${when(v.scheduled_for)}</span></div></div></div>
+      <div class="meta"><span>${ic("stethoscope")} ${esc(v.doctor.specialty)}</span><span>${ic("clock")} ${when(v.scheduled_for)}</span>${v.follow_up_of ? `<span class="badge premium">${ic("later")} Follow-up</span>` : ""}</div></div></div>
       <span class="badge ${cls}">${ic(icon)} ${label}</span></div>
     <div class="instructions"><b>Reason:</b> ${esc(v.reason)}</div>
     <div class="row between small" style="margin-top:10px"><span class="muted">${ic("pin")} ${esc(v.address)}</span><span><b>${money(v.fee)}</b> <span class="muted">pay after the visit</span></span></div>
@@ -235,51 +235,96 @@ function dayLabel(iso) {
   return parseIso(iso).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", timeZone: TZ });
 }
 
+const FOLLOW_UP = "Follow-up visit";
+const hourIso = (date, h) => `${date}T${String(h).padStart(2, "0")}:00:00+05:30`;
+function dateLabel(date) { return dayLabel(parseIso(hourIso(date, 12)).toISOString().replace("Z", "")); }
+
 SCREENS.book = async () => {
-  const [near, visits] = await Promise.all([api("/api/doctors"), api("/api/patient/visits")]);
+  const preset = state.ctx.followUp; state.ctx.followUp = false;
+  const [near, visits, fu] = await Promise.all([api("/api/doctors"), api("/api/patient/visits"), api("/api/patient/follow-up")]);
   const docs = near.doctors;
-  const b = { reason: "", details: "", doctor: null, day: null, slot: null, address: near.address };
+  // mode: "asap" = whoever is free soonest, "any" = nearest doctor free at my time, "doctor" = a specific doctor's slot
+  const b = { reason: preset ? FOLLOW_UP : "", details: "", mode: "any", doctor: null, day: null, slot: null, address: near.address };
   let slots = [];
   const loadSlots = async () => {
-    slots = await api(`/api/visit-slots${b.doctor ? `?doctor_id=${b.doctor}` : ""}`);
+    slots = await api(`/api/visit-slots${b.mode === "doctor" ? `?doctor_id=${b.doctor}` : ""}`);
     if (!slots.includes(b.slot)) b.slot = null;
     const days = [...new Set(slots.map(dayKey))];
+    if (b.slot) b.day = dayKey(b.slot);
     if (!days.includes(b.day)) b.day = days[0] || null;
   };
+  const pickDoctor = async (id, slot = null) => { b.mode = "doctor"; b.doctor = id; b.slot = slot; await loadSlots(); };
+  const prevDoc = fu.doctor;
+  const isFollowUp = () => b.reason === FOLLOW_UP && fu.previous_visit;
+  // Suggest the doctor from last time straight away when they can come soon.
+  const suggestPrevious = async () => { if (isFollowUp() && fu.available_soon && b.mode === "any" && !b.slot) await pickDoctor(prevDoc.id, fu.next_slot); };
   await loadSlots();
+  await suggestPrevious();
   const minFee = Math.min(...docs.map((d) => d.visit_fee));
-  const chosen = () => docs.find((d) => d.id === b.doctor);
+  const chosen = () => (b.mode === "doctor" ? docs.find((d) => d.id === b.doctor) : b.mode === "asap" ? near.soonest?.doctor : null);
+  const ready = () => b.reason && (b.mode === "asap" ? near.soonest : b.slot) && b.address.trim();
+
+  const followUpCard = () => {
+    if (!isFollowUp()) return "";
+    const pv = fu.previous_visit, d = prevDoc, alt = fu.alternative;
+    const onPrev = b.mode === "doctor" && b.doctor === d.id;
+    const head = `<div class="row" style="flex-wrap:nowrap;align-items:flex-start"><div class="avatar">${esc(initials(d.name))}</div><div class="grow">
+        <div class="eyebrow-sm">Your doctor from last time</div><b>${esc(d.name)}</b> <span class="verified" title="Verified licence">${ic("badge")}</span>
+        <div class="small muted">${esc(d.specialty)} · saw you on ${day(pv.date)} for ${esc(pv.reason)}</div></div></div>`;
+    const altBtn = alt ? `<button class="btn sm" data-alt="1">${ic("bolt")} ${esc(alt.doctor.name)} · ${dayLabel(alt.slot)}, ${time(alt.slot)}</button>` : "";
+    let body;
+    if (fu.available_soon) {
+      body = `<div class="notice good small">${ic("check")}<span><b>${esc(d.name)} is available.</b> Next free time: ${dayLabel(fu.next_slot)}, ${time(fu.next_slot)}. We've picked it for you, or choose another time below.</span></div>
+        ${onPrev ? "" : `<div class="actions-bar"><button class="btn primary sm" data-prev="1">${ic("calendar")} Book ${esc(d.name)} again</button></div>`}`;
+    } else if (fu.next_slot) {
+      body = `<div class="notice warn small">${ic("clock")}<span><b>${esc(d.name)} isn't free in the next 24 hours.</b> You can book an appointment for their next opening, ${dayLabel(fu.next_slot)} at ${time(fu.next_slot)}${alt ? ", or see another verified doctor sooner" : ""}.</span></div>
+        <div class="actions-bar"><button class="btn ${onPrev ? "" : "primary"} sm" data-prev="1">${ic("calendar")} Book appointment with ${esc(d.name)}</button>${altBtn}</div>`;
+    } else {
+      body = `<div class="notice warn small">${ic("clock")}<span><b>${esc(d.name)} has no openings in the next 7 days${fu.bookable ? "" : " in your area"}.</b>${alt ? " Another verified doctor can come sooner." : ""}</span></div>
+        ${alt ? `<div class="actions-bar">${altBtn}</div>` : ""}`;
+    }
+    return `<div class="card follow-up">${head}${body}</div>`;
+  };
+
   const render = () => {
     const days = [...new Set(slots.map(dayKey))];
     const daySlots = slots.filter((s) => dayKey(s) === b.day);
     const doc = chosen();
     const reasonText = [b.reason, b.details.trim()].filter(Boolean).join(" · ");
-    const ok = b.reason && b.slot && b.address.trim();
+    const ok = ready();
     const upcoming = visits.filter((v) => OPEN_VISIT.includes(v.status));
-    view().innerHTML = pageHead("Book a doctor home visit", `${ic("pin")} Verified doctors near <b>${esc(near.address)}</b>`) + `
+    const soon = near.soonest;
+    const timeCard = b.mode === "asap"
+      ? (soon ? `<div class="notice info">${ic("bolt")}<span><b>Earliest time: ${dayLabel(soon.slot)}, ${time(soon.slot)}</b> with ${esc(soon.doctor.name)} (${soon.doctor.distance_km} km away). No need to pick a time.</span></div>`
+        : `<p class="muted small">No doctor has a free time right now. Pick a doctor and a time instead.</p>`)
+      : days.length ? `${b.mode === "doctor" && doc ? `<p class="small muted" style="margin:0 0 10px">${ic("clock")} Times ${esc(doc.name)} has opened for home visits.</p>` : ""}
+          <div class="seg">${days.map((k) => `<button class="${k === b.day ? "on" : ""}" data-day="${esc(k)}">${dayLabel(slots.find((s) => dayKey(s) === k))}</button>`).join("")}</div>
+          <div class="slot-grid">${daySlots.map((s) => `<button class="slot ${s === b.slot ? "on" : ""}" data-slot="${s}">${time(s)}</button>`).join("")}</div>`
+      : `<p class="muted small">No free times in the next 7 days. Try another doctor.</p>`;
+    view().innerHTML = pageHead(isFollowUp() ? "Book a follow-up visit" : "Book a doctor home visit", `${ic("pin")} Verified doctors near <b>${esc(near.address)}</b>`) + `
       <div class="split"><div>
         <div class="card"><div class="step-label"><span class="n">1</span><h3>What do you need help with?</h3></div>
           <div class="choice-grid">${REASONS.map(([r, i]) => `<button class="choice ${b.reason === r ? "on" : ""}" data-reason="${esc(r)}"><span class="ico">${ic(i)}</span><div><b>${r}</b></div></button>`).join("")}</div>
           <label class="field" style="margin-top:14px">Tell the doctor more (optional)<textarea id="details" rows="2" placeholder="For example: fever since yesterday, 101°F">${esc(b.details)}</textarea></label></div>
 
         <div class="card"><div class="step-label"><span class="n">2</span><h3>Choose a doctor</h3></div>
+          ${followUpCard()}
           <div class="doc-list">
-            <button class="doc any ${b.doctor === null ? "on" : ""}" data-doc=""><div class="avatar">${ic("bolt")}</div><div class="info"><b>Nearest available doctor</b>
-              <div class="small muted">We send the closest verified doctor who is free at your time${docs[0] ? `, usually ${esc(docs[0].name)} (${docs[0].distance_km} km away)` : ""}.</div></div>
+            <button class="doc any ${b.mode === "asap" ? "on" : ""}" data-mode="asap" ${soon ? "" : "disabled"}><div class="avatar">${ic("bolt")}</div><div class="info"><b>Whoever is available soonest</b>
+              <div class="small muted">${soon ? `The first verified doctor who can come: ${esc(soon.doctor.name)}, ${dayLabel(soon.slot)} at ${time(soon.slot)}.` : "No doctor has a free time right now."}</div></div>
               <div class="fee"><span class="badge brand">Fastest</span></div></button>
-            ${docs.map((d, n) => `<button class="doc ${b.doctor === d.id ? "on" : ""}" data-doc="${d.id}"><div class="avatar">${esc(initials(d.name))}</div>
-              <div class="info"><b>${esc(d.name)}</b> <span class="verified" title="Verified licence">${ic("badge")}</span>${n === 0 ? ` <span class="badge good">Nearest</span>` : ""}
+            <button class="doc any ${b.mode === "any" ? "on" : ""}" data-mode="any"><div class="avatar">${ic("clock")}</div><div class="info"><b>Nearest doctor at a time I choose</b>
+              <div class="small muted">Pick your time and we send the closest verified doctor who is free then${docs[0] ? `, usually ${esc(docs[0].name)} (${docs[0].distance_km} km away)` : ""}.</div></div></button>
+            ${docs.map((d, n) => `<button class="doc ${b.mode === "doctor" && b.doctor === d.id ? "on" : ""}" data-doc="${d.id}"><div class="avatar">${esc(initials(d.name))}</div>
+              <div class="info"><b>${esc(d.name)}</b> <span class="verified" title="Verified licence">${ic("badge")}</span>${prevDoc && prevDoc.id === d.id ? ` <span class="badge premium">Your doctor</span>` : ""}${n === 0 ? ` <span class="badge good">Nearest</span>` : ""}
                 <div class="small muted">${esc(d.specialty)} · ${d.experience_years} yrs experience</div>
                 <div class="tiny muted">${regLine(d)}</div>
                 <div class="meta small"><span>${stars(d)}</span><span>${ic("pin")} ${d.distance_km} km · can arrive in ~${d.arrives_in_min} min</span><span>${ic("chat")} ${esc(d.languages.join(", "))}</span></div>
-                ${d.next_slot ? `<div class="tiny muted" style="margin-top:4px">Next free: ${dayLabel(d.next_slot)}, ${time(d.next_slot)}</div>` : ""}</div>
+                <div class="tiny muted" style="margin-top:4px">${d.next_slot ? `Next free: ${dayLabel(d.next_slot)}, ${time(d.next_slot)}` : "No openings in the next 7 days"}</div></div>
               <div class="fee"><b>${money(d.visit_fee)}</b><span class="tiny muted">per visit</span></div></button>`).join("")}
           </div></div>
 
-        <div class="card"><div class="step-label"><span class="n">3</span><h3>Pick a time</h3></div>
-          ${days.length ? `<div class="seg">${days.map((k) => `<button class="${k === b.day ? "on" : ""}" data-day="${esc(k)}">${dayLabel(slots.find((s) => dayKey(s) === k))}</button>`).join("")}</div>
-          <div class="slot-grid">${daySlots.map((s) => `<button class="slot ${s === b.slot ? "on" : ""}" data-slot="${s}">${time(s)}</button>`).join("")}</div>`
-          : `<p class="muted small">No free times in the next few days. Try another doctor.</p>`}</div>
+        <div class="card"><div class="step-label"><span class="n">3</span><h3>${b.mode === "asap" ? "When they can come" : "Pick a time"}</h3></div>${timeCard}</div>
 
         <div class="card"><div class="step-label"><span class="n">4</span><h3>Where should the doctor come?</h3></div>
           <label class="field">Visit address<input id="addr" value="${esc(b.address)}"></label></div>
@@ -288,23 +333,31 @@ SCREENS.book = async () => {
         <h3>Your booking</h3>
         <table class="price" style="margin-top:8px">
           <tr><td>Reason</td><td>${esc(b.reason || "—")}</td></tr>
-          <tr><td>Doctor</td><td>${doc ? esc(doc.name) : "Nearest available"}</td></tr>
-          <tr><td>Time</td><td>${b.slot ? `${dayLabel(b.slot)}, ${time(b.slot)}` : "—"}</td></tr>
+          <tr><td>Doctor</td><td>${b.mode === "asap" ? `Soonest available${doc ? `<div class="tiny muted">${esc(doc.name)}</div>` : ""}` : doc ? esc(doc.name) : "Nearest available"}</td></tr>
+          <tr><td>Time</td><td>${b.mode === "asap" ? (soon ? `${dayLabel(soon.slot)}, ${time(soon.slot)}` : "—") : b.slot ? `${dayLabel(b.slot)}, ${time(b.slot)}` : "—"}</td></tr>
+          ${isFollowUp() ? `<tr><td>Follow-up of</td><td>${esc(fu.previous_visit.booking_ref || "last visit")}</td></tr>` : ""}
           <tr class="total"><td>Visit fee</td><td>${doc ? money(doc.visit_fee) : `from ${money(minFee)}`}</td></tr></table>
         <div class="notice info small">${ic("shield")}<span><b>Nothing to pay now.</b> You pay the doctor after the visit. Every doctor's licence is verified.</span></div>
         <button class="btn primary block" id="bookBtn" ${ok ? "" : "disabled"}>${ic("check")} Confirm booking</button>
         <p class="tiny muted" style="text-align:center;margin:10px 0 0">${ok ? "The doctor will confirm your request." : !b.reason ? "Choose a reason to continue" : "Pick a time to continue"}</p>
       </div></aside></div>
       ${upcoming.length ? `<div class="section-title">Your bookings</div>${upcoming.map(visitCard).join("")}` : ""}`;
-    $$("[data-reason]").forEach((x) => (x.onclick = () => { b.reason = x.dataset.reason; render(); }));
+    const redo = (fn) => guard(async () => { await fn(); render(); });
+    $$("[data-reason]").forEach((x) => (x.onclick = () => redo(async () => { b.reason = x.dataset.reason; await suggestPrevious(); })));
     $("#details").oninput = (e) => { b.details = e.target.value; };
-    $("#addr").oninput = (e) => { b.address = e.target.value; const btn = $("#bookBtn"); btn.disabled = !(b.reason && b.slot && b.address.trim()); };
-    $$("[data-doc]").forEach((x) => (x.onclick = () => guard(async () => { b.doctor = x.dataset.doc ? +x.dataset.doc : null; await loadSlots(); render(); })));
+    $("#addr").oninput = (e) => { b.address = e.target.value; $("#bookBtn").disabled = !ready(); };
+    $$("[data-mode]").forEach((x) => (x.onclick = () => redo(async () => { b.mode = x.dataset.mode; b.doctor = null; await loadSlots(); })));
+    $$("[data-doc]").forEach((x) => (x.onclick = () => redo(() => pickDoctor(+x.dataset.doc))));
+    $$("[data-prev]").forEach((x) => (x.onclick = () => redo(() => pickDoctor(prevDoc.id, fu.next_slot))));
+    $$("[data-alt]").forEach((x) => (x.onclick = () => redo(() => pickDoctor(fu.alternative.doctor.id, fu.alternative.slot))));
     $$("[data-day]").forEach((x) => (x.onclick = () => { b.day = x.dataset.day; render(); }));
     $$("[data-slot]").forEach((x) => (x.onclick = () => { b.slot = x.dataset.slot; render(); }));
     wireCancel(() => SCREENS.book());
     $("#bookBtn").onclick = () => guard(async () => {
-      const v = await post("/api/patient/visits", { doctor_id: b.doctor, scheduled_for: b.slot, reason: reasonText, address: b.address });
+      const v = await post("/api/patient/visits", {
+        doctor_id: b.mode === "doctor" ? b.doctor : null, scheduled_for: b.mode === "asap" ? "" : b.slot, asap: b.mode === "asap",
+        reason: reasonText, address: b.address, follow_up_of: isFollowUp() ? fu.previous_visit.id : null,
+      });
       bookedScreen(v);
     });
   };
@@ -621,7 +674,7 @@ SCREENS.meds = async () => {
     <section class="hero" style="margin-top:6px"><div class="eyebrow">Doctor follow-up</div><h1>Need to see your doctor again?</h1><p>Book a verified doctor to visit you at home.</p>
       <div class="actions"><button class="btn primary" id="follow">${ic("calendar")} ${esc(d.doctor_follow_up.label)}</button></div></section>`;
   $$("[data-o]").forEach((b) => (b.onclick = () => go("orders", { orderId: +b.dataset.o })));
-  $("#follow").onclick = () => toast("Follow-up booking opens the Home Visits flow", "calendar");
+  $("#follow").onclick = () => go("book", { followUp: true });
 };
 
 /* ---------------------------------------------------------------- doctor */
@@ -634,12 +687,51 @@ SCREENS.visits = async () => {
       <div class="stats"><div class="stat"><b>${visits.length}</b><span>Visits</span></div><div class="stat"><b>${visits.filter((v) => v.status === "requested").length}</b><span>New requests</span></div><div class="stat"><b>${visits.filter((v) => v.status === "completed").length}</b><span>Completed</span></div></div></section>` +
     (visits.map((v) => `<article class="card lift"><div class="card-head"><div class="row"><div class="avatar">${esc(initials(v.patient.name))}</div><div><h3>${esc(v.patient.name)}</h3>
       <div class="meta"><span>${ic("id")} ${esc(v.patient.patient_ref)}</span><span>${ic("clock")} ${when(v.scheduled_for)}</span>${v.booking_ref ? `<span>${ic("calendar")} ${esc(v.booking_ref)}</span>` : ""}</div>
-      <div class="meta"><span>${ic("pin")} ${esc(v.address)}</span></div></div></div><span class="badge ${label[v.status][1]}">${label[v.status][0]}</span></div>
+      <div class="meta"><span>${ic("pin")} ${esc(v.address)}</span>${v.follow_up_of ? `<span class="badge premium">${ic("later")} Follow-up${v.follow_up_of.same_doctor ? " · your patient" : ""} of ${esc(v.follow_up_of.booking_ref || "earlier visit")}</span>` : ""}</div></div></div><span class="badge ${label[v.status][1]}">${label[v.status][0]}</span></div>
       <div class="instructions">${esc(v.reason)}</div>
       <div class="actions-bar">${next[v.status] ? `<button class="btn primary sm" data-v="${v.id}" data-a="${next[v.status][0]}">${ic(next[v.status][2])} ${next[v.status][1]}</button>` : ""}
       ${["in_progress", "completed"].includes(v.status) ? `<button class="btn sm" data-rx="${v.id}">${ic("rx")} Write prescription</button>` : ""}</div></article>`).join("") || empty("calendar", "No visits scheduled"));
   $$("[data-a]").forEach((b) => (b.onclick = () => guard(async () => { await post(`/api/doctor/visits/${b.dataset.v}/${b.dataset.a}`); SCREENS.visits(); })));
   $$("[data-rx]").forEach((b) => (b.onclick = () => guard(() => prescribeScreen(+b.dataset.rx, visits.find((v) => v.id === +b.dataset.rx)))));
+};
+
+const PRESETS = [["All day", (h) => h >= 9 && h <= 19], ["Mornings", (h) => h >= 9 && h <= 12], ["Evenings", (h) => h >= 16 && h <= 20], ["Day off", () => false]];
+SCREENS.availability = async () => {
+  const av = await api("/api/doctor/availability");
+  const fmtH = (date, h) => time(hourIso(date, h));
+  const dayCard = (d) => {
+    const n = d.hours.filter((h) => !d.past.includes(h)).length;
+    const status = !d.hours.length ? `<span class="badge">Day off</span>` : `<span class="badge ${n ? "good" : ""}">${n} hour${n === 1 ? "" : "s"} open</span>`;
+    return `<article class="card hours-day" data-date="${d.date}"><div class="card-head"><div><h3>${esc(dateLabel(d.date))}</h3>
+        <div class="tiny muted">${d.custom ? "Your hours" : "Standard hours (9 AM to 7 PM). Tap to change."}${d.booked.length ? ` · ${d.booked.length} booked` : ""}</div></div>${status}</div>
+      <div class="seg">${PRESETS.map(([l], i) => `<button data-preset="${i}">${l}</button>`).join("")}</div>
+      <div class="slot-grid hours">${av.openable_hours.map((h) => {
+        const booked = d.booked.includes(h), past = d.past.includes(h), on = d.hours.includes(h);
+        return `<button class="slot ${on ? "on" : ""} ${booked ? "booked" : ""}" data-h="${h}" ${booked || past ? "disabled" : ""} title="${booked ? "A patient has booked this time" : past ? "Too late to open today" : on ? "Open: tap to close" : "Closed: tap to open"}">${fmtH(d.date, h)}${booked ? `<span>Booked</span>` : ""}</button>`;
+      }).join("")}</div></article>`;
+  };
+  view().innerHTML = pageHead("Your visit hours", "Open the hours you can do home visits. Patients can only book times you open here.") + `
+    <div class="notice info">${ic("info")}<span>Tap a time to open or close it. Changes save straight away. Booked times stay open until the patient cancels.</span></div>
+    <div class="legend small muted"><span><i class="sw on"></i> Open for booking</span><span><i class="sw"></i> Closed</span><span><i class="sw booked"></i> Booked by a patient</span></div>
+    <div class="hours-list">${av.days.map(dayCard).join("")}</div>`;
+  const save = async (date, hours) => {
+    const day = await put("/api/doctor/availability", { date, hours });
+    const i = av.days.findIndex((d) => d.date === date); av.days[i] = day;
+    $(`[data-date="${date}"]`).outerHTML = dayCard(day); wire(); toast(`Saved ${dateLabel(date)}`);
+  };
+  const wire = () => {
+    $$(".hours-day").forEach((card) => {
+      const d = av.days.find((x) => x.date === card.dataset.date);
+      $$("[data-h]", card).forEach((b) => (b.onclick = () => guard(() => {
+        const h = +b.dataset.h; return save(d.date, d.hours.includes(h) ? d.hours.filter((x) => x !== h) : [...d.hours, h]);
+      })));
+      $$("[data-preset]", card).forEach((b) => (b.onclick = () => guard(() => {
+        const keep = PRESETS[+b.dataset.preset][1];
+        return save(d.date, [...new Set([...av.openable_hours.filter(keep), ...d.booked])]);
+      })));
+    });
+  };
+  wire();
 };
 
 async function prescribeScreen(visitId, visit) {

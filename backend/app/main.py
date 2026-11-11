@@ -315,16 +315,28 @@ def data_request(body: DataRequestIn, user: User = Depends(require(Role.patient)
 # ------------------------------------------------------------------ patient booking
 class BookingIn(BaseModel):
     doctor_id: int | None = None  # None = nearest available doctor
-    scheduled_for: str = Field(min_length=10, max_length=40)
+    scheduled_for: str = Field(default="", max_length=40)  # not needed when asap is true
     reason: str = Field(min_length=2, max_length=300)
     address: str = Field(default="", max_length=300)
+    asap: bool = False  # whoever is available soonest
+    follow_up_of: int | None = None  # the completed visit this one follows up
+
+
+class AvailabilityIn(BaseModel):
+    date: str = Field(min_length=10, max_length=10)
+    hours: list[int] = Field(default_factory=list, max_length=24)
 
 
 @app.get("/api/doctors")
 def nearby_doctors(user: User = Depends(require(Role.patient)), db: Session = Depends(get_db)):
     patient = db.get(Patient, user.patient_id)
     return {"address": patient.address, "radius_km": visit_svc.SERVICE_RADIUS_KM,
-            "doctors": visit_svc.list_doctors(db, patient)}
+            "doctors": visit_svc.list_doctors(db, patient), "soonest": visit_svc.soonest_to_dict(db, patient)}
+
+
+@app.get("/api/patient/follow-up")
+def follow_up(user: User = Depends(require(Role.patient)), db: Session = Depends(get_db)):
+    return visit_svc.follow_up(db, user)
 
 
 @app.get("/api/visit-slots")
@@ -340,7 +352,8 @@ def patient_visits(user: User = Depends(require(Role.patient)), db: Session = De
 @app.post("/api/patient/visits", status_code=201)
 def book_visit(body: BookingIn, user: User = Depends(require(Role.patient)), db: Session = Depends(get_db)):
     privacy_svc.require_care(db, user)
-    v = visit_svc.book(db, user, body.doctor_id, body.scheduled_for, body.reason, body.address)
+    v = visit_svc.book(db, user, body.doctor_id, body.scheduled_for, body.reason, body.address,
+                       asap=body.asap, follow_up_of=body.follow_up_of)
     return visit_svc.visit_to_dict(v, db.get(Patient, user.patient_id))
 
 
@@ -356,8 +369,19 @@ def doctor_visits(user: User = Depends(require(Role.doctor)), db: Session = Depe
     rows = db.scalars(select(HomeVisit).where(HomeVisit.doctor_id == user.doctor_id).order_by(HomeVisit.id)).all()
     return [{"id": v.id, "status": v.status.value, "patient": {"id": v.patient_id, "name": v.patient.name,
              "patient_ref": v.patient.patient_ref}, "reason": v.reason, "address": v.address or v.patient.address,
-             "booking_ref": v.booking_ref, "fee": v.fee,
+             "booking_ref": v.booking_ref, "fee": v.fee, "follow_up_of": visit_svc.follow_up_info(v),
              "scheduled_for": v.scheduled_for.isoformat()} for v in rows]
+
+
+@app.get("/api/doctor/availability")
+def doctor_availability(user: User = Depends(require(Role.doctor)), db: Session = Depends(get_db)):
+    return visit_svc.availability(db, user.doctor_id)
+
+
+@app.put("/api/doctor/availability")
+def set_doctor_availability(body: AvailabilityIn, user: User = Depends(require(Role.doctor)),
+                            db: Session = Depends(get_db)):
+    return visit_svc.set_availability(db, user, body.date, body.hours)
 
 
 @app.post("/api/doctor/visits/{visit_id}/{action}")

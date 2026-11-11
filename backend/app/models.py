@@ -159,10 +159,27 @@ class HomeVisit(Base):
     booking_ref: Mapped[str | None] = mapped_column(String(24))
     address: Mapped[str] = mapped_column(EncryptedText, default="")
     fee: Mapped[float | None] = mapped_column(Float)
+    follow_up_of_id: Mapped[int | None] = mapped_column(ForeignKey("home_visits.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     doctor = relationship("Doctor")
     patient = relationship("Patient")
+    follow_up_of = relationship("HomeVisit", remote_side=[id])
+
+
+class DoctorAvailability(Base):
+    """The hours a doctor opens for home visits on one local calendar day.
+
+    A day with no row uses the default working hours, so a new doctor is bookable straight away.
+    A row with an empty list means the doctor has taken that day off.
+    """
+    __tablename__ = "doctor_availability"
+    __table_args__ = (UniqueConstraint("doctor_id", "day"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    doctor_id: Mapped[int] = mapped_column(ForeignKey("doctors.id"), index=True)
+    day: Mapped[str] = mapped_column(String(10))  # local date, YYYY-MM-DD
+    hours: Mapped[list] = mapped_column(JSON, default=list)  # local start hours, e.g. [9, 10, 14]
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
 
 # --------------------------------------------------------------- medication data

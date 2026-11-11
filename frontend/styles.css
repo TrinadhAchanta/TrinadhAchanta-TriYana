@@ -441,3 +441,22 @@ hr.soft { border: 0; border-top: 1px solid var(--line); margin: 14px 0; }
 }
 .hero .eyebrow svg.i { width: 14px; height: 14px; vertical-align: -2px; }
 .card-head h3 svg.i { vertical-align: -3px; color: var(--brand); }
+/* follow-ups and doctor hours */
+.follow-up { border: 1.5px solid var(--brand); background: var(--brand-soft); box-shadow: none; margin-bottom: 12px; }
+.follow-up .avatar { width: 48px; height: 48px; background: var(--brand-grad); color: #fff; }
+.follow-up .eyebrow-sm { font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--brand); margin-bottom: 2px; }
+.follow-up .notice { margin-bottom: 0; }
+.follow-up .actions-bar { flex-wrap: wrap; }
+.doc[disabled] { opacity: .55; cursor: not-allowed; }
+.hours-list { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); }
+.hours-day { margin: 0; }
+.hours-day .card-head { margin-bottom: 10px; }
+.hours-day .card-head h3 { margin: 0 0 2px; }
+.slot-grid.hours { grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); }
+.slot.booked { border-color: transparent; background: #f6dca6; color: #7a5414; cursor: default; }
+.slot.booked span { display: block; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; }
+.slot[disabled]:not(.booked) { opacity: .35; cursor: not-allowed; }
+.legend { display: flex; flex-wrap: wrap; gap: 16px; margin: 4px 0 14px; }
+.legend .sw { display: inline-block; width: 12px; height: 12px; border-radius: 4px; border: 1.5px solid var(--line-strong); vertical-align: -1px; margin-right: 4px; }
+.legend .sw.on { background: var(--brand); border-color: var(--brand); }
+.legend .sw.booked { background: #f6dca6; border-color: #f6dca6; }
