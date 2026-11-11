@@ -10,12 +10,14 @@ Digital Prescription → Suggested Medicine Cart → Patient Selection → Licen
 cd backend
 pip install -r requirements.txt
 uvicorn app.main:app --reload        # http://localhost:8000
-python -m pytest -q                  # 29 tests
+python -m pytest -q                  # 49 tests
 ```
 
 Or with Docker: `docker build -t triyana . && docker run -p 8000:8000 triyana`. To host a public demo, see [docs/DEPLOY.md](docs/DEPLOY.md).
 
-The web app has a demo account switcher (patient, doctor, pharmacist, courier). Walk the journey: Dr. Carter accepts → starts → completes the visit → writes and signs a prescription → Meera reviews the cart, buys 3 of 5 tablets, removes another item, picks a pharmacy, authorises payment → Ravi reviews and dispenses → Asha delivers with Meera's handover code. Use **Reset demo** to start again.
+The web app has a demo account switcher (patient, doctor, pharmacist, courier, hospital). Walk the journey: Dr. Carter accepts → starts → completes the visit → writes and signs a prescription → Meera reviews the cart, buys 3 of 5 tablets, removes another item, picks a pharmacy, authorises payment → Ravi reviews and dispenses → Asha delivers with Meera's handover code. Use **Reset demo** to start again.
+
+For drones, sign in as **Nisha (Lotus Hospital)**: open **Coverage** to see which hospitals a drone can reach and why not, then **Send or request** to book a drone from GreenLeaf Pharmacy and follow it on the tracking map.
 
 ## How it works
 
@@ -27,7 +29,9 @@ The web app has a demo account switcher (patient, doctor, pharmacist, courier). 
 | Pharmacy matching | `services/matching.py` | Verified, licensed pharmacies in the jurisdiction and service area; live vs unconfirmed stock; partial-fill policy; price, fee, tax, ETA, hours, rating. Sort by nearest, price, fastest, rating, pickup. One balanced recommendation. |
 | Checkout and payment | `services/orders.py`, `adapters/payments.py` | Idempotent. Re-checks and reserves stock (409 if it changed). Payment is **authorised only**. It is captured after pharmacist acceptance for the approved amount, voided on rejection, and refunded on cancellation. |
 | Pharmacist and prescriber | `services/orders.py` | Validate signature, expiry and licence. Approve, adjust down, or reject. Clarification requests to the prescriber (quantity, unavailable, incomplete, substitution, refill). |
-| Delivery | `adapters/delivery.py` | Standard, same-day, scheduled, priority, and drone (only where policy permits and not for cold-chain items). Tracking timeline, handover code as proof of delivery, ID checks, cold-chain flags. Pickup requires ID. |
+| Delivery | `adapters/delivery.py` | Standard, same-day, scheduled, priority, and drone. Tracking timeline, handover code as proof of delivery, ID checks, cold-chain flags. Pickup requires ID. |
+| Drone delivery (India) | `services/drones.py`, `adapters/drones.py` | Every drone leg is checked against Drone Rules 2021-style rules: authorised operator, red zones (never flown), yellow zones (ATC permission, pad-to-pad corridors only), drone pads, payload and range limits, 2–8 °C cold box hold time, no controlled medicines, wind. If any check fails the leg goes by road courier and the reason is shown. Drone patient orders are re-checked at packing time; a road fallback refunds the fee difference. Mock operator in the style of Indian medical-drone operators; airspace is fictional. |
+| Hospital accounts | `services/hospitals.py` | Hospital staff request consignments (medicines, blood, vaccines, lab samples, anti-venom) from a pharmacy, or send to another hospital. A coverage view shows every hospital and pharmacy with drone or road time and the reason a drone can't fly. Live tracking map, eligibility checks, pilot and permission details, cold-chain log; only the receiving hospital confirms receipt. |
 | Duplicate dispensing | `services/orders.py` | Ordered items are locked. Dispensed plus open quantities can't exceed quantity × (1 + refills). One dispensing record per order item. |
 | My Medicines | `GET /api/patient/medicines` | Prescribed, ordered and dispensed quantities kept separate. Expiry, refill eligibility, messages, follow-up. |
 | Yana | `services/yana.py` | Shows prescriptions, finds and compares pharmacies, changes purchase quantity, removes items, tracks orders. Refuses to change prescriptions or doses, suggest stopping a medicine, or approve substitutions. |
@@ -35,4 +39,4 @@ The web app has a demo account switcher (patient, doctor, pharmacist, courier). 
 
 ## Going to production
 
-Replace the sandbox adapters (`backend/app/adapters/`) with real pharmacy, e-prescribing, PSP and courier integrations. Move keys to a KMS. Swap demo bearer tokens for OIDC with clinician MFA. Use Postgres. Load jurisdiction rules from a maintained, reviewed source.
+Replace the sandbox adapters (`backend/app/adapters/`) with real pharmacy, e-prescribing, PSP and courier integrations. Move keys to a KMS. Swap demo bearer tokens for OIDC with clinician MFA. Use Postgres. Load jurisdiction rules from a maintained, reviewed source. For drones, contract a DGCA-authorised operator, pull the live airspace map and permissions from Digital Sky, and get BVLOS and state health-department approvals.

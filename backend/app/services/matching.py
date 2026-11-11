@@ -126,8 +126,20 @@ def match_pharmacies(
                 reasons.append(qd.explanation)
 
         options = [o for o in (ph.delivery_options or []) if o in OPTION_INFO]
-        if not policy.drone_delivery_permitted or any(ci.prescription_item.medication.cold_chain for ci in items):
-            options = [o for o in options if o != "drone"]
+        drone_note = None
+        if "drone" in options:
+            if not policy.drone_delivery_permitted:
+                options = [o for o in options if o != "drone"]
+            else:
+                from . import drones as drone_svc  # local import: drones imports common helpers
+                payload = drone_svc.order_payload([(ci.prescription_item.medication, ci.requested_quantity) for ci in items])
+                home = drone_svc.Place("Your home", patient.lat, patient.lng, "patient_home")
+                check = drone_svc.assess(db, drone_svc.pharmacy_place(ph), home, payload, rx.jurisdiction)
+                if not check.eligible:
+                    options = [o for o in options if o != "drone"]
+                    drone_note = check.reason
+                else:
+                    drone_note = f"Drone can reach you in about {check.flight_minutes} min after packing."
         if not (ph.delivery_available and in_area):
             options = []
         if not options and not ph.pickup_available:
@@ -141,6 +153,7 @@ def match_pharmacies(
             eligible=not reasons and bool(items), reasons=reasons, items=lines,
             subtotal=subtotal, delivery_fee=fee, tax=tax, total=round(subtotal + fee + tax, 2),
             eta_minutes=eta, delivery_options=options, all_stock_confirmed=all_confirmed,
+            extras={"drone_note": drone_note},
         ))
 
     eligible = [r for r in results if r.eligible]
@@ -196,6 +209,7 @@ def match_to_dict(m: PharmacyMatch) -> dict:
         "delivery_available": bool(m.delivery_options),
         "delivery_options": [{"code": o, "label": OPTION_INFO[o]["label"]} for o in m.delivery_options],
         "eta_minutes": m.eta_minutes,
+        "drone_note": m.extras.get("drone_note"),
         "items": [vars(i) for i in m.items],
         "all_stock_confirmed": m.all_stock_confirmed,
         "subtotal": m.subtotal,

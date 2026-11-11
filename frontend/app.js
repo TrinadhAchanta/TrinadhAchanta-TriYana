@@ -91,10 +91,11 @@ const miniPill = (i, off = false) => `<div class="pill sm ${off ? "off" : pillCl
 const TABS = {
   patient: [["home", "Home", "home"], ["book", "Book a doctor", "stethoscope"], ["rx", "Prescription", "rx"], ["cart", "Cart", "cart"], ["pharmacies", "Pharmacies", "store", "desktop"], ["orders", "Tracking", "truck"], ["meds", "My Medicines", "pills"], ["privacy", "Privacy & consent", "shield", "desktop"]],
   doctor: [["visits", "Home visits", "calendar"], ["prescriptions", "Prescriptions", "file"], ["clarifications", "Clarifications", "chat"]],
-  pharmacist: [["queue", "Order queue", "inbox"]],
+  pharmacist: [["queue", "Order queue", "inbox"], ["shipments", "Hospital drones", "drone"]],
   courier: [["deliveries", "Deliveries", "truck"]],
+  hospital: [["shipments", "Deliveries", "drone"], ["send", "Send or request", "bolt"], ["coverage", "Coverage", "pin"]],
 };
-const SHORT = { "Book a doctor": "Doctor", Tracking: "Track", "My Medicines": "Medicines", "Home visits": "Visits", "Order queue": "Orders", Prescription: "Rx", Prescriptions: "Rx", Clarifications: "Questions" };
+const SHORT = { "Book a doctor": "Doctor", Tracking: "Track", "My Medicines": "Medicines", "Home visits": "Visits", "Order queue": "Orders", Prescription: "Rx", Prescriptions: "Rx", Clarifications: "Questions", "Hospital drones": "Drones", "Send or request": "Send" };
 const GREETING = () => { const h = new Date().getHours(); return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening"; };
 
 async function boot() {
@@ -117,7 +118,7 @@ async function signIn(token) {
   $("#account").value = token; $("#accountMobile").value = token;
   try { localStorage.setItem("triyana.token", token); } catch {}
   const me = await api("/api/me");
-  Object.assign(state, { role: me.role, name: me.name, unread: me.unread_notifications, ctx: {} });
+  Object.assign(state, { role: me.role, name: me.name, unread: me.unread_notifications, ctx: {}, hospitalId: me.hospital_id });
   $("#yanaBtn").hidden = me.role !== "patient";
   $("#yanaPanel").classList.remove("open");
   if (me.role === "patient") {
@@ -135,6 +136,7 @@ function renderNav() {
 }
 
 function go(tab, ctx = {}) {
+  clearInterval(state.poll);
   state.tab = tab; Object.assign(state.ctx, ctx);
   renderNav();
   view().innerHTML = `<div class="skeleton" style="height:180px"></div><div class="skeleton"></div><div class="skeleton"></div>`;
@@ -463,7 +465,9 @@ SCREENS.pharmacies = async () => {
         <table class="price"><tr><td>Medicines</td><td>${money(p.subtotal)}</td></tr><tr><td>Delivery</td><td>${p.delivery_available ? money(p.delivery_fee) : "—"}</td></tr>
           <tr><td>Taxes</td><td>${money(p.tax)}</td></tr><tr class="total"><td>Total</td><td>${money(p.total)}</td></tr></table>
         <div class="row small" style="margin:10px 0 14px">${p.delivery_available ? `<span class="badge brand">${ic("truck")} ~${mins(p.eta_minutes)}</span>` : `<span class="badge">No delivery here</span>`}
-          ${p.pickup_available ? `<span class="badge">${ic("bag")} Pickup</span>` : ""}${p.open_now ? `<span class="badge good">Open now</span>` : ""}</div>
+          ${p.pickup_available ? `<span class="badge">${ic("bag")} Pickup</span>` : ""}${p.open_now ? `<span class="badge good">Open now</span>` : ""}
+          ${p.delivery_options.some((o) => o.code === "drone") ? `<span class="badge info">${ic("drone")} Drone</span>` : ""}</div>
+        ${p.drone_note && !p.delivery_options.some((o) => o.code === "drone") ? `<div class="tiny muted row" style="gap:6px;margin:-6px 0 12px">${ic("drone")} No drone here: ${esc(p.drone_note)}</div>` : ""}
         ${p.eligible ? `<button class="btn primary block" data-pick="${p.pharmacy_id}">Choose ${ic("arrow")}</button>` :
           `<div class="notice bad small">${ic("info")}<span>${p.reasons.map(esc).join("<br>")}</span></div>`}
       </article>`).join("")}</div>`;
@@ -580,10 +584,11 @@ SCREENS.orders = async () => {
         const cur = !seen.has(s) && i === doneCount;
         return `<li class="${seen.has(s) ? "done" : ""} ${cur ? "current" : ""}"><span class="node">${seen.has(s) ? ic("check") : ""}</span><b>${l}</b>
           <div class="small muted">${ev ? `${time(ev.at)} · ${esc(ev.note)}` : cur ? "Up next" : ""}</div></li>`; }).join("")}</ul>`}</div>
+      ${o.mission ? missionPanels(o.mission) : ""}
       <div class="card"><h3>Items</h3><div class="table-wrap"><table><tr><th>Medicine</th><th>Prescribed</th><th>Requested</th><th>Approved</th></tr>
         ${o.items.map((i) => `<tr><td><b>${esc(i.medicine)}</b> ${schedBadge(i.india_schedule)}</td><td>${i.prescribed_quantity}</td><td>${i.requested_quantity}</td><td>${i.approved_quantity ?? `<span class="badge warn">Pending</span>`}</td></tr>`).join("")}</table></div></div>
     </div><aside class="sticky">
-      ${o.delivery && o.status !== "delivered" ? `<div class="code-box"><div class="tiny" style="opacity:.8">SHARE THIS CODE WITH YOUR COURIER</div><div class="code">${esc(o.delivery.handover_code)}</div><div class="tiny" style="opacity:.8">Proof of delivery</div></div>` : ""}
+      ${o.delivery && o.status !== "delivered" ? `<div class="code-box"><div class="tiny" style="opacity:.8">${o.mission?.mode === "drone" ? "SHARE THIS CODE WHEN THE DRONE ARRIVES" : "SHARE THIS CODE WITH YOUR COURIER"}</div><div class="code">${esc(o.delivery.handover_code)}</div><div class="tiny" style="opacity:.8">Proof of delivery</div></div>` : ""}
       ${o.delivery ? `<div class="card"><div class="row"><div class="avatar">${esc(initials(o.delivery.courier))}</div><div><b>${esc(o.delivery.courier)}</b><div class="tiny muted">${esc(o.delivery.provider)} · ${esc(o.delivery.tracking_ref)}</div></div></div>
         <div class="row small" style="margin-top:12px">${o.delivery.cold_chain ? `<span class="badge info">${ic("snow")} Temperature controlled</span>` : ""}${o.delivery.id_check_required ? `<span class="badge warn">${ic("id")} Photo ID required</span>` : ""}<span class="badge">${ic("sign")} Signature</span></div>
         ${o.delivery.proof_of_delivery ? `<div class="notice good">${ic("check")}<span>Delivered to ${esc(o.delivery.proof_of_delivery.recipient)}</span></div>` : ""}</div>` : ""}
@@ -592,6 +597,7 @@ SCREENS.orders = async () => {
         <div class="row small" style="margin-top:8px"><span class="badge">${esc(o.payment.method.replace("_", " "))}</span><span class="badge ${o.payment.status === "captured" ? "good" : o.payment.status === "authorized" ? "info" : ""}">${esc(o.payment.status)}</span>${o.payment.refunded ? `<span class="badge good">Refunded ${money(o.payment.refunded)}</span>` : ""}</div>
         ${["prescription_received", "pharmacist_reviewing", "awaiting_clarification", "order_accepted"].includes(o.status) ? `<button class="btn danger block" id="cancel" style="margin-top:14px">Cancel order</button>` : ""}</div>
     </aside></div>`;
+  if (o.mission && ["in_flight", "in_transit"].includes(o.mission.status)) state.poll = setInterval(() => state.tab === "orders" && SCREENS.orders(), 15000);
   const pick = $("#pickOrder"); if (pick) pick.onchange = () => { state.ctx.orderId = +pick.value; SCREENS.orders(); };
   const c = $("#cancel");
   if (c) c.onclick = () => guard(async () => { if (!confirm("Cancel this order? Any payment hold will be released or refunded.")) return; await post(`/api/orders/${o.id}/cancel`, { reason: "Cancelled by patient" }); toast("Order cancelled"); SCREENS.orders(); });
@@ -833,6 +839,198 @@ SCREENS.deliveries = async () => {
     await post(`/api/orders/${id}/handover`, { code: $(`#code${id}`).value, recipient_name: $(`#who${id}`).value || "Patient", id_verified: $(`#id${id}`).checked });
     toast("Delivered. Proof of delivery recorded."); SCREENS.deliveries();
   })));
+};
+
+
+/* ------------------------------------------------------------ drone map */
+const KM_LAT = 111.0;
+function routeMap({ points, lines = [], zones = [], drone = null }) {
+  const lat0 = points.reduce((a, p) => a + p.lat, 0) / points.length, kx = KM_LAT * Math.cos((lat0 * Math.PI) / 180);
+  const X0 = (lng) => lng * kx, Y0 = (lat) => -lat * KM_LAT;
+  const xs = points.map((p) => X0(p.lng)), ys = points.map((p) => Y0(p.lat));
+  let minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+  const pad = Math.max(1.2, Math.max(maxX - minX, maxY - minY) * 0.14);
+  minX -= pad; maxX += pad * 2.4; minY -= pad; maxY += pad * 1.4; // room for labels and legend
+  let w = maxX - minX, h = maxY - minY;
+  if (w < h * 1.6) { const d = h * 1.6 - w; minX -= d / 2; w = h * 1.6; }
+  if (h < w / 2.2) { const d = w / 2.2 - h; minY -= d / 2; h = w / 2.2; }
+  const X = (lng) => X0(lng) - minX, Y = (lat) => Y0(lat) - minY, pc = (v, t) => `${((v / t) * 100).toFixed(2)}%`;
+  const zoneSvg = zones.map((z) => `<circle class="zone ${z.kind}" cx="${X(z.lng)}" cy="${Y(z.lat)}" r="${z.radius_km}" vector-effect="non-scaling-stroke"><title>${esc(z.name)} · ${z.kind} zone</title></circle>`).join("");
+  const lineSvg = lines.map((l) => `<line class="route ${l.cls || ""}" x1="${X(l.a.lng)}" y1="${Y(l.a.lat)}" x2="${X(l.b.lng)}" y2="${Y(l.b.lat)}" vector-effect="non-scaling-stroke"/>`).join("");
+  const pins = points.map((p) => `<div class="mpin ${p.cls || ""} ${p.big ? "big" : ""} ${X(p.lng) / w > 0.55 ? "left" : ""}" style="left:${pc(X(p.lng), w)};top:${pc(Y(p.lat), h)}" title="${esc(p.name || p.label || "")}"><i></i>${p.label ? `<span>${esc(p.label)}</span>` : ""}</div>`).join("");
+  const dr = drone ? `<div class="mdrone" style="left:${pc(X(drone.lng), w)};top:${pc(Y(drone.lat), h)}">${ic("drone")}</div>` : "";
+  return `<div class="map" style="aspect-ratio:${(w / h).toFixed(3)}"><svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">${zoneSvg}${lineSvg}</svg>${pins}${dr}
+    <div class="map-legend"><span><i class="lg green"></i>Green</span><span><i class="lg yellow"></i>Yellow · ATC permission</span><span><i class="lg red"></i>Red · no-fly</span></div></div>`;
+}
+
+const MODE = { drone: ["drone", "Drone"], road: ["truck", "Road courier"] };
+const STATUS_CLS = { scheduled: "info", in_flight: "brand", in_transit: "brand", arrived: "warn", delivered: "good" };
+const checkList = (checks) => `<ul class="checks">${checks.map((c) => `<li class="${c.ok ? "ok" : "no"}"><span class="ck">${ic(c.ok ? "check" : "x")}</span><div><b>${esc(c.label)}</b><div class="small muted">${esc(c.detail)}</div></div></li>`).join("")}</ul>`;
+
+function missionMap(m) {
+  const pts = [{ ...m.origin, label: shortName(m.origin.name), cls: "origin" }, { ...m.destination, label: shortName(m.destination.name), cls: "dest", big: true }];
+  return routeMap({ points: pts, zones: m.zones, lines: [{ a: m.origin, b: m.destination, cls: m.mode }], drone: ["in_flight", "in_transit"].includes(m.status) ? m.position : null });
+}
+
+function missionPanels(m) {
+  const v = m.vehicle || {}, c = m.compliance || {};
+  return `<div class="card"><div class="card-head"><h3>${ic(MODE[m.mode][0])} ${m.mode === "drone" ? "Drone flight" : "Road courier"}</h3><span class="badge ${STATUS_CLS[m.status] || ""}">${esc(m.status_label)}</span></div>
+    ${missionMap(m)}
+    ${m.fallback_reason ? `<div class="notice warn">${ic("truck")}<span><b>Sent by road.</b> ${esc(m.fallback_reason)}</span></div>` : ""}
+    <div class="kv">${m.mode === "drone" ? `<div><span>Drone</span><b>${esc(v.uin)}</b><small>${esc(v.model)} · ${esc(v.category)}</small></div>
+      <div><span>Remote pilot</span><b>${esc(String(c.remote_pilot).split(" (")[0])}</b><small>${esc((String(c.remote_pilot).split("(")[1] || "").replace(")", ""))}</small></div>
+      <div><span>Airspace</span><b>${esc(c.zone)} zone</b><small>${c.permission_ref ? `ATC permission ${esc(c.permission_ref)}` : `Max ${c.max_altitude_m} m altitude`}</small></div>`
+      : `<div><span>Courier</span><b>${esc(v.courier)}</b><small>${esc(v.vehicle)}</small></div>`}
+      <div><span>Distance</span><b>${m.distance_km} km</b><small>${mins(m.duration_minutes)} ${m.mode === "drone" ? "flight" : "drive"}</small></div></div>
+  </div>`;
+}
+
+function missionScreen(title, sub, m, back, actions = "") {
+  const pct = Math.round(m.progress * 100);
+  const evs = [...(m.events || [])].reverse();
+  view().innerHTML = pageHead(title, sub, back ? `<button class="btn ghost" id="back">← All deliveries</button>` : "") + `
+    <section class="hero"><div class="eyebrow">${ic(MODE[m.mode][0])} ${MODE[m.mode][1]} · ${esc(m.ref)}</div>
+      <h1>${esc(m.status_label)}</h1><p>${esc(shortName(m.origin.name))} → ${esc(shortName(m.destination.name))}</p>
+      <div class="progress"><i style="width:${m.status === "delivered" ? 100 : pct}%"></i></div>
+      <div class="stats"><div class="stat"><b>${m.status === "delivered" ? time(m.delivered_at) : time(m.eta)}</b><span>${m.status === "delivered" ? "Delivered at" : "Estimated arrival"}</span></div>
+        <div class="stat"><b>${m.distance_km} km</b><span>Distance</span></div><div class="stat"><b>${mins(m.duration_minutes)}</b><span>${m.mode === "drone" ? "Flight time" : "Drive time"}</span></div>
+        ${m.cold_chain ? `<div class="stat"><b>${m.temperature_log.length ? m.temperature_log[m.temperature_log.length - 1].celsius + " °C" : "2–8 °C"}</b><span>Cold chain</span></div>` : ""}</div>
+      ${actions ? `<div class="actions">${actions}</div>` : ""}</section>
+    <div class="split"><div>${missionPanels(m)}
+      <div class="card"><h3>Drone eligibility checks</h3><p class="small muted" style="margin:4px 0 0">Checked against India's Drone Rules 2021 before booking.</p>${checkList(m.checks)}</div></div>
+    <aside class="sticky"><div class="card"><h3>Journey</h3><ul class="timeline">${evs.map((e, i) => `<li class="done ${i === 0 && m.status !== "delivered" ? "current" : ""}"><span class="node">${ic("check")}</span><b>${esc(e.note)}</b><div class="small muted">${time(e.at)}</div></li>`).join("")}</ul></div>
+      ${m.cold_chain ? `<div class="card"><h3>${ic("snow")} Temperature log</h3>${m.temperature_log.map((t) => `<div class="list-item"><div class="grow small">${time(t.at)}</div><b>${t.celsius} °C</b><span class="badge good">In range</span></div>`).join("") || `<p class="small muted">Logging starts at take-off.</p>`}</div>` : ""}
+      ${m.received_by ? `<div class="notice good">${ic("check")}<span>Received by ${esc(m.received_by)}</span></div>` : ""}
+    </aside></div>`;
+  if (back) $("#back").onclick = back;
+  if (["in_flight", "in_transit"].includes(m.status)) state.poll = setInterval(() => refreshMission(m.id), 10000);
+}
+
+/* -------------------------------------------------------------- hospital */
+const CATS = [["medicines", "Medicines", "pills"], ["blood", "Blood units", "alert"], ["vaccines", "Vaccines", "snow"], ["lab_samples", "Lab samples", "file"], ["antivenom", "Anti-snake venom", "shield"]];
+const URG = [["routine", "Routine"], ["urgent", "Urgent"], ["emergency", "Emergency"]];
+
+SCREENS.shipments = async () => {
+  const list = await api("/api/shipments");
+  const active = list.filter((s) => s.mission.status !== "delivered");
+  const byDrone = list.filter((s) => s.mission.mode === "drone").length;
+  const isHosp = state.role === "hospital";
+  view().innerHTML = `<section class="hero"><div class="eyebrow">${esc(state.name)}</div><h1>${isHosp ? "Hospital deliveries" : "Drone shipments to hospitals"}</h1>
+      <p>${isHosp ? "Medicines, blood, vaccines and samples between pharmacies and hospitals. Drone where India's Drone Rules allow it, road courier everywhere else." : "Consignments hospitals have requested from your pharmacy."}</p>
+      <div class="stats"><div class="stat"><b>${active.length}</b><span>In progress</span></div><div class="stat"><b>${byDrone}</b><span>By drone</span></div><div class="stat"><b>${list.length - byDrone}</b><span>By road</span></div></div>
+      ${isHosp ? `<div class="actions"><button class="btn primary" data-go="send">${ic("drone")} Send or request</button><button class="btn" data-go="coverage">${ic("pin")} Drone coverage</button></div>` : ""}</section>` +
+    (list.map((s) => `<article class="card lift ship" data-ship="${s.id}"><div class="card-head"><div class="row"><div class="pill sm ${s.mission.mode === "drone" ? "" : "c2"}">${ic(MODE[s.mission.mode][0])}</div>
+        <div><h3>${esc(s.category_label)} · ${esc(s.ref)}</h3><div class="meta"><span>${esc(shortName(s.origin_name))} → ${esc(shortName(s.destination))}</span></div></div></div>
+        <span class="badge ${STATUS_CLS[s.mission.status] || ""}">${esc(s.mission.status_label)}</span></div>
+      <div class="row small"><span class="badge">${ic(MODE[s.mission.mode][0])} ${MODE[s.mission.mode][1]}</span>${s.urgency !== "routine" ? `<span class="badge bad">${ic("bolt")} ${esc(s.urgency)}</span>` : ""}
+        ${s.cold_chain ? `<span class="badge info">${ic("snow")} 2–8 °C</span>` : ""}<span class="badge">${s.weight_kg} kg</span><span class="badge">${ic("clock")} ${s.mission.status === "delivered" ? "Delivered" : "ETA " + time(s.mission.eta)}</span></div>
+      ${s.mission.fallback_reason ? `<div class="tiny muted" style="margin-top:8px">${ic("info")} ${esc(s.mission.fallback_reason)}</div>` : ""}</article>`).join("") ||
+      empty("drone", "No deliveries yet", isHosp ? "Request medicines from a pharmacy or send to another hospital." : "Hospital requests from your pharmacy will appear here."));
+  $$("[data-go]").forEach((b) => (b.onclick = () => go(b.dataset.go)));
+  $$("[data-ship]").forEach((c) => (c.onclick = () => guard(() => shipmentDetail(list.find((s) => s.id === +c.dataset.ship)))));
+};
+
+async function refreshMission(id) {
+  if (!["shipments", "orders"].includes(state.tab) || !state.ctx.shipment) return;
+  const list = await api("/api/shipments");
+  const s = list.find((x) => x.id === state.ctx.shipment);
+  if (s) { clearInterval(state.poll); shipmentDetail(s); }
+}
+
+function shipmentDetail(s) {
+  clearInterval(state.poll);
+  state.ctx.shipment = s.id;
+  const m = s.mission, receiver = state.role === "hospital" && state.hospitalId === s.dest_hospital_id;
+  const btn = (a, label, icon, cls = "") => `<button class="btn ${cls}" data-act="${a}">${ic(icon)} ${label}</button>`;
+  let actions = "";
+  if (m.status === "scheduled") actions = btn("launch", m.mode === "drone" ? "Simulate take-off" : "Simulate pickup", MODE[m.mode][0], "primary") + (m.mode === "drone" ? btn("divert", "Weather hold: send by road", "truck") : "");
+  if (["in_flight", "in_transit"].includes(m.status)) actions = btn("arrive", m.mode === "drone" ? "Simulate landing" : "Simulate arrival", "pin", "primary");
+  if (m.status === "arrived" && receiver) actions = btn("confirm", "Confirm received", "check", "primary");
+  if (m.status === "arrived" && !receiver) actions = `<span class="badge">Waiting for ${esc(shortName(s.destination))} to confirm</span>`;
+  missionScreen(`${s.category_label} · ${s.ref}`, `${esc(s.contents)} · ${s.weight_kg} kg${s.urgency !== "routine" ? ` · ${esc(s.urgency)}` : ""}`, m, () => { state.ctx.shipment = null; SCREENS.shipments(); }, actions);
+  $$("[data-act]").forEach((b) => (b.onclick = () => guard(async () => {
+    const a = b.dataset.act; let body = {};
+    if (a === "divert") body = { reason: prompt("Why can't the drone fly?", "Weather hold: rain at the launch pad") || "Weather hold before take-off." };
+    if (a === "confirm") {
+      const who = prompt("Received by (name)", state.name.split(" (")[0]); if (!who) return;
+      body = { received_by: who, temperature_ok: s.cold_chain ? confirm("Does the cold-chain indicator show 2–8 °C?") : null };
+    }
+    const nm = await post(`/api/missions/${m.id}/${a}`, body);
+    toast({ launch: "On its way", arrive: "Arrived", divert: "Switched to road courier", confirm: "Receipt confirmed" }[a]);
+    shipmentDetail({ ...s, mission: nm });
+  })));
+}
+
+SCREENS.send = async () => {
+  const net = await api("/api/hospital/network");
+  const me = net.hospital;
+  const f = state.ctx.sendForm || { dir: "in", origin: net.pharmacies.find((p) => p.coverage.drone)?.id, dest: net.hospitals.find((h) => h.coverage.drone)?.id, category: "medicines", contents: "", weight: 1.0, urgency: "urgent", cold: false, controlled: false };
+  state.ctx.sendForm = f;
+  const body = () => ({ origin_kind: f.dir === "in" ? "pharmacy" : "hospital", origin_id: f.dir === "in" ? +f.origin : me.id, dest_hospital_id: f.dir === "in" ? me.id : +f.dest,
+    category: f.category, contents: f.contents, weight_kg: +f.weight || 0.1, cold_chain: f.cold, controlled: f.controlled, urgency: f.urgency });
+  const opts = (rows, sel) => rows.map((r) => `<option value="${r.id}" ${+sel === r.id ? "selected" : ""}>${esc(shortName(r.name))} · ${r.coverage.distance_km} km${r.coverage.drone ? " · drone" : ""}</option>`).join("");
+  view().innerHTML = pageHead("Send or request", `From ${esc(shortName(me.name))}`) + `<div class="split"><div>
+    <div class="card"><div class="step-label"><span class="n">1</span><h3>Route</h3></div>
+      <div class="seg"><button class="${f.dir === "in" ? "on" : ""}" data-dir="in">${ic("store")} Pharmacy → my hospital</button><button class="${f.dir === "out" ? "on" : ""}" data-dir="out">${ic("drone")} My hospital → another hospital</button></div>
+      <label class="field" style="margin-top:14px">${f.dir === "in" ? "From pharmacy" : "To hospital"}
+        <select id="place">${f.dir === "in" ? opts(net.pharmacies, f.origin) : opts(net.hospitals, f.dest)}</select></label></div>
+    <div class="card"><div class="step-label"><span class="n">2</span><h3>What's going</h3></div>
+      <div class="choice-grid">${CATS.map(([k, l, i]) => `<button class="choice ${f.category === k ? "on" : ""}" data-cat="${k}"><span class="ico">${ic(i)}</span><div><b>${l}</b>${["blood", "vaccines"].includes(k) ? "<span>Always 2–8 °C</span>" : ""}</div></button>`).join("")}</div>
+      <div class="form-grid" style="margin-top:14px"><label class="wide">Contents<input id="contents" value="${esc(f.contents)}" placeholder="e.g. 4 × insulin pens, 2 units O-negative blood"></label>
+        <label>Packed weight (kg)<input id="weight" type="number" step="0.1" min="0.1" max="50" value="${f.weight}"></label></div>
+      <label class="check" style="margin-top:12px"><input type="checkbox" id="cold" ${f.cold || ["blood", "vaccines"].includes(f.category) ? "checked" : ""} ${["blood", "vaccines"].includes(f.category) ? "disabled" : ""}><span>Needs cold chain (2–8 °C)</span></label>
+      <label class="check" style="margin-top:8px"><input type="checkbox" id="controlled" ${f.controlled ? "checked" : ""}><span>Contains controlled medicines (needs ID check, goes by road)</span></label></div>
+    <div class="card"><div class="step-label"><span class="n">3</span><h3>Urgency</h3></div><div class="seg">${URG.map(([k, l]) => `<button class="${f.urgency === k ? "on" : ""}" data-urg="${k}">${l}</button>`).join("")}</div></div>
+  </div><aside class="sticky"><div class="card featured" id="quote"><div class="skeleton" style="height:200px"></div></div></aside></div>`;
+  $$("[data-dir]").forEach((b) => (b.onclick = () => { f.dir = b.dataset.dir; SCREENS.send(); }));
+  $$("[data-cat]").forEach((b) => (b.onclick = () => { f.category = b.dataset.cat; SCREENS.send(); }));
+  $$("[data-urg]").forEach((b) => (b.onclick = () => { f.urgency = b.dataset.urg; SCREENS.send(); }));
+  $("#place").onchange = (e) => { if (f.dir === "in") f.origin = e.target.value; else f.dest = e.target.value; quote(); };
+  $("#contents").oninput = (e) => (f.contents = e.target.value);
+  $("#weight").oninput = (e) => { f.weight = e.target.value; clearTimeout(f.t); f.t = setTimeout(quote, 350); };
+  $("#cold").onchange = (e) => { f.cold = e.target.checked; quote(); };
+  $("#controlled").onchange = (e) => { f.controlled = e.target.checked; quote(); };
+  async function quote() {
+    const box = $("#quote"); if (!box) return;
+    try {
+      const q = await post("/api/shipments/quote", body());
+      box.innerHTML = `<div class="row between"><h3>${q.eligible ? "Drone can fly this" : "Goes by road"}</h3><span class="badge ${q.eligible ? "good" : "warn"}">${ic(q.eligible ? "drone" : "truck")} ${q.eligible ? "Drone" : "Road"}</span></div>
+        <div class="kv two" style="margin-top:12px"><div><span>By drone</span><b>${q.eligible ? mins(q.flight_minutes + (q.needs_permission ? 20 : 5)) : "—"}</b><small>${q.eligible ? `${esc(q.drone.uin)}` : "Not eligible"}</small></div>
+          <div><span>By road</span><b>${mins(q.road_minutes)}</b><small>${q.distance_km} km</small></div></div>
+        ${q.needs_permission ? `<div class="notice info small">${ic("info")}<span>Crosses a yellow zone. ATC permission is requested automatically (about 15 min).</span></div>` : ""}
+        ${checkList(q.checks)}
+        <button class="btn primary block" id="book" style="margin-top:12px">${ic(q.eligible ? "drone" : "truck")} ${q.eligible ? "Book drone" : "Book road courier"}</button>
+        ${q.eligible ? `<button class="btn ghost block" id="bookRoad" style="margin-top:6px">Send by road instead</button>` : ""}`;
+      const book = (mode) => guard(async () => {
+        if (!f.contents.trim()) { $("#contents").focus(); throw new Error("Describe what is being sent."); }
+        const s = await post("/api/shipments", { ...body(), mode });
+        state.ctx.sendForm = null; toast(s.mission.mode === "drone" ? "Drone booked" : "Road courier booked", s.mission.mode === "drone" ? "drone" : "truck");
+        state.tab = "shipments"; renderNav(); shipmentDetail(s);
+      });
+      $("#book").onclick = () => book("auto");
+      if ($("#bookRoad")) $("#bookRoad").onclick = () => book("road");
+    } catch (e) { box.innerHTML = `<div class="notice bad">${ic("alert")}<span>${esc(e.message)}</span></div>`; }
+  }
+  quote();
+};
+
+SCREENS.coverage = async () => {
+  const net = await api("/api/hospital/network");
+  const me = net.hospital, all = [...net.hospitals, ...net.pharmacies];
+  const pts = [{ ...me, cls: "hub", big: true }, ...all.map((p) => ({ ...p, cls: p.coverage.drone ? (p.type === "pharmacy" ? "pharm" : "ok") : "road" }))];
+  const lines = all.map((p) => ({ a: me, b: p, cls: p.coverage.drone ? "drone" : "road" }));
+  const row = (p) => `<div class="list-item"><div class="avatar ${p.coverage.drone ? "" : "muted-av"}">${ic(p.coverage.drone ? "drone" : "truck")}</div>
+    <div class="grow"><b>${esc(shortName(p.name))}</b><div class="tiny muted">${p.coverage.distance_km} km · ${esc(p.coverage.zone)} zone${p.type === "hospital" && !p.drone_pad ? " · no drone pad" : ""}</div>
+      ${p.coverage.drone ? "" : `<div class="tiny" style="color:var(--warn);margin-top:2px">${esc(p.coverage.reason)}</div>`}</div>
+    <div style="text-align:right">${p.coverage.drone ? `<span class="badge good">${ic("drone")} ${mins(p.coverage.flight_minutes)}</span>` : `<span class="badge">${ic("truck")} ${mins(p.coverage.road_minutes)}</span>`}
+      ${p.coverage.needs_permission ? `<div class="tiny muted" style="margin-top:4px">ATC permission</div>` : ""}</div></div>`;
+  view().innerHTML = `<section class="hero"><div class="eyebrow">Drone coverage from ${esc(shortName(me.name))}</div><h1>${net.summary.drone} of ${net.summary.total} sites reachable by drone</h1>
+      <p>Every hospital is served: by drone where the route passes India's Drone Rules 2021 checks, and by road courier everywhere else.</p>
+      <div class="stats"><div class="stat"><b>${net.summary.drone}</b><span>Drone</span></div><div class="stat"><b>${net.summary.road_only}</b><span>Road only</span></div><div class="stat"><b>${net.zones.length}</b><span>Restricted zones nearby</span></div></div></section>
+    <div class="card">${routeMap({ points: pts, lines, zones: net.zones })}
+      <div class="row tiny muted" style="gap:14px"><span class="key"><i class="k hub"></i>Your hospital</span><span class="key"><i class="k ok"></i>Hospital by drone</span><span class="key"><i class="k pharm"></i>Pharmacy by drone</span><span class="key"><i class="k road"></i>Road only</span></div></div>
+    <div class="grid"><div class="card"><h3>Hospitals</h3>${net.hospitals.map(row).join("")}</div><div class="card"><h3>Pharmacies</h3>${net.pharmacies.map(row).join("")}</div></div>
+    <div class="notice info small">${ic("info")}<span>Demo rules, fictional airspace. A real launch needs a DGCA-authorised operator, drones with a UIN and type certificate, certified remote pilots, BVLOS permission, and the live Digital Sky airspace map.</span></div>`;
 };
 
 /* ------------------------------------------------------------------ yana */
