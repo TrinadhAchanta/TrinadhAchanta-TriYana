@@ -78,8 +78,9 @@ def signed_rx(env, as_):
     """Doctor completes Meera's visit and signs Dolo 650 x5 + Pantodemo x10."""
     doc = as_("doctor")
     vid = env["ids"]["visits"]["meera"]
-    for a in ("accept", "start", "complete"):
-        assert doc.post(f"/api/doctor/visits/{vid}/{a}").status_code == 200
+    assert doc.post(f"/api/doctor/visits/{vid}/accept").status_code == 200
+    start_visit(env, doc, vid)
+    assert doc.post(f"/api/doctor/visits/{vid}/complete").status_code == 200
     r = doc.post("/api/prescriptions", {"visit_id": vid, "diagnosis_note": "Demo",
                                          "items": rx_items(env["ids"], ("dolo", 5), ("panto", 10))})
     assert r.status_code == 201, r.text
@@ -88,3 +89,55 @@ def signed_rx(env, as_):
     assert r.status_code == 200, r.text
     cart_id = as_("patient").get("/api/patient/carts").json()[0]["id"]
     return {"rx": r.json(), "cart_id": cart_id}
+
+
+# ------------------------------------------------------------------ face verification helpers
+def live_frames(n=4, brightness=130, move=True, seed=None):
+    """Synthetic camera frames: a face-like oval that moves between frames (like a head turn)."""
+    import base64
+    import io
+    import random
+
+    from PIL import Image, ImageDraw
+
+    rnd = random.Random(seed)
+    jitter = rnd.randint(0, 40)
+    out = []
+    for i in range(n):
+        img = Image.new("RGB", (320, 240), (brightness,) * 3)
+        d = ImageDraw.Draw(img)
+        x = 80 + jitter + (i * 22 if move else 0)
+        d.ellipse([x, 40, x + 110, 200], fill=(min(255, brightness + 80),) * 3)
+        px = rnd.randint(0, 316)
+        d.rectangle([px, 0, px + 2, 2], fill=(10, 10, 10))  # a tiny dot that makes every capture unique
+        buf = io.BytesIO()
+        img.save(buf, "JPEG", quality=80)
+        out.append("data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode())
+    return out
+
+
+def face_check(api, vid, frames=None, scenario=None, purpose="visit", consent=False):
+    ch = api.post("/api/provider/face/challenges", {"purpose": purpose, "visit_id": vid, "consent": consent})
+    assert ch.status_code == 201, ch.text
+    ch = ch.json()
+    return api.post(f"/api/provider/face/challenges/{ch['id']}/submit",
+                    {"nonce": ch["nonce"], "frames": frames or live_frames(), "demo_scenario": scenario})
+
+
+def face_pass(api, vid):
+    r = face_check(api, vid)
+    assert r.status_code == 200 and r.json()["status"] == "passed", r.text
+
+
+def arrival_code(env, vid):
+    from app.models import HomeVisit
+    with env["Session"]() as s:
+        return s.get(HomeVisit, vid).arrival_code
+
+
+def start_visit(env, doc, vid):
+    """The doctor verifies their face for this visit, then starts it with the patient's arrival code."""
+    face_pass(doc, vid)
+    r = doc.post(f"/api/doctor/visits/{vid}/start", {"arrival_code": arrival_code(env, vid)})
+    assert r.status_code == 200, r.text
+    return r

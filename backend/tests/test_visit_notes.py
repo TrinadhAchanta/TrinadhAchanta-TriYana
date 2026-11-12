@@ -1,5 +1,5 @@
 """Doctor's visit notes and vitals, linked to the visit and prescription, visible to the patient."""
-from tests.conftest import rx_items
+from tests.conftest import rx_items, start_visit
 
 NOTE = {"chief_complaint": "Fever and body ache", "findings": "Fever 2 days, throat red, chest clear.",
         "diagnosis": "Viral fever", "advice": "Fluids and rest.", "follow_up_in_days": 3,
@@ -7,9 +7,9 @@ NOTE = {"chief_complaint": "Fever and body ache", "findings": "Fever 2 days, thr
         "spo2_pct": 97, "resp_rate": 18, "weight_kg": 64.5}
 
 
-def _start(doc, vid):
-    for a in ("accept", "start"):
-        assert doc.post(f"/api/doctor/visits/{vid}/{a}").status_code == 200
+def _start(env, doc, vid):
+    assert doc.post(f"/api/doctor/visits/{vid}/accept").status_code == 200
+    start_visit(env, doc, vid)
 
 
 def test_doctor_writes_notes_and_completes_patient_sees_them(env, as_):
@@ -17,7 +17,7 @@ def test_doctor_writes_notes_and_completes_patient_sees_them(env, as_):
     vid = env["ids"]["visits"]["meera"]
     # Not before the visit starts.
     assert doc.put(f"/api/doctor/visits/{vid}/notes", NOTE).status_code == 409
-    _start(doc, vid)
+    _start(env, doc, vid)
     r = doc.put(f"/api/doctor/visits/{vid}/notes", NOTE)
     assert r.status_code == 200, r.text
     n = r.json()
@@ -49,7 +49,7 @@ def test_doctor_writes_notes_and_completes_patient_sees_them(env, as_):
 def test_vitals_are_checked(env, as_):
     doc = as_("doctor")
     vid = env["ids"]["visits"]["meera"]
-    _start(doc, vid)
+    _start(env, doc, vid)
     for bad in ({"spo2_pct": 140}, {"temperature_f": 150}, {"bp_systolic": 120, "bp_diastolic": None},
                 {"bp_systolic": 80, "bp_diastolic": 120}, {"chief_complaint": " "}):
         r = doc.put(f"/api/doctor/visits/{vid}/notes", {**NOTE, **bad})

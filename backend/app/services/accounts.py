@@ -411,6 +411,9 @@ def set_verification(db: Session, user_id: int, status: str, note: str = "", act
             if len((note or "").strip()) < 5:
                 raise Unprocessable("note_required", "Add a note saying how you verified this provider.")
             note = "Override: " + note.strip()
+    if status == "verified":
+        from . import face_verification
+        face_verification.on_account_approved(db, user)  # doctors: no approval without an enrolled face
     user.verification_status, user.verification_note = status, (note or None)
     if user.doctor_id:
         db.get(Doctor, user.doctor_id).license_verified = status == "verified"
@@ -429,7 +432,9 @@ def pending_providers(db: Session, status: str = "pending") -> list[dict]:
     out = []
     for u in rows:
         verification.refresh(db, u)
-        out.append(account_dict(db, u) | {"verification": verification.status(db, u)})
+        from .face_verification import current_enrollment, enrollment_dict
+        out.append(account_dict(db, u) | {"verification": verification.status(db, u),
+                                          "face": enrollment_dict(current_enrollment(db, u), with_photo=True)})
     return out
 
 

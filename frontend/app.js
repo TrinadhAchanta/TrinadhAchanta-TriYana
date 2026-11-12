@@ -176,6 +176,7 @@ function renderNav() {
 function go(tab, ctx = {}) {
   clearInterval(state.poll);
   stopLive();
+  state.screenTok = tab;
   state.tab = tab; Object.assign(state.ctx, ctx);
   renderNav();
   view().innerHTML = `<div class="skeleton" style="height:180px"></div><div class="skeleton"></div><div class="skeleton"></div>`;
@@ -734,10 +735,12 @@ SCREENS.visits = async () => {
       <div class="meta"><span>${ic("pin")} ${esc(v.address)}</span>${v.follow_up_of ? `<span class="badge premium">${ic("later")} Follow-up${v.follow_up_of.same_doctor ? " · your patient" : ""} of ${esc(v.follow_up_of.booking_ref || "earlier visit")}</span>` : ""}</div></div></div><span class="badge ${label[v.status][1]}">${label[v.status][0]}</span></div>
       <div class="instructions">${esc(v.reason)}</div>
       <div class="actions-bar">${v.status === "in_progress" ? `<button class="btn primary sm" data-notes="${v.id}">${ic("notes")} ${v.has_notes ? "Visit notes · complete visit" : "Write visit notes & vitals"}</button>`
+        : v.status === "accepted" && typeof faceStartJourney === "function" ? `<button class="btn primary sm" data-fj="${v.id}">${ic("scan")} Verify face &amp; start journey</button>`
         : next[v.status] ? `<button class="btn primary sm" data-v="${v.id}" data-a="${next[v.status][0]}">${ic(next[v.status][2])} ${next[v.status][1]}</button>` : ""}
       ${v.status === "completed" ? `<button class="btn sm" data-notes="${v.id}">${ic("notes")} ${v.has_notes ? "Visit notes" : "Add visit notes"}</button>` : ""}
       ${["in_progress", "completed"].includes(v.status) ? `<button class="btn sm" data-rx="${v.id}">${ic("rx")} Write prescription</button>` : ""}</div></article>`).join("") || empty("calendar", "No visits scheduled"));
   $$("[data-notes]").forEach((b) => (b.onclick = () => guard(() => notesScreen(+b.dataset.notes))));
+  $$("[data-fj]").forEach((b) => (b.onclick = () => faceStartJourney(+b.dataset.fj)));
   $$("[data-a]").forEach((b) => (b.onclick = () => guard(async () => {
     await post(`/api/doctor/visits/${b.dataset.v}/${b.dataset.a}`);
     if (b.dataset.a === "complete") { const v = visits.find((x) => x.id === +b.dataset.v); toast(`Visit complete. You earned ${money((v?.fee || 0) + (v?.on_demand ? 100 : 0))}. See Earnings.`, "wallet"); }

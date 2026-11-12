@@ -1,4 +1,5 @@
 """Provider earnings (Dasher style): pay per completed job, today/week totals, balance and cash out."""
+from conftest import start_visit
 from test_dispatch import _ready_delivery_order, _status
 
 
@@ -9,8 +10,9 @@ def test_doctor_earns_visit_fee_and_can_cash_out(env, as_):
     assert before["balance"] > 0 and before["payouts"]  # seeded history: last week already paid out
 
     vid = env["ids"]["visits"]["meera"]
-    for a in ("accept", "start", "complete"):
-        assert doc.post(f"/api/doctor/visits/{vid}/{a}").status_code == 200
+    assert doc.post(f"/api/doctor/visits/{vid}/accept").status_code == 200
+    start_visit(env, doc, vid)
+    assert doc.post(f"/api/doctor/visits/{vid}/complete").status_code == 200
     after = doc.get("/api/provider/earnings").json()
     job = after["jobs"][0]
     assert job["total"] == 600 and job["base"] == 600 and job["kind"] == "visit"
@@ -26,12 +28,12 @@ def test_doctor_earns_visit_fee_and_can_cash_out(env, as_):
     assert doc.post("/api/provider/earnings/cash-out").status_code == 409
 
 
-def test_doctor_now_bonus(as_):
+def test_doctor_now_bonus(env, as_):
     patient, carter = as_("patient"), as_("doctor")
     v = patient.post("/api/patient/visits/now", {"reason": "Fever"}).json()
     oid = next(o for o in _status(carter)["offers"] if o["on_demand"])["id"]
     carter.post(f"/api/provider/offers/{oid}/accept")
-    carter.post(f"/api/doctor/visits/{v['id']}/start")
+    start_visit(env, carter, v["id"])
     carter.post(f"/api/doctor/visits/{v['id']}/complete")
     job = carter.get("/api/provider/earnings").json()["jobs"][0]
     assert job["bonus"] == 100 and job["total"] == v["fee"] + 100

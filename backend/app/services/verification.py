@@ -24,13 +24,14 @@ from ..adapters import verification as partners
 from ..errors import Conflict, Unprocessable
 from ..models import Doctor, Physiotherapist, Role, User, VerificationCheck, utcnow
 
-LABELS = {"registry": "Council registration", "identity": "ID check", "background": "Court records"}
-PARTNER_NAMES = {"demo": "Demo partner", "hpr": "ABDM HPR", "idfy": "IDfy"}
+LABELS = {"registry": "Council registration", "identity": "ID check", "background": "Court records",
+          "face": "Live face enrolment"}
+PARTNER_NAMES = {"demo": "Demo partner", "hpr": "ABDM HPR", "idfy": "IDfy", "ops": "Triyana ops"}
 
 
 def required_kinds(user: User) -> list[str]:
     kinds = ["registry"] if user.role in (Role.doctor, Role.physio) else []
-    return kinds + ["identity", "background"]
+    return kinds + ["identity", "background"] + (["face"] if user.role == Role.doctor else [])
 
 
 def _registration(db: Session, user: User) -> tuple[str, str] | None:
@@ -154,8 +155,9 @@ def status(db: Session, user: User) -> dict:
         checks.append({"kind": kind, "label": LABELS[kind],
                        "status": row.status if row else "not_started",
                        "partner": PARTNER_NAMES.get(row.partner, row.partner) if row else None,
-                       "summary": row.summary if row else ("Add your ID below to start this check."
-                                                           if kind != "registry" else "Not checked yet."),
+                       "summary": row.summary if row else ("Not checked yet." if kind == "registry" else
+                                                           "Take a live selfie below to enrol your face."
+                                                           if kind == "face" else "Add your ID below to start this check."),
                        "reference": row.reference if row else None,
                        "details": row.details if row else {},
                        "checked_at": row.updated_at.isoformat() + "Z" if row else None})
@@ -172,6 +174,7 @@ def status(db: Session, user: User) -> dict:
         stage = "flagged"
     return {"stage": stage, "checks": checks, "id_needed": latest.get("identity") is None
             or latest["identity"].status in ("failed", "error"),
+            "face_needed": user.role == Role.doctor and latest.get("face") is None,
             "id_types": ["pan"] if user.role in (Role.doctor, Role.physio) else ["pan", "driving_licence"]}
 
 

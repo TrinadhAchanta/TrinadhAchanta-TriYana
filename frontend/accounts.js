@@ -239,7 +239,10 @@ async function loadVerifyChecks() {
       <label class="wide">Address (for the court-record search)<input id="vAddr" placeholder="House, street, city"></label>
       <label class="wide check"><input type="checkbox" id="vConsent"> I agree that Triyana and its verification partner (IDfy) may check this ID with the issuing authority and search court records in my name. Triyana keeps only a masked copy of the number.</label>
       <div class="wide"><button class="btn primary sm">${ic("shield")} Start ID check</button></div></form>` : "";
-  box.innerHTML = `<ul class="v-list">${v.checks.map(vRow).join("")}<li class="v-row"><span class="badge ${v.stage === "ready_for_review" ? "warn" : ""}">${ic("clock")} ${v.stage === "ready_for_review" ? "In review" : "Next"}</span><span class="grow"><b>Final review</b><span class="tiny muted"> · Triyana</span><span class="tiny muted v-sum">A person at Triyana approves your account.</span></span></li></ul>${idForm}`;
+  const faceForm = v.face_needed && v.stage !== "rejected" && typeof faceEnroll === "function" ? `<div class="v-form"><p class="small" style="margin:0 0 8px"><b>Live face enrolment.</b> Take a live selfie with consent. Before every home visit you'll repeat a 5-second face check against it.</p>
+      <button class="btn primary sm" id="vFace">${ic("scan")} Enrol my face</button></div>` : "";
+  box.innerHTML = `<ul class="v-list">${v.checks.map(vRow).join("")}<li class="v-row"><span class="badge ${v.stage === "ready_for_review" ? "warn" : ""}">${ic("clock")} ${v.stage === "ready_for_review" ? "In review" : "Next"}</span><span class="grow"><b>Final review</b><span class="tiny muted"> · Triyana</span><span class="tiny muted v-sum">A person at Triyana approves your account.</span></span></li></ul>${idForm}${faceForm}`;
+  const vf = $("#vFace"); if (vf) vf.onclick = () => faceEnroll(loadVerifyChecks);
   const f = $("#vIdForm");
   if (f) f.onsubmit = (e) => { e.preventDefault(); guard(async () => {
     await post("/api/account/verification/identity", { id_type: $("#vType").value, id_number: $("#vNum").value, date_of_birth: $("#vDob").value, address: $("#vAddr").value, consent: $("#vConsent").checked });
@@ -271,6 +274,7 @@ SCREENS.account = async () => {
       </div>
       ${a.physio ? `<div class="card"><h3>Registration</h3><p class="small muted" style="margin:6px 0 0">${esc([a.physio.qualification, `Reg. No. ${a.physio.license_no}`, a.physio.medical_council].join(" · "))}</p></div>` : ""}
       ${a.doctor ? `<div class="card"><h3>Registration</h3><p class="small muted" style="margin:6px 0 0">${regLine(a.doctor)}${a.doctor.specialty ? ` · ${esc(a.doctor.specialty)}` : ""}</p></div>` : ""}
+      ${a.doctor && typeof faceEnroll === "function" ? `<div class="card" id="faceCard"></div>` : ""}
       ${history ? `<div class="card"><h3>Your history</h3><p class="small muted" style="margin:6px 0 12px">Visits, notes, prescriptions, medicine orders and lab reports are saved to this account.</p>
         <div class="row" style="gap:8px;flex-wrap:wrap"><button class="btn sm" data-go="home">Visit history</button><button class="btn sm" data-go="orders">Orders</button><button class="btn sm" data-go="meds">My medicines</button>${TABS.patient.some((t) => t[0] === "labs") ? `<button class="btn sm" data-go="labs">Lab reports</button>` : ""}</div></div>` : ""}
     </div><aside>
@@ -287,6 +291,7 @@ SCREENS.account = async () => {
       <div class="card"><button class="btn ghost block" id="acctOut">Sign out</button></div>
     </aside></div>`;
   $$("[data-go]").forEach((b) => (b.onclick = () => go(b.dataset.go)));
+  if ($("#faceCard")) faceAccountCard();
   $("#acctOut").onclick = signOut;
   if ($("#toSignup")) $("#toSignup").onclick = () => { signOut(); renderAuth("signup"); };
   if ($("#profile")) $("#profile").onsubmit = (e) => { e.preventDefault(); guard(async () => {
@@ -311,3 +316,21 @@ SCREENS.account = async () => {
     $("#pwOld").value = $("#pwNew").value = ""; toast("Password updated");
   }); };
 };
+
+/* Account tab (doctors): verified face, re-enrol, withdraw biometric consent. */
+async function faceAccountCard() {
+  const box = $("#faceCard"); if (!box) return;
+  const f = await api("/api/provider/face").catch(() => null); if (!f || !$("#faceCard")) return;
+  const e = f.enrollment;
+  const word = f.locked ? ["bad", "Locked for review"] : f.active ? ["good", "Active"] : e?.status === "pending_review" ? ["warn", "Waiting for approval"] : ["", "Not enrolled"];
+  box.innerHTML = `<div class="row between"><h3 style="margin:0">Face verification</h3><span class="badge ${word[0]}">${word[1]}</span></div>
+    <div class="row" style="gap:12px;margin:10px 0">${e?.photo ? `<img class="prov-photo" src="${esc(e.photo)}" alt="Your verified profile photo">` : `<span class="avatar lg">${ic("scan")}</span>`}
+      <p class="small muted" style="margin:0">Patients see this photo, your name and your registration once you pass the live check for their visit. They never see your face data or documents.${e ? ` Enrolled ${esc(day(e.created_at))}.` : ""}</p></div>
+    <div class="row" style="gap:8px;flex-wrap:wrap"><button class="btn sm" id="faceRe">${ic("scan")} ${e ? "Re-enrol my face" : "Enrol my face"}</button>
+      ${e ? `<button class="btn ghost sm danger" id="faceWithdraw">Withdraw consent</button>` : ""}</div>`;
+  $("#faceRe").onclick = () => faceEnroll(() => SCREENS.account());
+  const w = $("#faceWithdraw"); if (w) w.onclick = () => guard(async () => {
+    if (!confirm("Withdraw face verification consent? Your face data is deleted and you can't take home visits until you enrol again or Triyana approves another way to verify you.")) return;
+    await api("/api/provider/face/enrollment", { method: "DELETE" }); toast("Consent withdrawn. Your face data was deleted.", "info"); SCREENS.account();
+  });
+}

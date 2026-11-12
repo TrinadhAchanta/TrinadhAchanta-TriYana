@@ -29,6 +29,7 @@ const declinedOffers = new Set(); // hidden at once on tap, even before the serv
 
 /* ------------------------------------------------------------------ dashboard */
 SCREENS.dash = async () => {
+  const tok = (state.screenTok = {}); // a poll that lands after we've moved to another screen must not redraw
   const status = async () => { const s = await api("/api/provider/status"); s.offers = s.offers.filter((o) => !declinedOffers.has(o.id)); return s; };
   let st = await status();
   const activeJobs = (list) => list.filter((j) => j.kind !== "lab" || ["assigned", "collected"].includes(j.status)); // finished collections live on the Collections tab
@@ -54,6 +55,7 @@ SCREENS.dash = async () => {
           <div class="stat"><b>${t ? `${t.eta_min} min` : "—"}</b><span>${t ? "To destination" : "No active trip"}</span></div></div>
       </section>
       ${verifyBanner(st)}
+      <div id="faceBanner"></div>
       ${t ? `<button class="live-banner" id="toNav"><span class="live-dot"></span><span class="grow"><b>${t.arrived ? "You've arrived" : `Navigating to ${esc(t.dest_label)}`}</b><span class="tiny">${t.arrived ? "Open to finish this job" : `${t.eta_min} min · ${km(t.remaining_m)} · ${esc(t.next_step?.text || "")}`}</span></span><span class="btn sm">${ic("nav")} Navigate</span></button>` : ""}
       <div class="split"><div>
         <div class="section-title">Requests</div>
@@ -69,6 +71,7 @@ SCREENS.dash = async () => {
         <div class="notice info small">${ic("info")}<span>Demo: your GPS is simulated. In the field the app uses your phone's location.</span></div>
       </aside></div>`;
     wire();
+    faceBanner();
     drawArea();
     tickCountdowns();
   };
@@ -96,9 +99,11 @@ SCREENS.dash = async () => {
     $$("[data-earn]").forEach((b) => (b.onclick = () => go("earnings")));
     $$("[data-accept]").forEach((b) => (b.onclick = () => guard(async () => {
       b.disabled = true;
+      const offer = st.offers.find((o) => o.id === +b.dataset.accept);
       const r = await post(`/api/provider/offers/${b.dataset.accept}/accept`);
-      toast("Accepted. Let's go!", "check");
-      if (r.trip) navScreen(); else { stopLive(); SCREENS.dash(); }
+      if (r.trip) { toast("Accepted. Let's go!", "check"); navScreen(); }
+      else if (offer?.kind === "visit" && offer.on_demand) { toast("Accepted. Verify it's you to start the journey.", "check"); stopLive(); SCREENS.dash(); faceStartJourney(offer.visit_id); }
+      else { toast("Accepted.", "check"); stopLive(); SCREENS.dash(); }
     })));
     $$("[data-decline]").forEach((b) => (b.onclick = async () => {
       /* Take the card away straight away (like Dasher) so a slow network never looks like a dead button. */
@@ -115,7 +120,7 @@ SCREENS.dash = async () => {
       }
       stopLive(); SCREENS.dash();
     }));
-    $$("[data-depart]").forEach((b) => (b.onclick = () => guard(async () => { await post(`/api/provider/visits/${b.dataset.depart}/depart`); navScreen(); })));
+    $$("[data-depart]").forEach((b) => (b.onclick = () => faceStartJourney(+b.dataset.depart)));
     $$("[data-nav]").forEach((b) => (b.onclick = () => navScreen()));
     $$("[data-visits]").forEach((b) => (b.onclick = () => go("visits")));
     $$("[data-collect]").forEach((b) => (b.onclick = () => guard(async () => { await post(`/api/pharmacy/orders/${b.dataset.collect}/dispatch`); navScreen(); })));
@@ -125,6 +130,7 @@ SCREENS.dash = async () => {
     $$("[data-notes]").forEach((b) => (b.onclick = () => physioNotesScreen(+b.dataset.notes)));
   };
 
+  if (state.screenTok !== tok) return;
   render();
   st.offers.forEach((o) => seenOffers.add(o.id));
   every(1000, async () => tickCountdowns());
@@ -139,6 +145,7 @@ SCREENS.dash = async () => {
       try { navigator.vibrate?.([120, 60, 120]); } catch {}
       toast(`New request · ${fresh[0].distance_km} km away`, "bolt");
     }
+    if (state.screenTok !== tok) return;
     if (signature() !== sig) { stopLiveMapsOnly(); render(); }
   });
 };
@@ -184,7 +191,7 @@ function jobCard(j) {
   const label = { accepted: ["Accepted", "brand"], in_progress: ["With patient", "warn"], ready_for_pickup: ["Collect from pharmacy", "info"], out_for_delivery: ["Out for delivery", "brand"], delivered: ["Delivered", "good"] }[j.status] || [j.status, ""];
   let action = "";
   if (j.trip_id) action = `<button class="btn primary sm" data-nav="1">${ic("nav")} Navigate</button>`;
-  else if (visit && j.status === "accepted") action = `<button class="btn primary sm" data-depart="${j.id}">${ic("nav")} Start trip</button>`;
+  else if (visit && j.status === "accepted") action = `<button class="btn primary sm" data-depart="${j.id}">${ic("scan")} Verify face &amp; start journey</button>`;
   else if (visit && j.status === "in_progress") action = `<button class="btn sm" data-visits="1">${ic("rx")} Consultation & prescription</button>`;
   else if (!visit && j.status === "ready_for_pickup") action = `<button class="btn primary sm" data-collect="${j.id}">${ic("truck")} Collected, start delivery</button>`;
   return `<article class="card job"><div class="card-head"><div class="row" style="flex-wrap:nowrap"><div class="avatar">${visit ? ic("stethoscope") : ic("truck")}</div>
@@ -241,6 +248,7 @@ const triedRoad = new Set();
 /* ------------------------------------------------------------------ turn-by-turn navigation */
 async function navScreen() {
   stopLive();
+  state.screenTok = "nav";
   state.tab = "dash"; renderNav();
   let t = await api("/api/provider/trip");
   if (!t) { toast("No active trip", "info"); return go("dash"); }
@@ -296,7 +304,9 @@ async function navScreen() {
     let actions;
     if (t.lab_booking_id) actions = labNavActions(t, labJob);
     else if (t.physio_session_id) actions = `<button class="btn primary block" id="navPhysio" ${t.arrived ? "" : "disabled"}>${ic("heart")} ${t.arrived ? "Start session" : "Start session on arrival"}</button>`;
-    else if (isVisit) actions = `<button class="btn primary block" id="navStart" ${t.arrived ? "" : "disabled"}>${ic("stethoscope")} ${t.arrived ? "Start visit" : "Start visit on arrival"}</button>`;
+    else if (isVisit) actions = `<div class="row small" style="margin-bottom:8px"><span class="id-verified">${ic("shield")} Identity verified for this visit</span></div>
+      <label class="field">Patient's arrival code<input id="arrCode" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="4 digits from the patient's app"></label>
+      <button class="btn primary block" id="navStart" ${t.arrived ? "" : "disabled"} style="margin-top:8px">${ic("stethoscope")} ${t.arrived ? "Confirm code and start visit" : "Start visit on arrival"}</button>`;
     else if (t.leg === "to_pharmacy") actions = `<button class="btn primary block" id="navCollect">${ic("bag")} ${t.arrived ? "Collected, start delivery" : "Collected the order"}</button>`;
     else actions = `<div class="form-grid"><label>Handover code<input id="hoCode" inputmode="numeric" maxlength="4" placeholder="4 digits"></label><label>Received by<input id="hoWho" placeholder="Name"></label></div>
       <label class="check" style="margin:10px 0"><input type="checkbox" id="hoId"><span>Photo ID checked (if required)</span></label>
@@ -313,7 +323,7 @@ async function navScreen() {
 
   const wireActions = () => {
     const ps = $("#navPhysio"); if (ps) ps.onclick = () => guard(async () => { await post(`/api/physio/sessions/${t.physio_session_id}/start`); toast("Session started", "heart"); physioNotesScreen(t.physio_session_id); });
-    const st = $("#navStart"); if (st) st.onclick = () => guard(async () => { await post(`/api/doctor/visits/${t.visit_id}/start`); toast("Visit started. Write your notes and vitals here.", "stethoscope"); state.tab = "visits"; renderNav(); notesScreen(t.visit_id); });
+    const st = $("#navStart"); if (st) st.onclick = () => guard(async () => { await post(`/api/doctor/visits/${t.visit_id}/start`, { arrival_code: $("#arrCode").value.trim() }); toast("Visit started. Write your notes and vitals here.", "stethoscope"); state.tab = "visits"; renderNav(); notesScreen(t.visit_id); });
     const co = $("#navCollect"); if (co) co.onclick = () => guard(async () => { await post(`/api/pharmacy/orders/${t.order_id}/dispatch`); toast("Collected. Navigating to the patient.", "truck"); navScreen(); });
     const dl = $("#navDeliver"); if (dl) dl.onclick = () => guard(async () => {
       await post(`/api/orders/${t.order_id}/handover`, { code: $("#hoCode").value, recipient_name: $("#hoWho").value || "Patient", id_verified: $("#hoId").checked });
@@ -332,8 +342,8 @@ async function navScreen() {
     const nt = await api("/api/provider/trip");
     if (!nt) return go("dash");
     if (nt.id !== t.id) return navScreen(); // e.g. sample collected: now heading to the lab
-    const typing = document.activeElement && ["hoCode", "hoWho", "labCode"].includes(document.activeElement.id);
-    keepForms = typing || ($("#hoCode")?.value || "") !== "" || ($("#labCode")?.value || "") !== "";
+    const typing = document.activeElement && ["hoCode", "hoWho", "labCode", "arrCode"].includes(document.activeElement.id);
+    keepForms = typing || ($("#hoCode")?.value || "") !== "" || ($("#labCode")?.value || "") !== "" || ($("#arrCode")?.value || "") !== "";
     const arrivedNow = nt.arrived && !t.arrived;
     t = nt; drawRoute();
     if (keepForms && !arrivedNow) { // update only the moving parts while the courier is typing

@@ -152,6 +152,69 @@ class VerificationCheck(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
+class FaceEnrollment(Base):
+    """A doctor's enrolled, verified face. The biometric template lives with the face partner
+    (``template_ref``); Triyana keeps only a small encrypted profile photo that patients see
+    during a verified visit. One row per enrolment; only the newest non-revoked row counts."""
+    __tablename__ = "face_enrollments"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    status: Mapped[str] = mapped_column(String(16))  # pending_review | active | revoked
+    partner: Mapped[str] = mapped_column(String(24))
+    template_ref: Mapped[str | None] = mapped_column(String(120))
+    photo: Mapped[str | None] = mapped_column(EncryptedText)  # data: URL of a 240px JPEG, encrypted at rest
+    consent_version: Mapped[str] = mapped_column(String(24))
+    liveness_score: Mapped[float | None] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    activated_at: Mapped[datetime | None] = mapped_column(DateTime)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime)
+    note: Mapped[str | None] = mapped_column(String(300))
+
+
+class FaceCheck(Base):
+    """One live face check: a liveness challenge plus a match against the enrolled face.
+
+    No images are kept. ``frame_digests`` are SHA-256 hashes of the submitted frames, used
+    only to catch the same frames being replayed."""
+    __tablename__ = "face_checks"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    visit_id: Mapped[int | None] = mapped_column(ForeignKey("home_visits.id"), index=True)
+    purpose: Mapped[str] = mapped_column(String(12))  # visit | enroll
+    method: Mapped[str] = mapped_column(String(12), default="face")  # face | manual (approved alternative)
+    nonce_hash: Mapped[str | None] = mapped_column(String(64))
+    action: Mapped[str] = mapped_column(String(16), default="")  # the liveness prompt shown
+    status: Mapped[str] = mapped_column(String(16))  # issued | passed | failed | spoof | poor_quality | expired | error
+    reason: Mapped[str] = mapped_column(String(300), default="")
+    liveness_score: Mapped[float | None] = mapped_column(Float)
+    match_score: Mapped[float | None] = mapped_column(Float)
+    partner: Mapped[str] = mapped_column(String(24), default="demo")
+    frame_digests: Mapped[list] = mapped_column(JSON, default=list)
+    counted: Mapped[bool] = mapped_column(Boolean, default=True)  # cleared when ops allows new retries
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    approved_by: Mapped[str | None] = mapped_column(String(300))
+
+
+class IdentityCase(Base):
+    """Something the security / ops team has to look at: suspected spoofing, a doctor locked out
+    after repeated failures, a request for an alternative check, or a new face to approve."""
+    __tablename__ = "identity_cases"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    visit_id: Mapped[int | None] = mapped_column(ForeignKey("home_visits.id"))
+    kind: Mapped[str] = mapped_column(String(24))  # spoof_suspected | repeated_failures | arrival_code | alternative_requested | enrollment_review
+    severity: Mapped[str] = mapped_column(String(8), default="medium")  # low | medium | high
+    blocking: Mapped[bool] = mapped_column(Boolean, default=True)  # blocks face checks and journeys while open
+    status: Mapped[str] = mapped_column(String(12), default="open")  # open | resolved
+    summary: Mapped[str] = mapped_column(String(300), default="")
+    resolution: Mapped[str | None] = mapped_column(String(24))
+    resolution_note: Mapped[str | None] = mapped_column(String(300))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
 class PhoneOtp(Base):
     """A one-time SMS code. Only a hash of the code is stored."""
     __tablename__ = "phone_otps"
@@ -227,6 +290,10 @@ class HomeVisit(Base):
     fee: Mapped[float | None] = mapped_column(Float)
     follow_up_of_id: Mapped[int | None] = mapped_column(ForeignKey("home_visits.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    # Shown to the patient; the doctor types it in at the door to start the visit.
+    arrival_code: Mapped[str | None] = mapped_column(EncryptedText)
+    arrival_code_attempts: Mapped[int | None] = mapped_column(Integer, default=0)
+    arrival_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime)
 
     doctor = relationship("Doctor")
     patient = relationship("Patient")
