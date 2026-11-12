@@ -23,7 +23,7 @@ const MANEUVER = (s) => {
 [TABS.doctor, TABS.courier].forEach((t) => t.splice(1, 0, ["earnings", "Earnings", "wallet"]));
 const inr = (n) => new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: n % 1 ? 2 : 0 }).format(n || 0);
 
-const ROLE_WORD = { doctor: "visits", courier: "deliveries", phlebotomist: "sample collections" };
+const ROLE_WORD = { doctor: "visits", courier: "deliveries", phlebotomist: "sample collections", physio: "physio sessions" };
 let seenOffers = new Set();
 
 /* ------------------------------------------------------------------ dashboard */
@@ -107,6 +107,9 @@ SCREENS.dash = async () => {
     $$("[data-visits]").forEach((b) => (b.onclick = () => go("visits")));
     $$("[data-collect]").forEach((b) => (b.onclick = () => guard(async () => { await post(`/api/pharmacy/orders/${b.dataset.collect}/dispatch`); navScreen(); })));
     wireLabJobs();
+    $$("[data-pdepart]").forEach((b) => (b.onclick = () => guard(async () => { await post(`/api/physio/sessions/${b.dataset.pdepart}/depart`); navScreen(); })));
+    $$("[data-pstart]").forEach((b) => (b.onclick = () => guard(async () => { await post(`/api/physio/sessions/${b.dataset.pstart}/start`); physioNotesScreen(+b.dataset.pstart); })));
+    $$("[data-notes]").forEach((b) => (b.onclick = () => physioNotesScreen(+b.dataset.notes)));
   };
 
   render();
@@ -155,12 +158,14 @@ function offerCard(o) {
       ${o.lab ? `<div><span class="dot a"></span><div><b>Drop at lab</b><span class="tiny muted">${esc(shortName(o.lab.label))} · ${o.lab_km} km from patient</span></div></div>` : ""}
     </div>
     ${o.reason ? `<div class="instructions">${esc(o.reason)}</div>` : ""}
+    ${o.kind === "physio" ? `<div class="row small" style="margin-top:8px"><span class="badge premium">${ic("heart")} ${esc(o.plan)}</span>${o.sessions_total > 1 ? `<span class="badge good">${money(o.package_earning)} for all ${o.sessions_total} sessions</span>` : ""}</div>` : ""}
     ${o.cold_chain ? `<div class="row small" style="margin-top:8px"><span class="badge info">${ic("snow")} Keep cold</span></div>` : ""}
     <div class="offer-actions"><button class="btn ghost" data-decline="${o.id}">Decline</button><button class="btn primary" data-accept="${o.id}">${ic("check")} Accept</button></div>
   </article>`;
 }
 
 function jobCard(j) {
+  if (j.kind === "physio") return physioJobCard(j);
   if (j.kind === "lab") return labJobCard(j);
   const visit = j.kind === "visit";
   const label = { accepted: ["Accepted", "brand"], in_progress: ["With patient", "warn"], ready_for_pickup: ["Collect from pharmacy", "info"], out_for_delivery: ["Out for delivery", "brand"], delivered: ["Delivered", "good"] }[j.status] || [j.status, ""];
@@ -174,6 +179,19 @@ function jobCard(j) {
       <span class="badge ${label[1]}">${label[0]}</span></div>
     ${j.reason ? `<div class="instructions">${esc(j.reason)}</div>` : ""}
     ${action ? `<div class="actions-bar">${action}</div>` : ""}</article>`;
+}
+
+function physioJobCard(j) {
+  const label = { scheduled: ["Upcoming", "brand"], in_progress: ["In session", "warn"] }[j.status] || [j.status, ""];
+  let action = "";
+  if (j.trip_id) action = `<button class="btn primary sm" data-nav="1">${ic("nav")} Navigate</button>`;
+  else if (j.status === "scheduled") action = `<button class="btn primary sm" data-pdepart="${j.id}">${ic("nav")} Start trip</button><button class="btn sm" data-pstart="${j.id}">${ic("heart")} I'm here, start session</button>`;
+  else if (j.status === "in_progress") action = `<button class="btn primary sm" data-notes="${j.id}">${ic("file")} Write notes and finish</button>`;
+  return `<article class="card job"><div class="card-head"><div class="row" style="flex-wrap:nowrap"><div class="avatar">${ic("heart")}</div>
+      <div><h3>${esc(j.patient)}</h3><div class="meta"><span>${ic("clock")} ${j.on_demand ? "Now" : when(j.scheduled_for)}</span><span>Session ${j.number} of ${j.sessions_total}</span><span>${ic("pin")} ${esc(j.address)}</span></div></div></div>
+      <span class="badge ${label[1]}">${label[0]}</span></div>
+    ${j.reason ? `<div class="instructions">${esc(j.reason)}</div>` : ""}
+    <div class="actions-bar">${action}</div></article>`;
 }
 
 /* ------------------------------------------------------------------ road routing (free OSRM demo server) */
@@ -264,6 +282,7 @@ async function navScreen() {
     const isVisit = !!t.visit_id;
     let actions;
     if (t.lab_booking_id) actions = labNavActions(t, labJob);
+    else if (t.physio_session_id) actions = `<button class="btn primary block" id="navPhysio" ${t.arrived ? "" : "disabled"}>${ic("heart")} ${t.arrived ? "Start session" : "Start session on arrival"}</button>`;
     else if (isVisit) actions = `<button class="btn primary block" id="navStart" ${t.arrived ? "" : "disabled"}>${ic("stethoscope")} ${t.arrived ? "Start visit" : "Start visit on arrival"}</button>`;
     else if (t.leg === "to_pharmacy") actions = `<button class="btn primary block" id="navCollect">${ic("bag")} ${t.arrived ? "Collected, start delivery" : "Collected the order"}</button>`;
     else actions = `<div class="form-grid"><label>Handover code<input id="hoCode" inputmode="numeric" maxlength="4" placeholder="4 digits"></label><label>Received by<input id="hoWho" placeholder="Name"></label></div>
@@ -280,6 +299,7 @@ async function navScreen() {
   };
 
   const wireActions = () => {
+    const ps = $("#navPhysio"); if (ps) ps.onclick = () => guard(async () => { await post(`/api/physio/sessions/${t.physio_session_id}/start`); toast("Session started", "heart"); physioNotesScreen(t.physio_session_id); });
     const st = $("#navStart"); if (st) st.onclick = () => guard(async () => { await post(`/api/doctor/visits/${t.visit_id}/start`); toast("Visit started. Write your notes and vitals here.", "stethoscope"); state.tab = "visits"; renderNav(); notesScreen(t.visit_id); });
     const co = $("#navCollect"); if (co) co.onclick = () => guard(async () => { await post(`/api/pharmacy/orders/${t.order_id}/dispatch`); toast("Collected. Navigating to the patient.", "truck"); navScreen(); });
     const dl = $("#navDeliver"); if (dl) dl.onclick = () => guard(async () => {
@@ -338,10 +358,10 @@ SCREENS.earnings = async () => {
     <div class="split earn-split"><div>
       <div class="section-title">Jobs</div>
       ${Object.keys(byDay).length ? Object.entries(byDay).map(([k, list]) => `<div class="card earn-day" data-k="${k}"><div class="row between"><h3>${esc(dayTitle(k))}</h3><b>${inr(list.reduce((a, j) => a + j.total, 0))}</b></div>
-        ${list.map((j) => `<details class="earn-job"><summary><span class="avatar">${ic(j.kind === "visit" ? "stethoscope" : j.kind === "lab" ? "flask" : "truck")}</span>
+        ${list.map((j) => `<details class="earn-job"><summary><span class="avatar">${ic(j.kind === "visit" ? "stethoscope" : j.kind === "lab" ? "flask" : j.kind === "physio" ? "heart" : "truck")}</span>
             <span class="grow"><b>${esc(j.title)}</b><span class="tiny muted">${time(j.earned_at)} · ${j.distance_km} km${j.paid_out ? " · paid out" : ""}</span></span>
             <span class="amt">${inr(j.total)}</span></summary>
-          <table class="price"><tr><td>${j.kind === "visit" ? "Visit fee" : "Delivery pay"}</td><td>${inr(j.base)}</td></tr>
+          <table class="price"><tr><td>${j.kind === "visit" ? "Visit fee" : j.kind === "physio" ? "Session pay" : "Delivery pay"}</td><td>${inr(j.base)}</td></tr>
             ${j.bonus ? `<tr><td>Doctor now bonus</td><td>${inr(j.bonus)}</td></tr>` : ""}${j.tip ? `<tr><td>Tip</td><td>${inr(j.tip)}</td></tr>` : ""}
             <tr class="total"><td>You earned</td><td>${inr(j.total)}</td></tr></table></details>`).join("")}</div>`).join("")
         : empty("wallet", "No earnings yet", "Go online and complete a job. Your pay shows up here right away.")}

@@ -6,6 +6,7 @@ from datetime import timedelta
 
 from sqlalchemy.orm import Session
 
+from .seed_physio import PHYSIO_TOKENS, seed_physio
 from .models import (
     AirspaceZone,
     DispatchOffer,
@@ -43,6 +44,7 @@ DEMO_TOKENS = {
     "phlebotomist2": "demo-phlebotomist-suresh",
     "phlebotomist3": "demo-phlebotomist-fatima",
 }
+DEMO_TOKENS.update(PHYSIO_TOKENS)
 
 
 def seed(db: Session) -> dict:
@@ -297,6 +299,7 @@ def seed(db: Session) -> dict:
     db.add_all([DispatchOffer(kind="visit", visit_id=v.id, user_id=carter_user.id, distance_km=km)
                 for v, km in ((visit, 0.8), (visit2, 2.6))])
     labs = seed_labs(db, users, meera)
+    physio_ids = seed_physio(db, meera, arjun)
     db.commit()
     return {
         "patients": {"meera": meera.id, "arjun": arjun.id},
@@ -310,6 +313,7 @@ def seed(db: Session) -> dict:
         "tokens": DEMO_TOKENS,
         "lab_tests": labs["tests"],
         "lab_bookings": labs["bookings"],
+        **physio_ids,
     }
 
 

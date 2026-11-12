@@ -38,6 +38,7 @@ class Role(str, enum.Enum):
     courier = "courier"
     hospital = "hospital"  # hospital pharmacy / logistics staff
     phlebotomist = "phlebotomist"  # collects lab samples at home
+    physio = "physio"      # physiotherapist (home sessions)
 
 
 class VisitStatus(str, enum.Enum):
@@ -112,6 +113,7 @@ class User(Base):
     doctor_id: Mapped[int | None] = mapped_column(ForeignKey("doctors.id"))
     pharmacy_id: Mapped[int | None] = mapped_column(ForeignKey("pharmacies.id"))
     hospital_id: Mapped[int | None] = mapped_column(ForeignKey("hospitals.id"))
+    physio_id: Mapped[int | None] = mapped_column(ForeignKey("physiotherapists.id"))
     # Provider app: availability ("Go online") and last known location.
     on_duty: Mapped[bool] = mapped_column(Boolean, default=False)
     lat: Mapped[float | None] = mapped_column(Float)
@@ -510,10 +512,11 @@ class DispatchOffer(Base):
     """A job offered to one provider at a time, nearest first (DoorDash/Dasher style)."""
     __tablename__ = "dispatch_offers"
     id: Mapped[int] = mapped_column(primary_key=True)
-    kind: Mapped[str] = mapped_column(String(16))            # visit | delivery
+    kind: Mapped[str] = mapped_column(String(16))            # visit | delivery | physio
     visit_id: Mapped[int | None] = mapped_column(ForeignKey("home_visits.id"), index=True)
     order_id: Mapped[int | None] = mapped_column(ForeignKey("pharmacy_orders.id"), index=True)
     lab_booking_id: Mapped[int | None] = mapped_column(ForeignKey("lab_bookings.id"), index=True)
+    physio_session_id: Mapped[int | None] = mapped_column(ForeignKey("physio_sessions.id"), index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     status: Mapped[str] = mapped_column(String(16), default="offered")  # offered|accepted|declined|expired|withdrawn
     distance_km: Mapped[float] = mapped_column(Float, default=0)
@@ -535,6 +538,7 @@ class Trip(Base):
     visit_id: Mapped[int | None] = mapped_column(ForeignKey("home_visits.id"), index=True)
     order_id: Mapped[int | None] = mapped_column(ForeignKey("pharmacy_orders.id"), index=True)
     lab_booking_id: Mapped[int | None] = mapped_column(ForeignKey("lab_bookings.id"), index=True)
+    physio_session_id: Mapped[int | None] = mapped_column(ForeignKey("physio_sessions.id"), index=True)
     leg: Mapped[str] = mapped_column(String(16))             # to_patient | to_pharmacy | to_lab
     dest_label: Mapped[str] = mapped_column(String(160), default="")
     route: Mapped[list] = mapped_column(JSON, default=list)  # [[lat, lng], ...]
@@ -558,9 +562,10 @@ class Earning(Base):
     __tablename__ = "earnings"
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
-    kind: Mapped[str] = mapped_column(String(16))            # visit | delivery
+    kind: Mapped[str] = mapped_column(String(16))            # visit | delivery | physio
     visit_id: Mapped[int | None] = mapped_column(ForeignKey("home_visits.id"), unique=True)
     order_id: Mapped[int | None] = mapped_column(ForeignKey("pharmacy_orders.id"), unique=True)
+    physio_session_id: Mapped[int | None] = mapped_column(ForeignKey("physio_sessions.id"), unique=True)
     title: Mapped[str] = mapped_column(String(120))
     base: Mapped[float] = mapped_column(Float)
     bonus: Mapped[float] = mapped_column(Float, default=0)   # peak / on-demand pay
@@ -805,3 +810,68 @@ class LabBooking(Base):
     report_ready_at: Mapped[datetime | None] = mapped_column(DateTime)
 
     lab = relationship("Lab")
+
+
+# ------------------------------------------------------------- physiotherapy at home
+class Physiotherapist(Base):
+    """A registered physiotherapist who visits patients at home (BPT/MPT, state council or IAP registration)."""
+    __tablename__ = "physiotherapists"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    qualification: Mapped[str] = mapped_column(String(120), default="")
+    registration_no: Mapped[str] = mapped_column(String(40), unique=True)
+    council: Mapped[str] = mapped_column(String(120), default="")
+    verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    jurisdiction: Mapped[str] = mapped_column(String(16))
+    focus: Mapped[list] = mapped_column(JSON, default=list)  # condition keys they treat
+    rating: Mapped[float] = mapped_column(Float, default=0)
+    rating_count: Mapped[int] = mapped_column(Integer, default=0)
+    experience_years: Mapped[int] = mapped_column(Integer, default=0)
+    languages: Mapped[list] = mapped_column(JSON, default=list)
+    gender: Mapped[str] = mapped_column(String(16), default="")
+    about: Mapped[str] = mapped_column(String(300), default="")
+    lat: Mapped[float] = mapped_column(Float, default=0)
+    lng: Mapped[float] = mapped_column(Float, default=0)
+    area: Mapped[str] = mapped_column(String(80), default="")
+
+
+class PhysioBooking(Base):
+    """A single session or a package of sessions with one physiotherapist."""
+    __tablename__ = "physio_bookings"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    ref: Mapped[str] = mapped_column(String(24))
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    physio_id: Mapped[int | None] = mapped_column(ForeignKey("physiotherapists.id"))  # None while searching
+    condition: Mapped[str] = mapped_column(String(32))
+    details: Mapped[str] = mapped_column(EncryptedText, default="")
+    plan: Mapped[str] = mapped_column(String(16))  # single | pack5 | pack10
+    sessions_total: Mapped[int] = mapped_column(Integer, default=1)
+    session_fee: Mapped[float] = mapped_column(Float, default=0)
+    price_total: Mapped[float] = mapped_column(Float, default=0)
+    address: Mapped[str] = mapped_column(EncryptedText, default="")
+    status: Mapped[str] = mapped_column(String(16), default="searching")  # searching|active|completed|cancelled
+    on_demand: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    physio = relationship("Physiotherapist")
+    sessions = relationship("PhysioSession", back_populates="booking", order_by="PhysioSession.number")
+
+
+class PhysioSession(Base):
+    __tablename__ = "physio_sessions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    booking_id: Mapped[int] = mapped_column(ForeignKey("physio_bookings.id"), index=True)
+    number: Mapped[int] = mapped_column(Integer, default=1)
+    scheduled_for: Mapped[datetime] = mapped_column(DateTime)
+    status: Mapped[str] = mapped_column(String(16), default="requested")  # requested|scheduled|in_progress|completed|cancelled
+    started_at: Mapped[datetime | None] = mapped_column(DateTime)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    # Session notes, written by the physiotherapist. Health data: encrypted at rest.
+    pain_before: Mapped[int | None] = mapped_column(Integer)
+    pain_after: Mapped[int | None] = mapped_column(Integer)
+    exercises: Mapped[list] = mapped_column(JSON, default=list)
+    notes: Mapped[str] = mapped_column(EncryptedText, default="")
+    home_plan: Mapped[str] = mapped_column(EncryptedText, default="")
+    next_focus: Mapped[str] = mapped_column(EncryptedText, default="")
+
+    booking = relationship("PhysioBooking", back_populates="sessions")

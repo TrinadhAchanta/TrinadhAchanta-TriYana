@@ -58,6 +58,29 @@ def record_delivery(db: Session, order: PharmacyOrder, courier: User) -> Earning
     return e
 
 
+PHYSIO_SHARE = 0.8  # physiotherapists keep 80% of each session's price (demo)
+
+
+def physio_pay(session_fee: float) -> float:
+    """Same number the physiotherapist saw on the request card."""
+    return float(round(session_fee * PHYSIO_SHARE))
+
+
+def record_physio(db: Session, session, user: User) -> Earning | None:
+    if user.role != Role.physio or db.scalars(select(Earning.id).where(Earning.physio_session_id == session.id)).first():
+        return None
+    b = session.booking
+    p = db.get(Patient, b.patient_id)
+    base = physio_pay(b.session_fee)
+    bonus = ON_DEMAND_BONUS if b.on_demand and session.number == 1 else 0.0
+    e = Earning(user_id=user.id, kind="physio", physio_session_id=session.id, base=base, bonus=bonus, total=base + bonus,
+                title=f"Physio session {session.number}/{b.sessions_total} · {p.name.split()[0]}",
+                distance_km=round(haversine_km(p.lat, p.lng, b.physio.lat, b.physio.lng), 1))
+    db.add(e)
+    notify(db, [user], f"You earned ₹{e.total:,.0f}", f"{e.title}. Added to your balance.", "earnings")
+    return e
+
+
 # ------------------------------------------------------------------ dashboard
 def _local(dt: datetime) -> datetime:
     return dt.replace(tzinfo=timezone.utc).astimezone(IST)
@@ -75,8 +98,8 @@ def _job(e: Earning) -> dict:
 
 
 def summary(db: Session, user: User) -> dict:
-    if user.role not in (Role.doctor, Role.courier, Role.phlebotomist):
-        raise Forbidden("forbidden_role", "Earnings are for doctors, couriers and sample collectors.")
+    if user.role not in (Role.doctor, Role.courier, Role.phlebotomist, Role.physio):
+        raise Forbidden("forbidden_role", "Earnings are for doctors, physiotherapists, couriers and sample collectors.")
     now_l = _local(utcnow())
     week0 = _week_start(now_l)
     rows = db.scalars(select(Earning).where(Earning.user_id == user.id).order_by(Earning.earned_at.desc())).all()
@@ -106,13 +129,14 @@ def summary(db: Session, user: User) -> dict:
         "payouts": [{"id": p.id, "amount": p.amount, "fee": p.fee, "kind": p.kind, "destination": p.destination,
                      "reference": p.reference, "status": p.status, "at": p.created_at.isoformat()} for p in payouts[:10]],
         "rules": ("Demo pay: you keep the visit fee, plus ₹100 for each Doctor now visit." if user.role == Role.doctor
-                  else "Demo pay: you earn the delivery pay shown on each request."),
+                  else "Demo pay: you keep 80% of each session's price, plus ₹100 for an as-soon-as-possible first session."
+                  if user.role == Role.physio else "Demo pay: you earn the delivery pay shown on each request."),
     }
 
 
 def cash_out(db: Session, user: User) -> dict:
-    if user.role not in (Role.doctor, Role.courier, Role.phlebotomist):
-        raise Forbidden("forbidden_role", "Earnings are for doctors, couriers and sample collectors.")
+    if user.role not in (Role.doctor, Role.courier, Role.phlebotomist, Role.physio):
+        raise Forbidden("forbidden_role", "Earnings are for doctors, physiotherapists, couriers and sample collectors.")
     unpaid = db.scalars(select(Earning).where(Earning.user_id == user.id, Earning.payout_id.is_(None))).all()
     amount = round(sum(e.total for e in unpaid), 2)
     if amount < MIN_CASH_OUT:

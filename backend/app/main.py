@@ -21,6 +21,7 @@ from .routers.labs import router as labs_router
 from .routers.live import router as live_router
 from .routers.visit_notes import router as visit_notes_router
 from .routers.shop import router as shop_router
+from .routers.physio import router as physio_router
 from .errors import DomainError, NotFound
 from .models import (
     AuditLog,
@@ -712,7 +713,8 @@ DEMO_APPS = {
                 "hospital": "Nisha · hospital (Lotus Hospital)", "hospital2": "Dev · hospital (District Hospital)"},
     "provider": {
         "doctor": "Dr. Carter · doctor", "doctor_rohan": "Dr. Rohan · doctor", "doctor_vikram": "Dr. Vikram · doctor",
-        "doctor_sana": "Dr. Sana · doctor", "courier": "Asha · courier (GreenLeaf)", "courier2": "Kiran · courier",
+        "doctor_sana": "Dr. Sana · doctor", "physio": "Ananya · physiotherapist", "physio_arun": "Arun · physiotherapist",
+        "physio_meghna": "Meghna · physiotherapist", "courier": "Asha · courier (GreenLeaf)", "courier2": "Kiran · courier",
         "pharmacist": "Ravi · pharmacist (GreenLeaf)", "pharmacist2": "Lina · pharmacist (Sunrise)",
         "phlebotomist": "Priya · phlebotomist (sample collector)", "phlebotomist2": "Suresh · phlebotomist",
         "phlebotomist3": "Fatima · phlebotomist",
@@ -745,6 +747,7 @@ app.include_router(live_router)
 app.include_router(visit_notes_router)
 app.include_router(labs_router)
 app.include_router(shop_router)
+app.include_router(physio_router)
 
 # --------------------------------------------------------------- frontend
 FRONTEND = Path(__file__).resolve().parents[2] / "frontend"
