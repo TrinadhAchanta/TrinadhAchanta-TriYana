@@ -10,7 +10,37 @@ const PROVIDER_KINDS = [
   ["courier", "Delivery rider", "truck", "Medicine deliveries"],
   ["phlebotomist", "Sample collector", "flask", "Lab sample pickups"],
 ];
-const auth = { mode: "signin", kind: "doctor", draft: {} };
+const auth = { mode: "signin", kind: "doctor", draft: {}, countries: [] };
+
+/* ------------------------------------------------------------ country picker */
+const flagOf = (iso) => /^[A-Z]{2}$/.test(iso) ? String.fromCodePoint(...[...iso].map((c) => 127397 + c.charCodeAt(0))) : "🌐";
+const guessCountry = () => {
+  try { const r = new Intl.Locale(navigator.language).maximize().region; if (r) return r; } catch {}
+  return "IN";
+};
+let regionNames = null; try { regionNames = new Intl.DisplayNames([navigator.language || "en", "en"], { type: "region" }); } catch {}
+let keepDraft = () => {};
+fetch("/api/countries").then((r) => r.json()).then((list) => {
+  auth.countries = list.map((c) => { let n = c.name; try { n = (regionNames && regionNames.of(c.iso)) || n; } catch {} return { ...c, name: n }; })
+    .sort((a, b) => a.name.localeCompare(b.name));
+  // Re-draw an open sign-up form (keeping what was typed) so the picker lists every country.
+  if (document.body.classList.contains("signed-out") && $("#phoneCountry")) { keepDraft(); renderAuth(); }
+  const acct = $("#newPhoneCountryWrap");
+  if (acct) { acct.outerHTML = countrySelect("newPhoneCountry", $("#newPhoneCountry").value); wireCountry("newPhoneCountry"); }
+}).catch(() => {});
+const countryOf = (iso) => auth.countries.find((c) => c.iso === iso) || { iso, dial: iso === "IN" ? "+91" : "", example: iso === "IN" ? "98480 12345" : "" };
+const ccFace = (iso) => `${flagOf(iso)} ${esc(countryOf(iso).dial)}<svg viewBox="0 0 24 24" class="i"><path d="M6 9l6 6 6-6"/></svg>`;
+
+/* A compact "🇮🇳 +91" button over a native, searchable list of every country. */
+function countrySelect(id, iso) {
+  const list = auth.countries.length ? auth.countries : [countryOf(iso)];
+  const opts = list.map((x) => `<option value="${x.iso}" ${x.iso === iso ? "selected" : ""}>${flagOf(x.iso)} ${esc(x.name || x.iso)} (${x.dial})</option>`).join("");
+  return `<span class="cc-pick" id="${id}Wrap"><span class="cc-face" aria-hidden="true">${ccFace(iso)}</span><select id="${id}" aria-label="Country">${opts}</select></span>`;
+}
+function wireCountry(id, onChange) {
+  const sel = $(`#${id}`); if (!sel) return;
+  sel.onchange = () => { $(`#${id}Wrap .cc-face`).innerHTML = ccFace(sel.value); if (onChange) onChange(countryOf(sel.value)); };
+}
 
 function renderAuth(mode) {
   if (mode) auth.mode = mode;
@@ -51,7 +81,7 @@ function renderAuth(mode) {
       ${providerFields}
       ${input("name", "Full name", "text", 'autocomplete="name" required')}
       ${input("email", "Email", "email", 'autocomplete="email" inputmode="email" required')}
-      <div class="field"><span>Mobile number</span><div class="otp-row"><input id="phone" type="tel" value="${esc(d.phone || "")}" autocomplete="tel" inputmode="tel" placeholder="98480 12345" aria-label="Mobile number"><button type="button" class="btn" id="sendOtp">${auth.otp ? "Resend code" : "Send code"}</button></div></div>
+      <div class="field"><span>Mobile number</span><div class="otp-row"><div class="phone-in">${countrySelect("phoneCountry", d.phoneCountry || (d.phoneCountry = guessCountry()))}<input id="phone" type="tel" value="${esc(d.phone || "")}" autocomplete="tel-national" inputmode="tel" placeholder="${esc(countryOf(d.phoneCountry).example || "Mobile number")}" aria-label="Mobile number"></div><button type="button" class="btn" id="sendOtp">${auth.otp ? "Resend" : "Send code"}</button></div></div>
       ${auth.otp ? `<label class="field">6-digit code from the SMS<input id="otp" value="${esc(d.otp || "")}" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="••••••"></label>
         <p class="tiny muted" style="margin:-4px 0 0">Sent to ${esc(auth.otp.masked)}.${auth.otp.demo_code ? ` <span class="otp-demo">Demo: no real SMS is sent. Your code is <b>${esc(auth.otp.demo_code)}</b></span>` : ""}</p>` : `<p class="tiny muted" style="margin:-4px 0 0">We'll text you a code to confirm your number.</p>`}
       ${input("password", "Create a password", "password", 'autocomplete="new-password" minlength="8" required')}
@@ -89,6 +119,8 @@ function renderAuth(mode) {
     </div>`;
 
   const keep = () => $$("#authForm input, #authForm select").forEach((el) => (d[el.id] = el.value));
+  keepDraft = keep;
+  wireCountry("phoneCountry", (c) => { d.phoneCountry = c.iso; const p = $("#phone"); if (p) { p.placeholder = c.example || "Mobile number"; p.focus(); } });
   $$("[data-mode]").forEach((b) => (b.onclick = (e) => { e.preventDefault(); keep(); renderAuth(b.dataset.mode); }));
   $$("[data-kind]").forEach((b) => (b.onclick = () => { keep(); auth.kind = b.dataset.kind; renderAuth(); }));
   $$("[data-token]").forEach((b) => (b.onclick = () => signIn(b.dataset.token)));
@@ -98,12 +130,12 @@ function renderAuth(mode) {
     keep(); $("#authErr").hidden = true;
     const btn = $("#sendOtp"); btn.disabled = true; btn.textContent = "Sending…";
     try {
-      const res = await fetch("/api/auth/otp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phone: d.phone || "" }) });
+      const res = await fetch("/api/auth/otp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phone: d.phone || "", country: d.phoneCountry }) });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error((data.detail && data.detail.message) || "Could not send the code.");
-      auth.otp = data; d.phone = data.phone; d.otp = "";
+      auth.otp = { ...data, typed: d.phone, country: d.phoneCountry }; d.otp = "";
       renderAuth(); toast(`Code sent to ${data.masked}`); const o = $("#otp"); if (o) o.focus();
-    } catch (e) { showAuthErr(e.message); btn.disabled = false; btn.textContent = auth.otp ? "Resend code" : "Send code"; }
+    } catch (e) { showAuthErr(e.message); btn.disabled = false; btn.textContent = auth.otp ? "Resend" : "Send code"; }
   };
 }
 
@@ -119,7 +151,8 @@ async function submitAuth() {
              phone: (d.phone || "").trim(), otp: (d.otp || "").trim(), address: (d.address || "").trim() || null };
     if (!body.name || !body.email || !body.password) return showAuthErr("Fill in your name, email and a password.");
     if (!auth.otp) return showAuthErr("Tap Send code to verify your mobile number.");
-    if (auth.otp.phone !== body.phone) return showAuthErr("Your number changed. Tap Send code to verify the new number.");
+    if (auth.otp.typed !== d.phone || auth.otp.country !== d.phoneCountry) return showAuthErr("Your number changed. Tap Send code to verify the new number.");
+    body.phone = auth.otp.phone;
     if (!/^\d{6}$/.test(body.otp)) return showAuthErr("Enter the 6-digit code we sent to your phone.");
     if (partner) {
       body.role = auth.kind;
@@ -244,7 +277,7 @@ SCREENS.account = async () => {
       ${a.demo ? `<div class="card"><h3>Your own account</h3><p class="small muted" style="margin:6px 0 12px">Sign up with your email to keep your own history.</p><button class="btn primary" id="toSignup">Create an account</button></div>` : `
       <div class="card"><h3>Mobile number</h3>
         <p class="small muted" style="margin:6px 0 10px">${a.phone ? `${esc(a.phone)} ${a.phone_verified ? `<span class="badge">${ic("check")} Verified</span>` : ""}` : "No number yet"}</p>
-        <form id="phoneForm" class="auth-form"><div class="otp-row"><input id="newPhone" type="tel" inputmode="tel" placeholder="New mobile number" aria-label="New mobile number"><button type="button" class="btn" id="phoneOtp">Send code</button></div>
+        <form id="phoneForm" class="auth-form"><div class="otp-row"><div class="phone-in">${countrySelect("newPhoneCountry", guessCountry())}<input id="newPhone" type="tel" inputmode="tel" placeholder="New mobile number" aria-label="New mobile number"></div><button type="button" class="btn" id="phoneOtp">Send code</button></div>
           <div id="phoneCode" hidden><label class="field">Code from the SMS<input id="phoneOtpIn" inputmode="numeric" maxlength="6" autocomplete="one-time-code"></label><p class="tiny muted" id="phoneHint"></p><button class="btn">Verify and save</button></div></form></div>
       <div class="card"><h3>Change password</h3>
         <form id="pw" class="auth-form" style="margin-top:10px">
@@ -262,8 +295,9 @@ SCREENS.account = async () => {
     const r = await api("/api/account", { method: "PATCH", body });
     state.name = r.name; accountChrome(); toast("Saved");
   }); };
+  wireCountry("newPhoneCountry");
   if ($("#phoneOtp")) $("#phoneOtp").onclick = () => guard(async () => {
-    const r = await post("/api/account/phone/otp", { phone: $("#newPhone").value });
+    const r = await post("/api/account/phone/otp", { phone: $("#newPhone").value, country: $("#newPhoneCountry").value });
     $("#newPhone").value = r.phone; $("#phoneCode").hidden = false; $("#phoneOtp").textContent = "Resend code";
     $("#phoneHint").innerHTML = `Sent to ${esc(r.masked)}.${r.demo_code ? ` <span class="otp-demo">Demo: no real SMS is sent. Your code is <b>${esc(r.demo_code)}</b></span>` : ""}`;
     $("#phoneOtpIn").focus();

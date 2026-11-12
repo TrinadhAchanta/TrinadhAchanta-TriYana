@@ -32,7 +32,7 @@ class RegisterIn(BaseModel):
     name: str = Field(max_length=120)
     email: str = Field(max_length=254)
     password: str = Field(max_length=200)
-    phone: str | None = Field(None, max_length=20)
+    phone: str | None = Field(None, max_length=30)
     otp: str | None = Field(None, max_length=10)
     gender: Literal["female", "male", "other", "prefer_not"] | None = None
     address: str | None = Field(None, max_length=300)
@@ -56,11 +56,12 @@ class PasswordIn(BaseModel):
 
 
 class OtpIn(BaseModel):
-    phone: str = Field(max_length=20)
+    phone: str = Field(max_length=30)
+    country: str | None = Field(None, min_length=2, max_length=2)  # ISO code from the country picker
 
 
 class PhoneIn(BaseModel):
-    phone: str = Field(max_length=20)
+    phone: str = Field(max_length=30)
     otp: str = Field(max_length=10)
 
 
@@ -102,7 +103,13 @@ def register(body: RegisterIn, db: Session = Depends(get_db)):
 @router.post("/auth/otp")
 def send_otp(body: OtpIn, db: Session = Depends(get_db)):
     """Send a 6-digit code to verify a mobile number before sign-up."""
-    return accounts.send_phone_otp(db, body.phone)
+    return accounts.send_phone_otp(db, body.phone, country=body.country)
+
+
+@router.get("/countries")
+def countries():
+    """Country picker data: ISO code, name, dial code and an example mobile number."""
+    return accounts.countries()
 
 
 @router.post("/auth/login")
@@ -144,7 +151,7 @@ def update_account(body: ProfileIn, user: User = Depends(current_user), db: Sess
 
 @router.post("/account/phone/otp")
 def account_phone_otp(body: OtpIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    return accounts.send_phone_otp(db, body.phone, for_user=user)
+    return accounts.send_phone_otp(db, body.phone, country=body.country, for_user=user)
 
 
 @router.post("/account/phone")

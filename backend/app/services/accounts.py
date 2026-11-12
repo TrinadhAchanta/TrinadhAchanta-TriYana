@@ -18,6 +18,10 @@ import os
 import re
 import secrets
 import time
+
+import phonenumbers
+from phonenumbers import PhoneNumberType
+from phonenumbers import geocoder
 from collections import defaultdict, deque
 from datetime import timedelta
 
@@ -81,25 +85,48 @@ def normalize_email(email: str) -> str:
 OTP_MINUTES, OTP_RESEND_S, OTP_MAX_SENDS_PER_HOUR, OTP_MAX_TRIES = 10, 30, 5, 5
 
 
-def normalize_phone(phone: str) -> str:
-    """Indian mobiles by default: '98480 12345' -> '+919848012345'. Other countries need a + prefix."""
-    raw = (phone or "").strip()
-    digits = re.sub(r"\D", "", raw)
-    if raw.startswith("+"):
-        ok = 8 <= len(digits) <= 15
-        if digits.startswith("91"):
-            ok = len(digits) == 12 and digits[2] in "6789"
-        out = "+" + digits
-    else:
-        if len(digits) == 12 and digits.startswith("91"):
-            digits = digits[2:]
-        elif len(digits) == 11 and digits.startswith("0"):
-            digits = digits[1:]
-        ok = len(digits) == 10 and digits[0] in "6789"
-        out = "+91" + digits
-    if not ok:
-        raise Unprocessable("invalid_phone", "Enter a valid 10-digit mobile number.")
-    return out
+def _country_names() -> dict[str, str]:
+    names = {}
+    for region in phonenumbers.SUPPORTED_REGIONS:
+        ex = phonenumbers.example_number_for_type(region, PhoneNumberType.MOBILE) or phonenumbers.example_number(region)
+        name = geocoder.country_name_for_number(ex, "en") if ex else ""
+        names[region] = name or region
+    return names
+
+
+COUNTRY_NAMES = _country_names()
+
+
+def normalize_phone(phone: str, country: str | None = None) -> str:
+    """Any country's mobile number to E.164, e.g. ('98480 12345', 'IN') -> '+919848012345'.
+
+    Numbers typed with a leading + use their own country code; otherwise ``country``
+    (ISO 3166 alpha-2, default India) says which country the number belongs to.
+    """
+    region = (country or "IN").upper()
+    try:
+        num = phonenumbers.parse((phone or "").strip(), region)
+    except phonenumbers.NumberParseException:
+        num = None
+    ok_types = (PhoneNumberType.MOBILE, PhoneNumberType.FIXED_LINE_OR_MOBILE)
+    if not num or not phonenumbers.is_valid_number(num) or phonenumbers.number_type(num) not in ok_types:
+        where = COUNTRY_NAMES.get(region)
+        where = where if where and where != region else None
+        raise Unprocessable("invalid_phone", f"Enter a valid mobile number{f' for {where}' if where else ''}.")
+    return phonenumbers.format_number(num, phonenumbers.PhoneNumberFormat.E164)
+
+
+def countries() -> list[dict]:
+    """Every country we can text, with its dial code and an example mobile number."""
+    out = []
+    for region in sorted(phonenumbers.SUPPORTED_REGIONS):
+        if region == "001":
+            continue
+        ex = phonenumbers.example_number_for_type(region, PhoneNumberType.MOBILE)
+        out.append({"iso": region, "dial": f"+{phonenumbers.country_code_for_region(region)}",
+                    "name": COUNTRY_NAMES.get(region, region),
+                    "example": phonenumbers.format_number(ex, phonenumbers.PhoneNumberFormat.NATIONAL) if ex else ""})
+    return sorted(out, key=lambda c: c["name"])
 
 
 def _phone_taken(db: Session, phone: str, except_user: int | None = None) -> bool:
@@ -113,8 +140,8 @@ def _code_hash(phone: str, code: str) -> str:
     return hashlib.sha256(f"{phone}:{code}:{os.environ.get('TRIYANA_SECRET', 'triyana-demo-secret-change-me')}".encode()).hexdigest()
 
 
-def send_phone_otp(db: Session, phone: str, *, for_user: User | None = None) -> dict:
-    phone = normalize_phone(phone)
+def send_phone_otp(db: Session, phone: str, *, country: str | None = None, for_user: User | None = None) -> dict:
+    phone = normalize_phone(phone, country)
     if _phone_taken(db, phone, for_user.id if for_user else None):
         raise Conflict("phone_taken", "This mobile number is already linked to another Triyana account.")
     now = utcnow()
@@ -133,7 +160,8 @@ def send_phone_otp(db: Session, phone: str, *, for_user: User | None = None) -> 
         sms.send_otp(phone, code)
     except sms.SmsError:
         raise DomainError("sms_failed", "We couldn't send the SMS. Check the number and try again.")
-    out = {"phone": phone, "masked": phone[:3] + " " + "•" * (len(phone) - 7) + phone[-4:],
+    cc = "+" + str(phonenumbers.parse(phone).country_code)
+    out = {"phone": phone, "masked": cc + " " + "•" * (len(phone) - len(cc) - 4) + phone[-4:],
            "expires_in": OTP_MINUTES * 60, "resend_in": OTP_RESEND_S}
     if sms.is_sandbox() and os.environ.get("TRIYANA_DEMO", "1") == "1":
         out["demo_code"] = code  # no real SMS in the demo, so show the code in the app

@@ -200,3 +200,25 @@ def test_physio_signup_needs_verification(env):
     assert c.post("/api/provider/duty", headers=h, json={"online": True}).status_code == 403
     assert c.post("/api/account/demo-verify", headers=h).json()["physio"]["verified"] is True
     assert c.post("/api/provider/duty", headers=h, json={"online": True}).status_code == 200
+
+
+def test_sign_up_from_any_country(env):
+    c = env["client"]
+    names = {x["iso"]: x for x in c.get("/api/countries").json()}
+    assert len(names) > 200 and names["US"]["dial"] == "+1" and names["IN"]["dial"] == "+91"
+    r = c.post("/api/auth/otp", json={"phone": "07400 123456", "country": "GB"})
+    assert r.status_code == 200, r.text
+    assert r.json()["phone"] == "+447400123456" and r.json()["masked"].startswith("+44 ")
+    r2 = c.post("/api/auth/register", json={"app": "patient", "name": "Amelia Jones", "email": "amelia@example.co.uk",
+                                            "password": "Secret123", "phone": "+447400123456",
+                                            "otp": r.json()["demo_code"], "address": "10 Baker Street, London"})
+    assert r2.status_code == 201, r2.text
+    assert r2.json()["account"]["phone"] == "+447400123456"
+    bad = c.post("/api/auth/otp", json={"phone": "12345", "country": "US"})
+    assert bad.json()["detail"]["code"] == "invalid_phone" and "United States" in bad.json()["detail"]["message"]
+
+
+def test_other_country_numbers():
+    assert accounts.normalize_phone("050 123 4567", "AE") == "+971501234567"
+    assert accounts.normalize_phone("2015550123", "US") == "+12015550123"
+    assert accounts.normalize_phone("+14155550100", "IN") == "+14155550100"  # an explicit + wins
