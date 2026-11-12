@@ -51,6 +51,7 @@ SCREENS.dash = async () => {
           <div class="stat"><b>${jobs.filter((j) => !["completed", "delivered"].includes(j.status)).length}</b><span>Accepted</span></div>
           <div class="stat"><b>${t ? `${t.eta_min} min` : "—"}</b><span>${t ? "To destination" : "No active trip"}</span></div></div>
       </section>
+      ${verifyBanner(st)}
       ${t ? `<button class="live-banner" id="toNav"><span class="live-dot"></span><span class="grow"><b>${t.arrived ? "You've arrived" : `Navigating to ${esc(t.dest_label)}`}</b><span class="tiny">${t.arrived ? "Open to finish this job" : `${t.eta_min} min · ${km(t.remaining_m)} · ${esc(t.next_step?.text || "")}`}</span></span><span class="btn sm">${ic("nav")} Navigate</span></button>` : ""}
       <div class="split"><div>
         <div class="section-title">Requests</div>

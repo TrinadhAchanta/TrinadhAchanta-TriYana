@@ -108,16 +108,21 @@ async function boot() {
   ["#markA", "#markB"].forEach((s) => ($(s).innerHTML = ic("logo")));
   $("#flagIco").innerHTML = ic("info");
   const r = await fetch(`/api/demo/accounts?app=${APP}`);
-  state.accounts = await r.json();
+  state.accounts = r.ok ? await r.json() : [];
   const opts = state.accounts.map((a) => `<option value="${esc(a.token)}">${esc(a.label)}</option>`).join("");
   $("#account").innerHTML = opts; $("#accountMobile").innerHTML = opts;
   ["#account", "#accountMobile"].forEach((s) => ($(s).onchange = (e) => signIn(e.target.value)));
-  $("#reset").onclick = () => guard(async () => { await fetch("/api/demo/reset", { method: "POST" }); toast("Demo data restored"); signIn(state.token); });
+  $("#reset").onclick = () => guard(async () => {
+    const res = await fetch("/api/demo/reset", { method: "POST" });
+    if (!res.ok) { const d = (await res.json().catch(() => ({}))).detail || {}; throw new Error(d.message || "Reset is not available."); }
+    toast("Demo data restored"); signIn(state.token);
+  });
   $$(".sign-out").forEach((b) => (b.onclick = signOut));
   if (APP === "patient") setupYana();
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
   let saved = null; try { saved = localStorage.getItem(TOKEN_KEY); } catch {}
-  if (saved && state.accounts.some((a) => a.token === saved)) signIn(saved); else loginScreen();
+  // Stay signed in: demo personas and real (email) accounts both resume from the saved session.
+  if (saved && (saved.startsWith("tys_") || state.accounts.some((a) => a.token === saved))) signIn(saved); else loginScreen();
 }
 
 function stopLive() {
@@ -125,44 +130,32 @@ function stopLive() {
   state.cleanups.forEach((f) => { try { f(); } catch {} }); state.cleanups = [];
 }
 
-/* Each app has its own sign-in: patients use Triyana, providers use Triyana Partner. */
-function loginScreen() {
+/* Each app has its own sign-in: patients use Triyana, providers use Triyana Partner.
+   The screen itself (email sign-in, sign-up and demo accounts) lives in accounts.js. */
+function loginScreen(mode) {
   stopLive();
   document.body.classList.add("signed-out");
-  const partner = APP === "provider";
-  const groups = {};
-  state.accounts.forEach((a) => {
-    const k = partner ? (a.label.split("·")[1] || "").trim().split(" ")[0] || "account" : "patient";
-    (groups[k] = groups[k] || []).push(a);
-  });
-  const icon = { doctor: "stethoscope", courier: "truck", pharmacist: "store", phlebotomist: "flask", patient: "user", physiotherapist: "heart" };
-  $("#login").innerHTML = `<div class="login-card">
-      <div class="brand"><div class="mark">${ic("logo")}</div><div><b>${partner ? "Triyana Partner" : "Triyana"}</b><small>${partner ? "For doctors, physios, couriers, pharmacists & sample collectors" : "Home healthcare"}</small></div></div>
-      <h1>${partner ? "Go online. Get nearby visits and deliveries." : "Doctors, medicines and care, at your door."}</h1>
-      <p class="muted">${partner ? "Accept requests from patients near you and navigate there turn by turn." : "Book a verified doctor now or for later, get your prescription, and track your medicines live."}</p>
-      ${Object.entries(groups).map(([g, list]) => `<div class="section-title">${partner ? `${esc(g)}s` : "Choose a demo account"}</div>
-        <div class="login-list">${list.map((a) => `<button class="login-acc" data-token="${esc(a.token)}"><span class="avatar">${ic(icon[g] || "user")}</span><span class="grow"><b>${esc(a.label.split("·")[0].replace(/\s*\(.*\)/, ""))}</b><span class="tiny muted">${esc((a.label.split("·")[1] || "Patient").trim())}</span></span>${ic("arrow")}</button>`).join("")}</div>`).join("")}
-      <div class="demo-flag">${ic("info")}<span>Demo · fictional people and data. ${partner ? `Patients use <a href="/">the Triyana app</a>.` : `Doctors and couriers use <a href="/provider">Triyana Partner</a>.`}</span></div>
-    </div>`;
-  $$("[data-token]").forEach((b) => (b.onclick = () => signIn(b.dataset.token)));
+  renderAuth(mode);
 }
 
 function signOut() {
+  if (state.token && state.token.startsWith("tys_")) fetch("/api/auth/logout", { method: "POST", headers: { Authorization: `Bearer ${state.token}` } }).catch(() => {});
   try { localStorage.removeItem(TOKEN_KEY); } catch {}
   state.token = null;
   $("#yanaPanel").classList.remove("open"); $("#yanaBtn").hidden = true;
-  loginScreen();
+  loginScreen("signin");
 }
 
 async function signIn(token) {
   stopLive();
   document.body.classList.remove("signed-out");
   state.token = token;
-  $("#account").value = token; $("#accountMobile").value = token;
   try { localStorage.setItem(TOKEN_KEY, token); } catch {}
   let me;
-  try { me = await api("/api/me"); } catch (e) { toast(e.message, "alert"); return signOut(); }
-  Object.assign(state, { role: me.role, name: me.name, unread: me.unread_notifications, ctx: {}, hospitalId: me.hospital_id });
+  try { me = await api("/api/me"); } catch (e) { if (e.status !== 401 || !token.startsWith("tys_")) toast(e.message, "alert"); return signOut(); }
+  Object.assign(state, { role: me.role, name: me.name, unread: me.unread_notifications, ctx: {}, hospitalId: me.hospital_id,
+    userId: me.id, email: me.email, demo: me.demo, verification: me.verification_status });
+  accountChrome();
   $("#yanaBtn").hidden = me.role !== "patient";
   $("#yanaPanel").classList.remove("open");
   if (me.role === "patient") {
@@ -173,7 +166,7 @@ async function signIn(token) {
 }
 
 function renderNav() {
-  const tabs = TABS[state.role];
+  const tabs = [...TABS[state.role], ACCOUNT_TAB];
   $("#sideNav").innerHTML = tabs.map(([k, l, i]) => `<button class="nav-item ${k === state.tab ? "active" : ""}" data-tab="${k}">${ic(i)}<span>${l}</span>${k === "home" && state.unread ? `<span class="dot">${state.unread}</span>` : ""}</button>`).join("");
   $("#bottomNav").innerHTML = tabs.filter((t) => t[3] !== "desktop").map(([k, l, i]) => `<button class="${k === state.tab ? "active" : ""}" data-tab="${k}">${ic(i, "lg")}<span>${SHORT[l] || l}</span></button>`).join("");
   $$("[data-tab]").forEach((b) => (b.onclick = () => go(b.dataset.tab)));

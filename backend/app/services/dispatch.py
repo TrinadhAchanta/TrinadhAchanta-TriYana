@@ -162,7 +162,7 @@ def candidates(db: Session, kind: str, target, *, online_only: bool = True,
     radius = DOCTOR_RADIUS_KM if kind == "visit" else COURIER_RADIUS_KM
     out = []
     for u in db.scalars(select(User).where(User.role == role)):
-        if u.id in asked or (online_only and not u.on_duty):
+        if u.id in asked or (online_only and not u.on_duty) or not u.is_verified:
             continue
         if kind == "visit":
             doc = db.get(Doctor, u.doctor_id)
@@ -474,6 +474,8 @@ def update_location(db: Session, user: User, lat: float, lng: float) -> None:
 def set_duty(db: Session, user: User, online: bool) -> None:
     if user.role not in (Role.doctor, Role.courier, Role.phlebotomist, Role.physio):
         raise Forbidden("forbidden_role", "Only doctors, physiotherapists, couriers and sample collectors go online.")
+    if online and not user.is_verified:
+        raise Forbidden("not_verified", "Your account is still being verified. You can go online once Triyana approves it.")
     if user.role == Role.physio:
         from .physio import ensure_physio_verified
         ensure_physio_verified(db, user)
@@ -595,6 +597,7 @@ def provider_status(db: Session, user: User) -> dict:
     lat, lng = provider_point(db, user)
     return {"name": user.name, "role": user.role.value, "online": user.on_duty, "location": [lat, lng],
             "can_go_online": user.role in (Role.doctor, Role.courier, Role.phlebotomist, Role.physio),
+            "verification_status": user.verification_status or "verified",
             "offers": [offer_to_dict(db, o) for o in offers],
             "active_trip": trip_to_dict(db, trip, with_route=False) if trip else None,
             "sim_speedup": SIM_SPEEDUP}

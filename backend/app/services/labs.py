@@ -188,7 +188,7 @@ def _candidates(db: Session, b: LabBooking, online_only: bool) -> list[tuple[Use
         LabBooking.slot_start == b.slot_start, LabBooking.status.in_(OPEN), LabBooking.id != b.id)))
     out = []
     for u in db.scalars(select(User).where(User.role == Role.phlebotomist)):
-        if u.id in asked or u.id in busy_at_slot or (online_only and (not u.on_duty or dispatch._busy(db, u))):
+        if not u.is_verified or u.id in asked or u.id in busy_at_slot or (online_only and (not u.on_duty or dispatch._busy(db, u))):
             continue
         plat, plng = dispatch.provider_point(db, u)
         km = round(haversine_km(b.lat, b.lng, plat, plng), 1)

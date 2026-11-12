@@ -120,6 +120,45 @@ class User(Base):
     lng: Mapped[float | None] = mapped_column(Float)
     vehicle: Mapped[str] = mapped_column(String(40), default="")
     loc_updated_at: Mapped[datetime | None] = mapped_column(DateTime)
+    # Self-registered accounts (email + password). Demo accounts have no email.
+    email: Mapped[str | None] = mapped_column(String(254), unique=True, index=True)
+    password_hash: Mapped[str | None] = mapped_column(String(255))
+    phone: Mapped[str | None] = mapped_column(String(20), index=True)
+    phone_verified_at: Mapped[datetime | None] = mapped_column(DateTime)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=utcnow)
+    # Providers who sign up start "pending" and cannot go online until Triyana verifies them.
+    # None (legacy rows) is treated as verified.
+    verification_status: Mapped[str | None] = mapped_column(String(16), default="verified")
+    verification_note: Mapped[str | None] = mapped_column(String(300))
+
+    @property
+    def is_verified(self) -> bool:
+        return (self.verification_status or "verified") == "verified"
+
+
+class PhoneOtp(Base):
+    """A one-time SMS code. Only a hash of the code is stored."""
+    __tablename__ = "phone_otps"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    phone: Mapped[str] = mapped_column(String(20), index=True)
+    code_hash: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class AuthSession(Base):
+    """A signed-in device. Only a SHA-256 of the bearer token is stored."""
+    __tablename__ = "auth_sessions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    app: Mapped[str] = mapped_column(String(16))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    revoked: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class Patient(Base):
@@ -132,6 +171,7 @@ class Patient(Base):
     lat: Mapped[float] = mapped_column(Float)
     lng: Mapped[float] = mapped_column(Float)
     jurisdiction: Mapped[str] = mapped_column(String(16))
+    gender: Mapped[str | None] = mapped_column(String(20))
 
 
 class Doctor(Base):

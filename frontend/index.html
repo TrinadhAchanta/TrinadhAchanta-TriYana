@@ -28,8 +28,9 @@
       <div class="spacer"></div>
       <div class="account-card">
         <label for="account">Signed in as</label>
+        <button class="acct-who" id="acctWho" hidden></button>
         <select id="account" aria-label="Demo account"></select>
-        <div class="demo-flag"><span id="flagIco"></span><span>Demo · fictional data</span></div>
+        <div class="demo-flag" id="demoFlag"><span id="flagIco"></span><span>Demo · fictional data</span></div>
         <div class="row" style="margin-top:8px;gap:6px;flex-wrap:nowrap"><button class="btn ghost sm sign-out" style="flex:1">Sign out</button><button class="btn ghost sm" id="reset" style="flex:1">Reset demo</button></div>
         <a class="app-switch" href="/provider">Are you a doctor or courier? Open Triyana Partner →</a>
       </div>
@@ -38,6 +39,7 @@
       <header class="topbar">
         <div class="brand"><div class="mark" id="markB"></div><b>Triyana</b></div>
         <select id="accountMobile" aria-label="Demo account"></select>
+        <button class="acct-me" id="acctMe" aria-label="Your account" hidden></button>
         <button class="btn ghost sm sign-out" aria-label="Sign out">Sign out</button>
       </header>
       <div class="content" id="view"></div>
@@ -58,6 +60,7 @@
   <div class="toast" id="toast" role="status"></div>
   <script src="/static/vendor/leaflet/leaflet.js"></script>
   <script src="/static/app.js"></script>
+  <script src="/static/accounts.js"></script>
   <script src="/static/labs.js"></script>
   <script src="/static/physio.js"></script>
   <script src="/static/live.js"></script>

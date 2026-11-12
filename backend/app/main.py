@@ -17,12 +17,13 @@ from . import audit
 from .adapters.payments import INDIA_METHODS, SUPPORTED_METHODS
 from .db import Base, engine, get_db, SessionLocal
 from .deps import current_user, require
+from .routers.auth import router as auth_router
 from .routers.labs import router as labs_router
 from .routers.live import router as live_router
 from .routers.visit_notes import router as visit_notes_router
 from .routers.shop import router as shop_router
 from .routers.physio import router as physio_router
-from .errors import DomainError, NotFound
+from .errors import DomainError, Forbidden, NotFound
 from .models import (
     AuditLog,
     DispensingRecord,
@@ -214,7 +215,9 @@ def health():
 def me(user: User = Depends(current_user), db: Session = Depends(get_db)):
     unread = db.scalars(select(Notification).where(Notification.user_id == user.id, Notification.read.is_(False))).all()
     return {"id": user.id, "name": user.name, "role": user.role.value, "unread_notifications": len(unread),
-            "hospital_id": user.hospital_id, "pharmacy_id": user.pharmacy_id}
+            "hospital_id": user.hospital_id, "pharmacy_id": user.pharmacy_id,
+            "email": user.email, "demo": user.email is None,
+            "verification_status": user.verification_status or "verified"}
 
 
 @app.get("/api/notifications")
@@ -735,6 +738,11 @@ def demo_accounts(app_name: Literal["patient", "provider"] | None = Query(None, 
 def demo_reset():
     if os.environ.get("TRIYANA_DEMO", "1") != "1":
         raise NotFound("not_found", "Not available.")
+    from .services.accounts import registered_accounts_exist
+    with SessionLocal() as db:
+        if registered_accounts_exist(db) and os.environ.get("TRIYANA_ALLOW_DEMO_RESET") != "1":
+            # A reset rebuilds the whole database, which would erase people's real accounts and history.
+            raise Forbidden("reset_disabled", "Reset is off because people have signed up with their own accounts.")
     from .seed import seed
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
@@ -743,6 +751,7 @@ def demo_reset():
     return {"ok": True}
 
 
+app.include_router(auth_router)
 app.include_router(live_router)
 app.include_router(visit_notes_router)
 app.include_router(labs_router)
@@ -775,6 +784,8 @@ def startup():
     if os.environ.get("TRIYANA_SKIP_STARTUP_SEED") == "1":
         return
     Base.metadata.create_all(engine)
+    from .db import add_missing_columns
+    add_missing_columns(engine)
     with SessionLocal() as db:
         if not db.scalars(select(User)).first():
             from .seed import seed

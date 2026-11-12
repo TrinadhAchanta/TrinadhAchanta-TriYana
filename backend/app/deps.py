@@ -2,11 +2,11 @@
 from __future__ import annotations
 
 from fastapi import Depends, Header, HTTPException
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .db import get_db
 from .models import Role, User
+from .services import accounts
 
 
 PROVIDER_ROLES = (Role.doctor, Role.courier, Role.pharmacist, Role.phlebotomist, Role.physio)
@@ -18,7 +18,7 @@ def current_user(authorization: str | None = Header(default=None), x_triyana_app
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail={"code": "unauthenticated", "message": "Sign in required."})
     token = authorization.split(" ", 1)[1].strip()
-    user = db.scalars(select(User).where(User.token == token)).first()
+    user = accounts.user_for_token(db, token)
     if not user:
         raise HTTPException(status_code=401, detail={"code": "unauthenticated", "message": "Invalid session."})
     # Two apps, two logins: patients use Triyana, providers use Triyana Partner.
