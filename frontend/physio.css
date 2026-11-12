@@ -42,3 +42,7 @@ details.history summary { cursor: pointer; font-weight: 600; color: var(--brand)
 details.history .list-item { align-items: flex-start; }
 
 input[type="range"] { width: 100%; accent-color: var(--brand); }
+
+/* Home: physio banner spans the services grid, right under Doctor now */
+.services .physio-banner { grid-column: 1 / -1; text-align: left; cursor: pointer; font: inherit; color: var(--text); margin: 0; }
+.services .physio-banner .ico { background: linear-gradient(135deg, #5b3fa0, #0b7a6c); }
