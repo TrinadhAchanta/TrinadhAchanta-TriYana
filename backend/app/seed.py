@@ -13,6 +13,7 @@ from .models import (
     Hospital,
     DoctorAvailability,
     HomeVisit,
+    VisitNote,
     Medication,
     MedSchedule,
     Patient,
@@ -225,6 +226,25 @@ def seed(db: Session) -> dict:
                            completed_at=now - timedelta(days=9), booking_ref="BK-DEMO0009",
                            fee=carter.visit_fee, address=arjun.address)
     db.add_all([visit, visit2, visit3, past_meera, past_arjun])
+    db.flush()
+    db.add_all([
+        VisitNote(visit_id=past_meera.id, doctor_id=sana.id, patient_id=meera.id,
+                  chief_complaint="Routine BP and sugar review (fictional)",
+                  findings="Feels well, no dizziness or chest pain. Taking medicines regularly. Mild ankle swelling by evening.",
+                  diagnosis="Hypertension, controlled (fictional)",
+                  advice="Keep salt low, walk 30 minutes a day, check BP twice a week. Call if you get headache or swelling gets worse.",
+                  follow_up_in_days=14, temperature_c=36.8, bp_systolic=134, bp_diastolic=86, pulse_bpm=78,
+                  spo2_pct=98, resp_rate=16, weight_kg=64.5,
+                  created_at=past_meera.completed_at, updated_at=past_meera.completed_at),
+        VisitNote(visit_id=past_arjun.id, doctor_id=carter.id, patient_id=arjun.id,
+                  chief_complaint="Fever for 2 days with body ache (fictional)",
+                  findings="Fever since 2 days, sore throat, no breathlessness. Throat mildly red, chest clear.",
+                  diagnosis="Viral fever (fictional)",
+                  advice="Drink plenty of fluids and rest. Take paracetamol only as prescribed. Come back if fever lasts beyond 3 days.",
+                  follow_up_in_days=3, temperature_c=38.6, bp_systolic=118, bp_diastolic=76, pulse_bpm=104,
+                  spo2_pct=97, resp_rate=18, weight_kg=72.0,
+                  created_at=past_arjun.completed_at, updated_at=past_arjun.completed_at),
+    ])
     # Dr. Sana is away for the next two days, so Meera's follow-up shows the "book her next opening" path.
     for day in _local_days(now)[:2]:
         db.add(DoctorAvailability(doctor_id=sana.id, day=day.isoformat(), hours=[]))
