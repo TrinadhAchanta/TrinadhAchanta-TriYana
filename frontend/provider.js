@@ -273,7 +273,7 @@ async function navScreen() {
   };
 
   const wireActions = () => {
-    const st = $("#navStart"); if (st) st.onclick = () => guard(async () => { await post(`/api/doctor/visits/${t.visit_id}/start`); toast("Visit started", "stethoscope"); go("visits"); });
+    const st = $("#navStart"); if (st) st.onclick = () => guard(async () => { await post(`/api/doctor/visits/${t.visit_id}/start`); toast("Visit started. Write your notes and vitals here.", "stethoscope"); state.tab = "visits"; renderNav(); notesScreen(t.visit_id); });
     const co = $("#navCollect"); if (co) co.onclick = () => guard(async () => { await post(`/api/pharmacy/orders/${t.order_id}/dispatch`); toast("Collected. Navigating to the patient.", "truck"); navScreen(); });
     const dl = $("#navDeliver"); if (dl) dl.onclick = () => guard(async () => {
       await post(`/api/orders/${t.order_id}/handover`, { code: $("#hoCode").value, recipient_name: $("#hoWho").value || "Patient", id_verified: $("#hoId").checked });

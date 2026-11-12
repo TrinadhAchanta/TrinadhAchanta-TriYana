@@ -172,6 +172,7 @@ class HomeVisit(Base):
     doctor = relationship("Doctor")
     patient = relationship("Patient")
     follow_up_of = relationship("HomeVisit", remote_side=[id])
+    note = relationship("VisitNote", uselist=False, back_populates="visit")
 
 
 class DoctorAvailability(Base):
@@ -187,6 +188,36 @@ class DoctorAvailability(Base):
     day: Mapped[str] = mapped_column(String(10))  # local date, YYYY-MM-DD
     hours: Mapped[list] = mapped_column(JSON, default=list)  # local start hours, e.g. [9, 10, 14]
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class VisitNote(Base):
+    """The doctor's clinical record of one home visit: complaint, findings, vitals, diagnosis, advice.
+
+    Free-text clinical fields are encrypted at rest. Vitals are stored in fixed units
+    (temperature in Celsius, weight in kg) so they can be charted across visits.
+    """
+    __tablename__ = "visit_notes"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    visit_id: Mapped[int] = mapped_column(ForeignKey("home_visits.id"), unique=True, index=True)
+    doctor_id: Mapped[int] = mapped_column(ForeignKey("doctors.id"))
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    chief_complaint: Mapped[str] = mapped_column(EncryptedText, default="")
+    findings: Mapped[str] = mapped_column(EncryptedText, default="")    # history and examination
+    diagnosis: Mapped[str] = mapped_column(EncryptedText, default="")
+    advice: Mapped[str] = mapped_column(EncryptedText, default="")
+    follow_up_in_days: Mapped[int | None] = mapped_column(Integer)
+    temperature_c: Mapped[float | None] = mapped_column(Float)
+    bp_systolic: Mapped[int | None] = mapped_column(Integer)
+    bp_diastolic: Mapped[int | None] = mapped_column(Integer)
+    pulse_bpm: Mapped[int | None] = mapped_column(Integer)
+    spo2_pct: Mapped[int | None] = mapped_column(Integer)
+    resp_rate: Mapped[int | None] = mapped_column(Integer)
+    weight_kg: Mapped[float | None] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+    visit = relationship("HomeVisit", back_populates="note")
+    doctor = relationship("Doctor")
 
 
 # --------------------------------------------------------------- medication data

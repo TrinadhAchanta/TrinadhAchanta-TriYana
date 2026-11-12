@@ -18,6 +18,7 @@ from .adapters.payments import INDIA_METHODS, SUPPORTED_METHODS
 from .db import Base, engine, get_db, SessionLocal
 from .deps import current_user, require
 from .routers.live import router as live_router
+from .routers.visit_notes import router as visit_notes_router
 from .errors import DomainError, NotFound
 from .models import (
     AuditLog,
@@ -45,6 +46,7 @@ from .services import orders as order_svc
 from .services import prescriptions as rx_svc
 from .services import privacy as privacy_svc
 from .services import visits as visit_svc
+from .services import visit_notes as notes_svc
 from .services import yana as yana_svc
 from .services.common import ensure_order_access, ensure_prescription_access, get_or_404
 from .services.dispensing_rules import policy_for
@@ -299,6 +301,7 @@ def my_data(user: User = Depends(require(Role.patient)), db: Session = Depends(g
         "profile": {"name": patient.name, "patient_ref": patient.patient_ref, "date_of_birth": patient.date_of_birth,
                     "address": patient.address},
         "visits": visit_svc.list_for_patient(db, user),
+        "visit_notes": [n for n in (notes_svc.get_for_patient(db, user, v["id"]) for v in visit_svc.list_for_patient(db, user)) if n],
         "prescriptions": [rx_to_dict(rx, include_integrity=False) for rx in rx_svc.list_for_patient(db, user.patient_id)],
         "orders": [order_svc.serialize_order(db, o, user) for o in db.scalars(
             select(PharmacyOrder).where(PharmacyOrder.patient_id == patient.id).order_by(PharmacyOrder.id))],
@@ -371,7 +374,7 @@ def doctor_visits(user: User = Depends(require(Role.doctor)), db: Session = Depe
     return [{"id": v.id, "status": v.status.value, "patient": {"id": v.patient_id, "name": v.patient.name,
              "patient_ref": v.patient.patient_ref}, "reason": v.reason, "address": v.address or v.patient.address,
              "booking_ref": v.booking_ref, "fee": v.fee, "on_demand": v.on_demand, "follow_up_of": visit_svc.follow_up_info(v),
-             "scheduled_for": v.scheduled_for.isoformat()} for v in rows]
+             "has_notes": v.note is not None, "scheduled_for": v.scheduled_for.isoformat()} for v in rows]
 
 
 @app.get("/api/doctor/availability")
@@ -725,6 +728,7 @@ def demo_reset():
 
 
 app.include_router(live_router)
+app.include_router(visit_notes_router)
 
 # --------------------------------------------------------------- frontend
 FRONTEND = Path(__file__).resolve().parents[2] / "frontend"

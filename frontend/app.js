@@ -47,6 +47,9 @@ const P = {
   minus: '<path d="M5 12h14"/>',
   later: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5h4"/>',
   user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+  thermo: '<path d="M14 14.8V4a2 2 0 0 0-4 0v10.8a4 4 0 1 0 4 0z"/><path d="M12 10v7"/>',
+  heart: '<path d="M20.8 5.6a5.5 5.5 0 0 0-7.8 0L12 6.6l-1-1a5.5 5.5 0 0 0-7.8 7.8L12 22l8.8-8.6a5.5 5.5 0 0 0 0-7.8z"/>',
+  notes: '<path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 12h7M9 16h7M9 8h2"/>',
   stethoscope: '<path d="M5 3v6a5 5 0 0 0 10 0V3"/><path d="M10 14v2a5 5 0 0 0 10 0v-3"/><circle cx="20" cy="11" r="2"/>',
   alert: '<path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/>',
@@ -224,6 +227,7 @@ SCREENS.home = async () => {
   const ready = notes.find((n) => n.link.startsWith("cart:") && !n.read);
   const active = dash.active_orders[0];
   const upcoming = visits.filter((v) => OPEN_VISIT.includes(v.status)).sort((a, b) => a.scheduled_for.localeCompare(b.scheduled_for));
+  const past = visits.filter((v) => v.status === "completed");
   const first = state.name.split(" ")[0];
   const activeRx = dash.prescriptions.filter((p) => p.status === "signed");
   const bookBtn = (cls = "primary") => `<button class="btn ${cls}" data-go="book">${ic("stethoscope")} Book a home visit</button>`;
@@ -247,6 +251,7 @@ SCREENS.home = async () => {
     <div id="liveSlot"></div>
     ${servicesHTML()}
     ${upcoming.length ? `<div class="section-title">Your upcoming visit${upcoming.length > 1 ? "s" : ""}</div>${upcoming.map(visitCard).join("")}` : ""}
+    ${past.length ? `<div class="section-title">Visit history</div>${past.slice(0, 5).map(pastVisitCard).join("")}` : ""}
     <div class="section-title">Notifications</div>
     <div class="card">${notes.length ? notes.slice(0, 8).map((n) => `
       <div class="list-item"><div class="avatar">${ic(n.link.startsWith("order") ? "truck" : n.link.startsWith("cart") ? "rx" : n.link.startsWith("visit") ? "stethoscope" : "info")}</div>
@@ -255,6 +260,7 @@ SCREENS.home = async () => {
   $$("[data-go]").forEach((b) => (b.onclick = () => go(b.dataset.go)));
   wireServices();
   wireCancel(() => SCREENS.home());
+  $$("[data-vnotes]").forEach((b) => (b.onclick = () => guard(() => patientNotesScreen(+b.dataset.vnotes))));
   patientLiveBanner(visits, dash.active_orders);
   if (ready) {
     const markRead = () => post(`/api/notifications/${ready.id}/read`).catch(() => {});
@@ -730,8 +736,11 @@ SCREENS.visits = async () => {
       <div class="meta"><span>${ic("id")} ${esc(v.patient.patient_ref)}</span><span>${ic("clock")} ${when(v.scheduled_for)}</span>${v.booking_ref ? `<span>${ic("calendar")} ${esc(v.booking_ref)}</span>` : ""}</div>
       <div class="meta"><span>${ic("pin")} ${esc(v.address)}</span>${v.follow_up_of ? `<span class="badge premium">${ic("later")} Follow-up${v.follow_up_of.same_doctor ? " · your patient" : ""} of ${esc(v.follow_up_of.booking_ref || "earlier visit")}</span>` : ""}</div></div></div><span class="badge ${label[v.status][1]}">${label[v.status][0]}</span></div>
       <div class="instructions">${esc(v.reason)}</div>
-      <div class="actions-bar">${next[v.status] ? `<button class="btn primary sm" data-v="${v.id}" data-a="${next[v.status][0]}">${ic(next[v.status][2])} ${next[v.status][1]}</button>` : ""}
+      <div class="actions-bar">${v.status === "in_progress" ? `<button class="btn primary sm" data-notes="${v.id}">${ic("notes")} ${v.has_notes ? "Visit notes · complete visit" : "Write visit notes & vitals"}</button>`
+        : next[v.status] ? `<button class="btn primary sm" data-v="${v.id}" data-a="${next[v.status][0]}">${ic(next[v.status][2])} ${next[v.status][1]}</button>` : ""}
+      ${v.status === "completed" ? `<button class="btn sm" data-notes="${v.id}">${ic("notes")} ${v.has_notes ? "Visit notes" : "Add visit notes"}</button>` : ""}
       ${["in_progress", "completed"].includes(v.status) ? `<button class="btn sm" data-rx="${v.id}">${ic("rx")} Write prescription</button>` : ""}</div></article>`).join("") || empty("calendar", "No visits scheduled"));
+  $$("[data-notes]").forEach((b) => (b.onclick = () => guard(() => notesScreen(+b.dataset.notes))));
   $$("[data-a]").forEach((b) => (b.onclick = () => guard(async () => {
     await post(`/api/doctor/visits/${b.dataset.v}/${b.dataset.a}`);
     if (b.dataset.a === "complete") { const v = visits.find((x) => x.id === +b.dataset.v); toast(`Visit complete. You earned ${money((v?.fee || 0) + (v?.on_demand ? 100 : 0))}. See Earnings.`, "wallet"); }
@@ -779,14 +788,136 @@ SCREENS.availability = async () => {
   wire();
 };
 
+/* ---------------------------------------------------------------- visit notes & vitals */
+const VITALS = [
+  ["temp", "Temperature", "thermo"], ["bp", "Blood pressure", "heart"], ["pulse_bpm", "Pulse", "heart", "bpm"],
+  ["spo2_pct", "SpO2", "bolt", "%"], ["resp_rate", "Respiratory rate", "chat", "/min"], ["weight_kg", "Weight", "user", "kg"],
+];
+const FLAG_CLS = { high: "bad", watch: "warn" };
+const flagBadges = (flags) => flags.map((f) => `<span class="badge ${FLAG_CLS[f.level] || ""}">${ic("alert")} ${esc(f.label)}</span>`).join("");
+function vitalTiles(v, flags = []) {
+  const flagged = (k) => flags.find((f) => f.vital === k);
+  const tile = (key, label, icon, value, unit) => {
+    const f = flagged(key);
+    return `<div class="vital ${f ? `flag-${f.level}` : ""}"><span class="tiny muted">${ic(icon)} ${label}</span><b>${value == null ? "—" : esc(value)}<small>${value == null ? "" : unit}</small></b>${f ? `<span class="tiny">${esc(f.label)}</span>` : ""}</div>`;
+  };
+  return `<div class="vitals">
+    ${tile("temperature", "Temperature", "thermo", v.temperature_f, " °F")}
+    ${tile("bp", "Blood pressure", "heart", v.bp, " mmHg")}
+    ${tile("pulse", "Pulse", "heart", v.pulse_bpm, " bpm")}
+    ${tile("spo2", "SpO2", "bolt", v.spo2_pct, "%")}
+    ${tile("resp_rate", "Breathing", "chat", v.resp_rate, " /min")}
+    ${tile("weight", "Weight", "user", v.weight_kg, " kg")}</div>`;
+}
+const followUpText = (d) => (!d ? "" : d === 1 ? "Follow up tomorrow" : d % 7 === 0 ? `Follow up in ${d / 7} week${d > 7 ? "s" : ""}` : `Follow up in ${d} days`);
+
+async function notesScreen(visitId) {
+  stopLive();
+  const [visits, note] = await Promise.all([api("/api/doctor/visits"), api(`/api/doctor/visits/${visitId}/notes`)]);
+  const v = visits.find((x) => x.id === visitId);
+  if (!v) return SCREENS.visits();
+  const n = note || {};
+  const vt = n.vitals || {};
+  let unit = "F";
+  const num = (id) => { const x = $(`#${id}`).value.trim(); return x === "" ? null : Number(x); };
+  const field = (id, label, value, attrs = "") => `<label>${label}<input id="${id}" inputmode="decimal" value="${value ?? ""}" ${attrs}></label>`;
+  view().innerHTML = pageHead("Visit notes", `${esc(v.patient.name)} · ${esc(v.patient.patient_ref)}${v.booking_ref ? ` · ${esc(v.booking_ref)}` : ""}`, `<button class="btn ghost" id="back">← Visits</button>`) + `
+    <div class="notice info small">${ic("info")}<span>The patient sees these notes in their visit history after you complete the visit. Fictional demo data only.</span></div>
+    <div class="card"><h3>${ic("chat")} What happened</h3>
+      <div class="form-grid">
+        <label class="wide">Chief complaint<input id="cc" maxlength="500" value="${esc(n.chief_complaint ?? v.reason.replace(/\s*\(fictional\)$/, ""))}" placeholder="Why the patient called, e.g. fever for 2 days"></label>
+        <label class="wide">History and examination findings<textarea id="findings" rows="4" maxlength="4000" placeholder="Symptoms, how long, what you found on examination">${esc(n.findings || "")}</textarea></label>
+      </div></div>
+    <div class="card"><div class="card-head"><h3>${ic("heart")} Vitals</h3><div class="seg" id="tUnit"><button data-u="F" class="on">°F</button><button data-u="C">°C</button></div></div>
+      <div class="form-grid vitals-form">
+        ${field("temp", `<span>Temperature (<span id="tLbl">°F</span>)</span>`, vt.temperature_f, 'placeholder="98.6"')}
+        <label>Blood pressure (mmHg)<span class="bp-pair"><input id="sys" inputmode="numeric" placeholder="120" value="${vt.bp_systolic ?? ""}" aria-label="Systolic"><b>/</b><input id="dia" inputmode="numeric" placeholder="80" value="${vt.bp_diastolic ?? ""}" aria-label="Diastolic"></span></label>
+        ${field("pulse", "Pulse (bpm)", vt.pulse_bpm, 'inputmode="numeric" placeholder="72"')}
+        ${field("spo2", "SpO2 (%)", vt.spo2_pct, 'inputmode="numeric" placeholder="98"')}
+        ${field("rr", "Respiratory rate (/min)", vt.resp_rate, 'inputmode="numeric" placeholder="16"')}
+        ${field("wt", "Weight (kg)", vt.weight_kg, 'placeholder="65"')}
+      </div>${n.flags?.length ? `<div class="row small" style="margin-top:10px">${flagBadges(n.flags)}</div>` : ""}</div>
+    <div class="card"><h3>${ic("stethoscope")} Diagnosis and advice</h3>
+      <div class="form-grid">
+        <label class="wide">Diagnosis<input id="dx" maxlength="1000" value="${esc(n.diagnosis || "")}" placeholder="e.g. Viral fever"></label>
+        <label class="wide">Advice for the patient<textarea id="advice" rows="3" maxlength="2000" placeholder="Rest, fluids, diet, warning signs to watch for">${esc(n.advice || "")}</textarea></label>
+        <label>Follow-up<select id="fu">${[["", "Not needed"], [3, "In 3 days"], [7, "In 1 week"], [14, "In 2 weeks"], [30, "In 1 month"]].map(([d, l]) => `<option value="${d}" ${String(n.follow_up_in_days ?? "") === String(d) ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+      </div></div>
+    ${n.prescriptions?.length ? `<div class="card"><h3>${ic("rx")} Prescriptions from this visit</h3>${n.prescriptions.map((p) => `<div class="list-item"><div class="avatar">${ic("rx")}</div><div class="grow"><b>${esc(p.reference_no)}</b><div class="tiny muted">${p.items.map(esc).join(", ")}</div></div><span class="badge ${p.status === "signed" ? "good" : "warn"}">${esc(p.status)}</span></div>`).join("")}</div>` : ""}
+    <div class="row sticky-actions">
+      <button class="btn" id="saveNotes">${ic("check")} Save notes</button>
+      <button class="btn" id="toRx">${ic("rx")} Save & write prescription</button>
+      ${v.status === "in_progress" ? `<button class="btn primary" id="saveDone">${ic("check")} Save & complete visit</button>` : ""}
+    </div>`;
+  $("#back").onclick = () => SCREENS.visits();
+  $$("#tUnit button").forEach((b) => (b.onclick = () => {
+    if (b.dataset.u === unit) return;
+    const t = num("temp");
+    if (t != null) $("#temp").value = unit === "F" ? ((t - 32) * 5 / 9).toFixed(1) : (t * 9 / 5 + 32).toFixed(1);
+    unit = b.dataset.u; $("#tLbl").textContent = `°${unit}`; $("#temp").placeholder = unit === "F" ? "98.6" : "37.0";
+    $$("#tUnit button").forEach((x) => x.classList.toggle("on", x === b));
+  }));
+  const body = (complete = false) => {
+    const t = num("temp");
+    return { chief_complaint: $("#cc").value, findings: $("#findings").value, diagnosis: $("#dx").value, advice: $("#advice").value,
+      follow_up_in_days: $("#fu").value ? +$("#fu").value : null,
+      temperature_f: unit === "F" ? t : null, temperature_c: unit === "C" ? t : null,
+      bp_systolic: num("sys"), bp_diastolic: num("dia"), pulse_bpm: num("pulse"), spo2_pct: num("spo2"), resp_rate: num("rr"), weight_kg: num("wt"), complete };
+  };
+  const save = async (complete) => {
+    const r = await put(`/api/doctor/visits/${visitId}/notes`, body(complete));
+    if (r.flags.length) toast(`Saved. Check: ${r.flags.map((f) => f.label).join(", ")}`, "alert"); else toast(complete ? "Visit completed. The patient can see your notes." : "Visit notes saved");
+    return r;
+  };
+  $("#saveNotes").onclick = () => guard(async () => { await save(false); notesScreen(visitId); });
+  $("#toRx").onclick = () => guard(async () => { await save(false); prescribeScreen(visitId, v); });
+  const d = $("#saveDone"); if (d) d.onclick = () => guard(async () => { await save(true); SCREENS.visits(); });
+}
+
+/* patient: read-only visit notes */
+async function patientNotesScreen(visitId, back = () => go("home")) {
+  stopLive();
+  const n = await api(`/api/patient/visits/${visitId}/notes`);
+  if (!n) { toast("Your doctor hasn't added notes for this visit yet.", "info"); return; }
+  view().innerHTML = pageHead("Visit notes", `${esc(n.doctor.name)} · ${esc(n.doctor.specialty)} · ${day(n.visit_date)}`, `<button class="btn ghost" id="back">← Back</button>`) + `
+    <div class="card featured">
+      <div class="eyebrow-sm">Diagnosis</div><h2 style="margin:4px 0 6px">${esc(n.diagnosis || "Not recorded")}</h2>
+      <div class="meta"><span>${ic("chat")} ${esc(n.chief_complaint)}</span>${n.booking_ref ? `<span>${ic("calendar")} ${esc(n.booking_ref)}</span>` : ""}</div>
+    </div>
+    <div class="section-title">Vitals</div>
+    ${vitalTiles(n.vitals, n.flags)}
+    ${n.flags.length ? `<div class="notice warn small">${ic("info")}<span>Highlighted values are outside the usual adult range. Your doctor has seen them; ask them if you have questions.</span></div>` : ""}
+    ${n.findings ? `<div class="card"><h3>What the doctor found</h3><p class="small" style="white-space:pre-wrap;margin:0">${esc(n.findings)}</p></div>` : ""}
+    ${n.advice || n.follow_up_in_days ? `<div class="card"><h3>Doctor's advice</h3>${n.advice ? `<div class="instructions" style="white-space:pre-wrap">${esc(n.advice)}</div>` : ""}
+      ${n.follow_up_in_days ? `<div class="row between" style="margin-top:12px"><span class="badge premium">${ic("later")} ${followUpText(n.follow_up_in_days)}</span><button class="btn sm" id="bookFu">${ic("calendar")} Book follow-up</button></div>` : ""}</div>` : ""}
+    ${n.prescriptions.length ? `<div class="card"><h3>Prescription from this visit</h3>${n.prescriptions.map((p) => `<div class="list-item"><div class="avatar">${ic("rx")}</div><div class="grow"><b>${esc(p.reference_no)}</b><div class="tiny muted">${p.items.map(esc).join(", ")}</div></div><button class="btn sm" data-go="rx">View</button></div>`).join("")}</div>` : ""}`;
+  $("#back").onclick = back;
+  const fu = $("#bookFu"); if (fu) fu.onclick = () => go("book", { followUp: true });
+  $$("[data-go]").forEach((b) => (b.onclick = () => go(b.dataset.go)));
+}
+
+function pastVisitCard(v) {
+  const n = v.notes;
+  return `<article class="card visit-card"><div class="card-head"><div class="when">${dateChip(v.scheduled_for)}<div>
+      <h3>${v.doctor ? esc(v.doctor.name) : "Home visit"}</h3>
+      <div class="meta">${v.doctor ? `<span>${ic("stethoscope")} ${esc(v.doctor.specialty)}</span>` : ""}<span>${ic("clock")} ${when(v.scheduled_for)}</span></div></div></div>
+      <span class="badge brand">${ic("check")} Completed</span></div>
+    ${n ? `<div class="instructions"><b>Diagnosis:</b> ${esc(n.diagnosis || "Not recorded")}</div>
+      <div class="row small" style="margin-top:10px;gap:6px">${n.temperature_c != null ? `<span class="badge">${ic("thermo")} ${(n.temperature_c * 9 / 5 + 32).toFixed(1)} °F</span>` : ""}${n.bp ? `<span class="badge">${ic("heart")} BP ${esc(n.bp)}</span>` : ""}${n.spo2_pct != null ? `<span class="badge">SpO2 ${n.spo2_pct}%</span>` : ""}${flagBadges(n.flags)}</div>
+      <div class="actions-bar"><button class="btn sm" data-vnotes="${v.id}">${ic("notes")} View visit notes</button></div>`
+      : `<div class="instructions"><b>Reason:</b> ${esc(v.reason)}</div><p class="tiny muted" style="margin:8px 0 0">The doctor hasn't added notes for this visit.</p>`}</article>`;
+}
+
 async function prescribeScreen(visitId, visit) {
-  const meds = await api("/api/catalog/medications");
+  const [meds, vnote] = await Promise.all([api("/api/catalog/medications"), api(`/api/doctor/visits/${visitId}/notes`).catch(() => null)]);
+  const clinical = vnote ? [vnote.diagnosis, vnote.chief_complaint && `C/o ${vnote.chief_complaint}`].filter(Boolean).join(". ") : "Demo consultation";
   const dolo = meds.find((m) => m.brand_name === "Dolo") || meds[0];
   const rows = [{ medication_id: dolo.id, dosage: "1 tablet", frequency: "Every 8 hours if needed", duration_days: 2, quantity: 5, route: "oral", instructions: "As entered and approved by the licensed doctor (illustrative demo data).", refills_allowed: 0 }];
   const render = () => {
     view().innerHTML = pageHead("New prescription", `${esc(visit.patient.name)} · ${esc(visit.patient.patient_ref)}`, `<button class="btn ghost" id="back">← Visits</button>`) + `
       <div class="notice warn">${ic("info")}<span>Illustrative demo data only. This is not a medical recommendation.</span></div>
-      <div class="card"><label class="field">Clinical note<textarea id="note" rows="2">Demo consultation</textarea></label></div>
+      ${vnote ? "" : `<div class="notice info">${ic("notes")}<span>Tip: write the visit notes and vitals first. The diagnosis then fills in here.</span></div>`}
+      <div class="card"><label class="field">Clinical note<textarea id="note" rows="2">${esc(clinical)}</textarea></label></div>
       ${rows.map((r, i) => `<div class="card" data-row="${i}"><div class="card-head"><div class="row">${miniPill(i)}<h3>Medicine ${i + 1}</h3></div>${rows.length > 1 ? `<button class="btn ghost sm danger" data-del="${i}">${ic("x")} Remove</button>` : ""}</div>
         <div class="form-grid">
         <label class="wide">Medicine<select data-k="medication_id">${meds.map((m) => `<option value="${m.id}" ${m.id === r.medication_id ? "selected" : ""}>${esc(m.brand_name)} ${esc(m.strength)} (${esc(m.generic_name)})${m.india_schedule && m.india_schedule !== "OTC" ? ` · Schedule ${m.india_schedule}` : ""}${m.india_schedule === "X" ? " (not sold online)" : ""}</option>`).join("")}</select></label>
