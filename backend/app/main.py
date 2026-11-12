@@ -373,7 +373,7 @@ def doctor_visits(user: User = Depends(require(Role.doctor)), db: Session = Depe
     rows = db.scalars(select(HomeVisit).where(HomeVisit.doctor_id == user.doctor_id).order_by(HomeVisit.id)).all()
     return [{"id": v.id, "status": v.status.value, "patient": {"id": v.patient_id, "name": v.patient.name,
              "patient_ref": v.patient.patient_ref}, "reason": v.reason, "address": v.address or v.patient.address,
-             "booking_ref": v.booking_ref, "fee": v.fee, "follow_up_of": visit_svc.follow_up_info(v),
+             "booking_ref": v.booking_ref, "fee": v.fee, "on_demand": v.on_demand, "follow_up_of": visit_svc.follow_up_info(v),
              "has_notes": v.note is not None, "scheduled_for": v.scheduled_for.isoformat()} for v in rows]
 
 

@@ -544,6 +544,37 @@ class Trip(Base):
     user = relationship("User")
 
 
+class Earning(Base):
+    """What a provider earned for one completed job (Partner app earnings)."""
+    __tablename__ = "earnings"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(16))            # visit | delivery
+    visit_id: Mapped[int | None] = mapped_column(ForeignKey("home_visits.id"), unique=True)
+    order_id: Mapped[int | None] = mapped_column(ForeignKey("pharmacy_orders.id"), unique=True)
+    title: Mapped[str] = mapped_column(String(120))
+    base: Mapped[float] = mapped_column(Float)
+    bonus: Mapped[float] = mapped_column(Float, default=0)   # peak / on-demand pay
+    tip: Mapped[float] = mapped_column(Float, default=0)
+    total: Mapped[float] = mapped_column(Float)
+    distance_km: Mapped[float] = mapped_column(Float, default=0)
+    earned_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    payout_id: Mapped[int | None] = mapped_column(ForeignKey("payouts.id"))
+
+
+class Payout(Base):
+    __tablename__ = "payouts"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    amount: Mapped[float] = mapped_column(Float)
+    fee: Mapped[float] = mapped_column(Float, default=0)
+    kind: Mapped[str] = mapped_column(String(16))            # instant | weekly
+    destination: Mapped[str] = mapped_column(String(60))
+    reference: Mapped[str] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(String(16), default="paid")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
 class TrackingEvent(Base):
     __tablename__ = "tracking_events"
     id: Mapped[int] = mapped_column(primary_key=True)

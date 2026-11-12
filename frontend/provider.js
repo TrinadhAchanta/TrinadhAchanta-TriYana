@@ -19,6 +19,10 @@ const MANEUVER = (s) => {
   return { left: "tLeft", "sharp left": "tLeft", right: "tRight", "sharp right": "tRight", "slight left": "tSlightL", "slight right": "tSlightR", uturn: "tUturn" }[m] || "tStraight";
 };
 
+/* Earnings tab for doctors and couriers (Dasher-style pay). */
+[TABS.doctor, TABS.courier].forEach((t) => t.splice(1, 0, ["earnings", "Earnings", "wallet"]));
+const inr = (n) => new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: n % 1 ? 2 : 0 }).format(n || 0);
+
 const ROLE_WORD = { doctor: "visits", courier: "deliveries" };
 let seenOffers = new Set();
 
@@ -26,6 +30,7 @@ let seenOffers = new Set();
 SCREENS.dash = async () => {
   let st = await api("/api/provider/status");
   let jobs = st.can_go_online ? await api("/api/provider/jobs") : [];
+  let earn = st.can_go_online ? await api("/api/provider/earnings").catch(() => null) : null;
   let sig = "";
   const signature = () => JSON.stringify([st.online, st.offers.map((o) => o.id), st.active_trip?.id, st.active_trip?.arrived, jobs.map((j) => [j.id, j.status, j.trip_id])]);
 
@@ -41,7 +46,7 @@ SCREENS.dash = async () => {
             <p>${st.online ? `Looking for ${word} near you. New requests appear here, nearest first.` : `Go online to start receiving ${word} from patients near you.`}</p></div>
           <button class="duty ${st.online ? "on" : ""}" id="duty" aria-pressed="${st.online}"><span class="knob">${ic("power")}</span><span class="lbl">${st.online ? "Go offline" : "Go online"}</span></button>
         </div>
-        <div class="stats"><div class="stat"><b>${st.offers.length}</b><span>New requests</span></div>
+        <div class="stats">${earn ? `<button class="stat stat-link" data-earn="1"><b>${inr(earn.today.total)}</b><span>Earned today ›</span></button>` : ""}<div class="stat"><b>${st.offers.length}</b><span>New requests</span></div>
           <div class="stat"><b>${jobs.filter((j) => !["completed", "delivered"].includes(j.status)).length}</b><span>Accepted</span></div>
           <div class="stat"><b>${t ? `${t.eta_min} min` : "—"}</b><span>${t ? "To destination" : "No active trip"}</span></div></div>
       </section>
@@ -51,6 +56,10 @@ SCREENS.dash = async () => {
         <div id="offers">${st.offers.length ? st.offers.map(offerCard).join("") : `<div class="card empty slim">${st.online ? `<div class="radar-mini"></div><h3>Waiting for requests</h3><p class="small">Stay online. Requests from patients near you will appear here.</p>` : `<div class="ico">${ic("power")}</div><h3>You're offline</h3><p class="small">Go online to receive nearby ${word}.</p>`}</div>`}</div>
         ${jobs.length ? `<div class="section-title">Your jobs</div>${jobs.map(jobCard).join("")}` : ""}
       </div><aside class="sticky">
+        ${earn ? `<button class="card earn-mini" data-earn="1"><div class="row between"><span class="eyebrow-sm">${ic("wallet")} This week</span><span class="tiny muted">${earn.week.jobs} job${earn.week.jobs === 1 ? "" : "s"}</span></div>
+          <div class="earn-big">${inr(earn.week.total)}</div>
+          <div class="mini-bars">${earn.week.days.map((d) => `<i class="${d.today ? "today" : ""}" style="height:${Math.max(4, Math.round((d.total / Math.max(1, ...earn.week.days.map((x) => x.total))) * 100))}%"></i>`).join("")}</div>
+          <div class="row between small"><span class="muted">Balance ${inr(earn.balance)}</span><span class="strong" style="color:var(--brand)">View earnings ›</span></div></button>` : ""}
         <div class="card map-card"><div class="mini-map" id="areaMap"></div>
           <div class="row between small" style="margin-top:10px"><span class="muted">${ic("pin")} Your location</span><span class="badge ${st.online ? "good" : ""}">${st.online ? "Visible to dispatch" : "Hidden"}</span></div></div>
         <div class="notice info small">${ic("info")}<span>Demo: your GPS is simulated. In the field the app uses your phone's location.</span></div>
@@ -80,6 +89,7 @@ SCREENS.dash = async () => {
       stopLive(); SCREENS.dash();
     });
     const tn = $("#toNav"); if (tn) tn.onclick = () => navScreen();
+    $$("[data-earn]").forEach((b) => (b.onclick = () => go("earnings")));
     $$("[data-accept]").forEach((b) => (b.onclick = () => guard(async () => {
       b.disabled = true;
       const r = await post(`/api/provider/offers/${b.dataset.accept}/accept`);
@@ -101,7 +111,9 @@ SCREENS.dash = async () => {
   st.offers.forEach((o) => seenOffers.add(o.id));
   every(1000, async () => tickCountdowns());
   every(3000, async () => {
-    const [s2, j2] = await Promise.all([api("/api/provider/status"), st.can_go_online ? api("/api/provider/jobs") : []]);
+    const [s2, j2, e2] = await Promise.all([api("/api/provider/status"), st.can_go_online ? api("/api/provider/jobs") : [], st.can_go_online ? api("/api/provider/earnings").catch(() => earn) : null]);
+    if (e2 && earn && e2.today.total !== earn.today.total) sig = "";
+    earn = e2;
     const fresh = s2.offers.filter((o) => !seenOffers.has(o.id));
     st = s2; jobs = j2;
     if (fresh.length) {
@@ -265,7 +277,7 @@ async function navScreen() {
     const co = $("#navCollect"); if (co) co.onclick = () => guard(async () => { await post(`/api/pharmacy/orders/${t.order_id}/dispatch`); toast("Collected. Navigating to the patient.", "truck"); navScreen(); });
     const dl = $("#navDeliver"); if (dl) dl.onclick = () => guard(async () => {
       await post(`/api/orders/${t.order_id}/handover`, { code: $("#hoCode").value, recipient_name: $("#hoWho").value || "Patient", id_verified: $("#hoId").checked });
-      toast("Delivered. Proof of delivery recorded."); go("dash");
+      toast("Delivered. Your pay was added to Earnings."); go("dash");
     });
   };
 
@@ -290,6 +302,57 @@ async function navScreen() {
     if (arrivedNow) { try { navigator.vibrate?.(300); } catch {} toast("You've arrived", "flag"); }
   });
 }
+
+/* ------------------------------------------------------------------ earnings */
+SCREENS.earnings = async () => {
+  const e = await api("/api/provider/earnings");
+  const max = Math.max(1, ...e.week.days.map((d) => d.total));
+  const range = `${day(e.week.days[0].date + "T06:00:00")} – ${day(e.week.days[6].date + "T06:00:00")}`;
+  const keyOfIso = (iso) => parseIso(iso).toLocaleDateString("en-CA", { timeZone: TZ });
+  const byDay = {};
+  e.jobs.forEach((j) => { const k = keyOfIso(j.earned_at); (byDay[k] = byDay[k] || []).push(j); });
+  const todayK = new Date().toLocaleDateString("en-CA", { timeZone: TZ });
+  const yestK = new Date(Date.now() - 864e5).toLocaleDateString("en-CA", { timeZone: TZ });
+  const dayTitle = (k) => (k === todayK ? "Today" : k === yestK ? "Yesterday" : new Date(k + "T06:00:00Z").toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "short" }));
+  view().innerHTML = `
+    <section class="hero partner earn-hero"><div class="eyebrow">This week · ${esc(range)}</div>
+      <h1 class="earn-total">${inr(e.week.total)}</h1>
+      <p>${e.week.jobs} job${e.week.jobs === 1 ? "" : "s"}${e.week.bonus ? ` · includes ${inr(e.week.bonus)} in bonuses` : ""}</p>
+      <div class="bars" role="img" aria-label="Earnings by day this week">${e.week.days.map((d) => `<button class="bar ${d.today ? "today" : ""} ${d.future ? "future" : ""}" data-day="${d.date}" title="${inr(d.total)}">
+          <span class="amt">${d.total ? inr(d.total) : ""}</span><span class="col"><i style="height:${d.total ? Math.max(6, Math.round((d.total / max) * 100)) : 3}%"></i></span><span class="lbl">${d.label}</span></button>`).join("")}</div>
+    </section>
+    <div class="earn-tiles">
+      <div class="card"><span class="eyebrow-sm">Today</span><b>${inr(e.today.total)}</b><span class="tiny muted">${e.today.jobs} job${e.today.jobs === 1 ? "" : "s"}</span></div>
+      <div class="card"><span class="eyebrow-sm">Balance</span><b>${inr(e.balance)}</b><span class="tiny muted">Paid out Monday</span></div>
+      <div class="card"><span class="eyebrow-sm">All time</span><b>${inr(e.lifetime.total)}</b><span class="tiny muted">${e.lifetime.jobs} jobs</span></div>
+    </div>
+    <div class="split earn-split"><div>
+      <div class="section-title">Jobs</div>
+      ${Object.keys(byDay).length ? Object.entries(byDay).map(([k, list]) => `<div class="card earn-day" data-k="${k}"><div class="row between"><h3>${esc(dayTitle(k))}</h3><b>${inr(list.reduce((a, j) => a + j.total, 0))}</b></div>
+        ${list.map((j) => `<details class="earn-job"><summary><span class="avatar">${ic(j.kind === "visit" ? "stethoscope" : "truck")}</span>
+            <span class="grow"><b>${esc(j.title)}</b><span class="tiny muted">${time(j.earned_at)} · ${j.distance_km} km${j.paid_out ? " · paid out" : ""}</span></span>
+            <span class="amt">${inr(j.total)}</span></summary>
+          <table class="price"><tr><td>${j.kind === "visit" ? "Visit fee" : "Delivery pay"}</td><td>${inr(j.base)}</td></tr>
+            ${j.bonus ? `<tr><td>Doctor now bonus</td><td>${inr(j.bonus)}</td></tr>` : ""}${j.tip ? `<tr><td>Tip</td><td>${inr(j.tip)}</td></tr>` : ""}
+            <tr class="total"><td>You earned</td><td>${inr(j.total)}</td></tr></table></details>`).join("")}</div>`).join("")
+        : empty("wallet", "No earnings yet", "Go online and complete a job. Your pay shows up here right away.")}
+    </div><aside class="sticky">
+      <div class="card featured payout-card"><span class="eyebrow-sm">${ic("wallet")} Available to cash out</span>
+        <div class="earn-big">${inr(e.balance)}</div>
+        <div class="small muted">Next automatic payout <b>${day(e.next_payout.date + "T06:00:00")}</b> (Monday)</div>
+        <div class="row small" style="margin:10px 0"><span class="badge">${ic("bolt")} ${esc(e.payout_method)}</span></div>
+        <button class="btn primary block" id="cashOut" ${e.balance >= 1 ? "" : "disabled"}>${ic("bolt")} Cash out ${inr(e.balance)} now</button>
+        <p class="tiny muted" style="margin:8px 0 0;text-align:center">Instant payout to UPI · no fee in the demo</p></div>
+      <div class="card"><h3>Payouts</h3>${e.payouts.map((p) => `<div class="list-item"><div class="avatar">${ic("check")}</div><div class="grow"><b>${inr(p.amount)}</b><div class="tiny muted">${p.kind === "instant" ? "Instant cash out" : "Weekly payout"} · ${day(p.at)} · ${esc(p.reference)}</div></div><span class="badge good">Paid</span></div>`).join("") || `<p class="small muted">No payouts yet.</p>`}</div>
+      <div class="notice info small">${ic("info")}<span>${esc(e.rules)}</span></div>
+    </aside></div>`;
+  $$(".bar").forEach((b) => (b.onclick = () => { const el = $(`.earn-day[data-k="${b.dataset.day}"]`); if (el) el.scrollIntoView({ behavior: "smooth", block: "center" }); else toast("No jobs that day", "info"); }));
+  const co = $("#cashOut"); if (co) co.onclick = () => guard(async () => {
+    if (!confirm(`Cash out ${inr(e.balance)} to ${e.payout_method}?`)) return;
+    co.disabled = true;
+    await post("/api/provider/earnings/cash-out"); toast(`${inr(e.balance)} is on its way to your UPI`, "check"); SCREENS.earnings();
+  });
+};
 
 /* ------------------------------------------------------------------ courier: deliveries list */
 SCREENS.deliveries = async () => {

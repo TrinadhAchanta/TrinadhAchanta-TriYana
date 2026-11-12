@@ -10,6 +10,7 @@ from ..deps import require
 from ..errors import NotFound
 from ..models import Patient, Role, Trip, User
 from ..services import dispatch
+from ..services import earnings as earnings_svc
 from ..services import privacy as privacy_svc
 from ..services import visits as visit_svc
 
@@ -92,6 +93,16 @@ def provider_offer(offer_id: int, action: str, user: User = Depends(traveller), 
     else:
         raise NotFound("not_found", "Unknown action.")
     return {"id": o.id, "status": o.status, "trip": (dispatch.trip_to_dict(db, t) if (t := dispatch.active_trip(db, user.id)) else None)}
+
+
+@router.get("/api/provider/earnings")
+def provider_earnings(user: User = Depends(traveller), db: Session = Depends(get_db)):
+    return earnings_svc.summary(db, user)
+
+
+@router.post("/api/provider/earnings/cash-out")
+def provider_cash_out(user: User = Depends(traveller), db: Session = Depends(get_db)):
+    return earnings_svc.cash_out(db, user)
 
 
 @router.get("/api/provider/jobs")

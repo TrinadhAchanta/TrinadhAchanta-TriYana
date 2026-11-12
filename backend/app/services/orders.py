@@ -575,6 +575,9 @@ def complete_handover(db: Session, user: User, order_id: int, code: str, recipie
         if mission is not None:
             drone_svc.confirm(mission, recipient_name or "Patient", temperature_ok=True)
         dispatch.end_trips_for(db, order_id=order.id)
+        if mission is None:
+            from .earnings import record_delivery
+            record_delivery(db, order, user)
         _event(db, order, OrderStatus.delivered, f"Delivered to {recipient_name}.")
     else:
         if user.role != Role.pharmacist or order.status != OrderStatus.ready_for_pickup:
