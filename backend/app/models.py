@@ -238,6 +238,9 @@ class Medication(Base):
     reference_unit_price: Mapped[float] = mapped_column(Float)
     # India Drugs and Cosmetics Rules schedule: OTC, G, H, H1 or X (demo classification).
     india_schedule: Mapped[str] = mapped_column(String(4), default="H")
+    # Online shop: aisle and a short plain-language description (OTC products are sold freely).
+    category: Mapped[str] = mapped_column(String(40), default="")
+    description: Mapped[str] = mapped_column(String(240), default="")
 
 
 # ----------------------------------------------------------------- prescriptions
@@ -379,8 +382,10 @@ class PharmacyOrder(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     order_no: Mapped[str] = mapped_column(String(32), unique=True)
     idempotency_key: Mapped[str] = mapped_column(String(80), unique=True)
-    cart_id: Mapped[int] = mapped_column(ForeignKey("suggested_carts.id"))
-    prescription_id: Mapped[int] = mapped_column(ForeignKey("prescriptions.id"))
+    # Shop orders (over-the-counter products) have no prescription or prescription cart.
+    source: Mapped[str] = mapped_column(String(16), default="prescription")  # prescription | shop
+    cart_id: Mapped[int | None] = mapped_column(ForeignKey("suggested_carts.id"))
+    prescription_id: Mapped[int | None] = mapped_column(ForeignKey("prescriptions.id"))
     patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
     pharmacy_id: Mapped[int] = mapped_column(ForeignKey("pharmacies.id"), index=True)
     status: Mapped[OrderStatus] = mapped_column(Enum(OrderStatus), default=OrderStatus.prescription_received)
@@ -405,8 +410,8 @@ class OrderItem(Base):
     __tablename__ = "order_items"
     id: Mapped[int] = mapped_column(primary_key=True)
     order_id: Mapped[int] = mapped_column(ForeignKey("pharmacy_orders.id"))
-    cart_item_id: Mapped[int] = mapped_column(ForeignKey("cart_items.id"))
-    prescription_item_id: Mapped[int] = mapped_column(ForeignKey("prescription_items.id"))
+    cart_item_id: Mapped[int | None] = mapped_column(ForeignKey("cart_items.id"))
+    prescription_item_id: Mapped[int | None] = mapped_column(ForeignKey("prescription_items.id"))
     medication_id: Mapped[int] = mapped_column(ForeignKey("medications.id"))
     prescribed_quantity: Mapped[int] = mapped_column(Integer)
     requested_quantity: Mapped[int] = mapped_column(Integer)

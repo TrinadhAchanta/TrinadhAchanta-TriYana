@@ -289,6 +289,8 @@ def _release_and_void(db: Session, order: PharmacyOrder, reason: str) -> None:
         pay.amount_refunded = round(pay.amount_refunded + refund_amount, 2)
         pay.status = PaymentStatus.refunded
     for it in order.items:
+        if it.cart_item_id is None:  # shop orders have no prescription cart
+            continue
         ci = db.get(CartItem, it.cart_item_id)
         ci.status = CartItemStatus.in_cart  # patient may choose another pharmacy
 
@@ -461,7 +463,7 @@ def respond_clarification(db: Session, user: User, clarification_id: int, respon
 # ------------------------------------------------------------------ fulfilment
 def _dispense(db: Session, user: User, order: PharmacyOrder) -> None:
     for it in order.items:
-        if not it.approved_quantity:
+        if not it.approved_quantity or it.prescription_item_id is None:  # OTC shop items: no dispensing record
             continue
         pi = db.get(PrescriptionItem, it.prescription_item_id)
         exists = db.scalars(select(DispensingRecord).where(DispensingRecord.order_item_id == it.id)).first()
@@ -472,6 +474,44 @@ def _dispense(db: Session, user: User, order: PharmacyOrder) -> None:
         db.add(DispensingRecord(order_item_id=it.id, prescription_item_id=pi.id, pharmacy_id=order.pharmacy_id,
                                 pharmacist_user_id=user.id, quantity=it.approved_quantity))
         db.flush()
+
+
+def pack_and_dispatch(db: Session, order: PharmacyOrder) -> str:
+    """Order is packed: book the drone or offer the delivery to the nearest online rider."""
+    if order.fulfillment == "delivery":
+        patient = db.get(Patient, order.patient_id)
+        dist = haversine_km(patient.lat, patient.lng, order.pharmacy.lat, order.pharmacy.lng)
+        meds = [it.medication for it in order.items if it.approved_quantity]
+        msg = "Your order is packed and waiting for the courier."
+        mission = _book_drone(db, order, patient) if order.delivery_option == "drone" else None
+        if mission is not None and mission.mode == "drone":
+            provider, courier_name, ref = mission.provider, f"Drone {mission.vehicle['uin']}", mission.ref
+            eta, code = mission.eta, mission.handover_code
+            msg = "Your order is packed and loaded for drone delivery."
+        else:
+            if mission is not None:  # drone not possible on this route today: road fallback
+                msg = _fallback_to_road(db, order, mission.fallback_reason)
+                db.delete(mission)
+            booking = courier.book(order.delivery_option, dist, 0, order.scheduled_for)
+            provider, courier_name, ref = "triyana-dispatch", None, booking.tracking_ref
+            eta, code = booking.eta, booking.handover_code
+        db.add(DeliveryAssignment(
+            order_id=order.id, provider=provider, option=order.delivery_option,
+            courier_name=courier_name, tracking_ref=ref, eta=eta,
+            handover_code=code,
+            cold_chain=any(m.cold_chain for m in meds),
+            id_check_required=any(m.id_check_required for m in meds),
+            signature_required=True,
+        ))
+        if not (mission is not None and mission.mode == "drone"):
+            db.flush()
+            db.refresh(order)
+            dispatch.offer_delivery(db, order)  # nearest online courier gets it first
+            msg = ("Your order is packed. We're finding the nearest courier."
+                   if msg == "Your order is packed and waiting for the courier." else f"{msg} We're finding the nearest courier.")
+    else:
+        msg = "Your order is ready to collect. Bring photo ID."
+    return msg
 
 
 def advance(db: Session, user: User, order_id: int, action: str) -> PharmacyOrder:
@@ -496,39 +536,7 @@ def advance(db: Session, user: User, order_id: int, action: str) -> PharmacyOrde
         raise Conflict("bad_state", f"Order is '{STATUS_LABELS[order.status]}'.")
     if action == "ready":
         _dispense(db, user, order)
-        if order.fulfillment == "delivery":
-            patient = db.get(Patient, order.patient_id)
-            dist = haversine_km(patient.lat, patient.lng, order.pharmacy.lat, order.pharmacy.lng)
-            meds = [it.medication for it in order.items if it.approved_quantity]
-            msg = "Your order is packed and waiting for the courier."
-            mission = _book_drone(db, order, patient) if order.delivery_option == "drone" else None
-            if mission is not None and mission.mode == "drone":
-                provider, courier_name, ref = mission.provider, f"Drone {mission.vehicle['uin']}", mission.ref
-                eta, code = mission.eta, mission.handover_code
-                msg = "Your order is packed and loaded for drone delivery."
-            else:
-                if mission is not None:  # drone not possible on this route today: road fallback
-                    msg = _fallback_to_road(db, order, mission.fallback_reason)
-                    db.delete(mission)
-                booking = courier.book(order.delivery_option, dist, 0, order.scheduled_for)
-                provider, courier_name, ref = "triyana-dispatch", None, booking.tracking_ref
-                eta, code = booking.eta, booking.handover_code
-            db.add(DeliveryAssignment(
-                order_id=order.id, provider=provider, option=order.delivery_option,
-                courier_name=courier_name, tracking_ref=ref, eta=eta,
-                handover_code=code,
-                cold_chain=any(m.cold_chain for m in meds),
-                id_check_required=any(m.id_check_required for m in meds),
-                signature_required=True,
-            ))
-            if not (mission is not None and mission.mode == "drone"):
-                db.flush()
-                db.refresh(order)
-                dispatch.offer_delivery(db, order)  # nearest online courier gets it first
-                msg = ("Your order is packed. We're finding the nearest courier."
-                       if msg == "Your order is packed and waiting for the courier." else f"{msg} We're finding the nearest courier.")
-        else:
-            msg = "Your order is ready to collect. Bring photo ID."
+        msg = pack_and_dispatch(db, order)
     if action == "dispatch" and order.fulfillment != "delivery":
         raise Conflict("not_delivery", "Pickup orders are not dispatched.")
     if action == "dispatch":
@@ -645,13 +653,15 @@ def _fallback_to_road(db: Session, order: PharmacyOrder, reason: str | None) -> 
 
 # --------------------------------------------------------------- serialization
 def serialize_order(db: Session, order: PharmacyOrder, viewer: User) -> dict:
-    juris = db.get(Prescription, order.prescription_id).jurisdiction
+    juris = (db.get(Prescription, order.prescription_id).jurisdiction if order.prescription_id
+             else db.get(Patient, order.patient_id).jurisdiction)
     d = order.delivery
     pay = order.payment
     data = {
         "id": order.id,
         "order_no": order.order_no,
         "prescription_id": order.prescription_id,
+        "source": order.source or "prescription",
         "status": order.status.value,
         "status_label": STATUS_LABELS[order.status],
         "pharmacy": {"id": order.pharmacy.id, "name": order.pharmacy.name, "address": order.pharmacy.address},

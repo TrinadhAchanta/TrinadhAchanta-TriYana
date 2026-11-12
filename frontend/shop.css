@@ -1,0 +1,44 @@
+/* Triyana — online medicine shop */
+.shop-hero .stat b svg.i { width: 22px; height: 22px; }
+.shop-search { position: relative; margin: 18px 0 10px; }
+.shop-search svg.i { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--muted); }
+.shop-search input { width: 100%; padding: 13px 14px 13px 42px; border-radius: 14px; font-size: 15px; }
+
+.aisles { display: flex; gap: 8px; overflow-x: auto; padding: 4px 0 6px; scrollbar-width: none; }
+.aisles::-webkit-scrollbar { display: none; }
+.aisles button { flex: none; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text-2); border-radius: 99px; padding: 8px 14px; font-size: 13px; font-weight: 700; cursor: pointer; }
+.aisles button.on { background: var(--brand); border-color: var(--brand); color: var(--brand-ink); }
+
+.products { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+.product { display: flex; flex-direction: column; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 14px; box-shadow: var(--sh-1); transition: transform .2s var(--ease), box-shadow .2s var(--ease); min-width: 0; }
+.product:hover { transform: translateY(-2px); box-shadow: var(--sh-2); }
+.product.blocked { opacity: .75; }
+.product-art.pill { width: 100%; height: 92px; border-radius: 14px; }
+.product-art.pill svg.i { width: 34px; height: 34px; }
+.product-body { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.product-name { font-size: 15px; margin-top: 6px; line-height: 1.3; }
+.product-desc { margin: 6px 0 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.product-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.price-now { font-size: 17px; letter-spacing: -.01em; }
+.product-action { margin-left: auto; }
+
+.stepper { display: inline-flex; align-items: center; gap: 4px; background: var(--brand-soft); border-radius: 12px; padding: 3px; }
+.stepper button { width: 32px; height: 32px; border: 0; border-radius: 9px; background: var(--surface); color: var(--brand); display: grid; place-items: center; cursor: pointer; }
+.stepper button:disabled { opacity: .4; cursor: default; }
+.stepper svg.i { width: 15px; height: 15px; }
+.stepper b { min-width: 22px; text-align: center; color: var(--brand); }
+
+#basketBar { position: sticky; bottom: 16px; z-index: 15; margin-top: 18px; }
+.basket-bar { width: 100%; display: flex; align-items: center; gap: 12px; border: 0; cursor: pointer; padding: 14px 18px; border-radius: 16px; background: var(--brand-grad); color: #fff; font-weight: 700; font-size: 15px; box-shadow: 0 14px 34px rgba(11, 122, 108, .35); }
+.basket-bar .grow { text-align: left; }
+.basket-count { min-width: 28px; height: 28px; border-radius: 9px; display: grid; place-items: center; background: rgba(255, 255, 255, .22); font-size: 13px; }
+
+@media (max-width: 780px) {
+  .products { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .product { padding: 12px; }
+  .product-art.pill { height: 72px; }
+  .product-foot { flex-direction: column; align-items: stretch; }
+  .product-action { margin-left: 0; }
+  .product-action .btn { width: 100%; justify-content: center; }
+  #basketBar { bottom: 80px; }
+}

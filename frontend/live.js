@@ -69,6 +69,7 @@ const km = (m) => (m < 1000 ? `${Math.round(m / 10) * 10} m` : `${(m / 1000).toF
 
 /* ------------------------------------------------------------------ patient: services */
 const SERVICES = [
+  { key: "shop", title: "Medicine shop", sub: "Rider delivery in under an hour", icon: "bag", go: "shop", tone: "blue" },
   { key: "book", title: "Book a home visit", sub: "Pick a doctor and a time", icon: "calendar", go: "book" },
   { key: "rx", title: "Prescriptions", sub: "E-signed by your doctor", icon: "rx", go: "rx" },
   { key: "cart", title: "Medicine cart", sub: "Choose what to buy, and how much", icon: "cart", go: "cart", tone: "blue" },
