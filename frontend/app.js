@@ -135,9 +135,9 @@ function loginScreen() {
     const k = partner ? (a.label.split("·")[1] || "").trim().split(" ")[0] || "account" : "patient";
     (groups[k] = groups[k] || []).push(a);
   });
-  const icon = { doctor: "stethoscope", courier: "truck", pharmacist: "store", patient: "user" };
+  const icon = { doctor: "stethoscope", courier: "truck", pharmacist: "store", phlebotomist: "flask", patient: "user" };
   $("#login").innerHTML = `<div class="login-card">
-      <div class="brand"><div class="mark">${ic("logo")}</div><div><b>${partner ? "Triyana Partner" : "Triyana"}</b><small>${partner ? "For doctors, couriers & pharmacists" : "Home healthcare"}</small></div></div>
+      <div class="brand"><div class="mark">${ic("logo")}</div><div><b>${partner ? "Triyana Partner" : "Triyana"}</b><small>${partner ? "For doctors, couriers, pharmacists & sample collectors" : "Home healthcare"}</small></div></div>
       <h1>${partner ? "Go online. Get nearby visits and deliveries." : "Doctors, medicines and care, at your door."}</h1>
       <p class="muted">${partner ? "Accept requests from patients near you and navigate there turn by turn." : "Book a verified doctor now or for later, get your prescription, and track your medicines live."}</p>
       ${Object.entries(groups).map(([g, list]) => `<div class="section-title">${partner ? `${esc(g)}s` : "Choose a demo account"}</div>

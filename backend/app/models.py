@@ -37,6 +37,7 @@ class Role(str, enum.Enum):
     pharmacist = "pharmacist"
     courier = "courier"
     hospital = "hospital"  # hospital pharmacy / logistics staff
+    phlebotomist = "phlebotomist"  # collects lab samples at home
 
 
 class VisitStatus(str, enum.Enum):
@@ -507,6 +508,7 @@ class DispatchOffer(Base):
     kind: Mapped[str] = mapped_column(String(16))            # visit | delivery
     visit_id: Mapped[int | None] = mapped_column(ForeignKey("home_visits.id"), index=True)
     order_id: Mapped[int | None] = mapped_column(ForeignKey("pharmacy_orders.id"), index=True)
+    lab_booking_id: Mapped[int | None] = mapped_column(ForeignKey("lab_bookings.id"), index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     status: Mapped[str] = mapped_column(String(16), default="offered")  # offered|accepted|declined|expired|withdrawn
     distance_km: Mapped[float] = mapped_column(Float, default=0)
@@ -517,6 +519,7 @@ class DispatchOffer(Base):
     user = relationship("User")
     visit = relationship("HomeVisit")
     order = relationship("PharmacyOrder")
+    lab_booking = relationship("LabBooking")
 
 
 class Trip(Base):
@@ -526,7 +529,8 @@ class Trip(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     visit_id: Mapped[int | None] = mapped_column(ForeignKey("home_visits.id"), index=True)
     order_id: Mapped[int | None] = mapped_column(ForeignKey("pharmacy_orders.id"), index=True)
-    leg: Mapped[str] = mapped_column(String(16))             # to_patient | to_pharmacy
+    lab_booking_id: Mapped[int | None] = mapped_column(ForeignKey("lab_bookings.id"), index=True)
+    leg: Mapped[str] = mapped_column(String(16))             # to_patient | to_pharmacy | to_lab
     dest_label: Mapped[str] = mapped_column(String(160), default="")
     route: Mapped[list] = mapped_column(JSON, default=list)  # [[lat, lng], ...]
     steps: Mapped[list] = mapped_column(JSON, default=list)  # [{text, along_m, type, modifier}]
@@ -730,3 +734,69 @@ class DeliveryMission(Base):
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime)
 
     shipment = relationship("Shipment", back_populates="mission")
+
+
+# ------------------------------------------------------------ lab tests at home
+class Lab(Base):
+    """A partner diagnostic lab that processes home-collected samples."""
+    __tablename__ = "labs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    accreditation: Mapped[str] = mapped_column(String(60))   # e.g. NABL certificate no.
+    address: Mapped[str] = mapped_column(String(200))
+    lat: Mapped[float] = mapped_column(Float)
+    lng: Mapped[float] = mapped_column(Float)
+
+
+class LabTest(Base):
+    """A single test or a package of tests the patient can book for home collection."""
+    __tablename__ = "lab_tests"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    code: Mapped[str] = mapped_column(String(24), unique=True)
+    name: Mapped[str] = mapped_column(String(120))
+    kind: Mapped[str] = mapped_column(String(12), default="test")        # test | package
+    category: Mapped[str] = mapped_column(String(40))
+    about: Mapped[str] = mapped_column(Text, default="")
+    sample: Mapped[str] = mapped_column(String(60), default="Blood")
+    fasting_hours: Mapped[int] = mapped_column(Integer, default=0)
+    turnaround_hours: Mapped[int] = mapped_column(Integer, default=24)
+    price: Mapped[float] = mapped_column(Float)
+    mrp: Mapped[float] = mapped_column(Float)
+    popular: Mapped[bool] = mapped_column(Boolean, default=False)
+    includes: Mapped[list] = mapped_column(JSON, default=list)            # codes of tests in a package
+    parameters: Mapped[list] = mapped_column(JSON, default=list)          # [{name, unit, low, high, typical}]
+
+
+class LabBooking(Base):
+    """A home sample collection: booked by the patient, collected by a phlebotomist, reported by the lab."""
+    __tablename__ = "lab_bookings"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    booking_ref: Mapped[str] = mapped_column(String(24), unique=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    lab_id: Mapped[int] = mapped_column(ForeignKey("labs.id"))
+    items: Mapped[list] = mapped_column(JSON, default=list)               # [{id, code, name, price, kind}]
+    status: Mapped[str] = mapped_column(String(20), default="booked", index=True)
+    # booked | assigned | collected | at_lab | report_ready | cancelled
+    on_demand: Mapped[bool] = mapped_column(Boolean, default=False)       # "collect now" vs a booked slot
+    slot_start: Mapped[datetime] = mapped_column(DateTime)
+    address: Mapped[str] = mapped_column(EncryptedText)
+    lat: Mapped[float] = mapped_column(Float)
+    lng: Mapped[float] = mapped_column(Float)
+    fasting_hours: Mapped[int] = mapped_column(Integer, default=0)
+    subtotal: Mapped[float] = mapped_column(Float)
+    collection_fee: Mapped[float] = mapped_column(Float, default=0)
+    total: Mapped[float] = mapped_column(Float)
+    payment_method: Mapped[str] = mapped_column(String(24))
+    payment_status: Mapped[str] = mapped_column(String(20), default="authorized")  # authorized|captured|voided|due
+    payment_ref: Mapped[str] = mapped_column(String(64), default="")
+    collection_code: Mapped[str] = mapped_column(EncryptedText)          # patient shows it to the phlebotomist
+    phlebotomist_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    sample_ids: Mapped[list] = mapped_column(JSON, default=list)          # barcodes on the tubes
+    events: Mapped[list] = mapped_column(JSON, default=list)              # [{at, status, note}]
+    report: Mapped[dict | None] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    collected_at: Mapped[datetime | None] = mapped_column(DateTime)
+    at_lab_at: Mapped[datetime | None] = mapped_column(DateTime)
+    report_ready_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    lab = relationship("Lab")

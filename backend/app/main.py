@@ -17,6 +17,7 @@ from . import audit
 from .adapters.payments import INDIA_METHODS, SUPPORTED_METHODS
 from .db import Base, engine, get_db, SessionLocal
 from .deps import current_user, require
+from .routers.labs import router as labs_router
 from .routers.live import router as live_router
 from .routers.visit_notes import router as visit_notes_router
 from .errors import DomainError, NotFound
@@ -702,6 +703,8 @@ DEMO_APPS = {
         "doctor": "Dr. Carter · doctor", "doctor_rohan": "Dr. Rohan · doctor", "doctor_vikram": "Dr. Vikram · doctor",
         "doctor_sana": "Dr. Sana · doctor", "courier": "Asha · courier (GreenLeaf)", "courier2": "Kiran · courier",
         "pharmacist": "Ravi · pharmacist (GreenLeaf)", "pharmacist2": "Lina · pharmacist (Sunrise)",
+        "phlebotomist": "Priya · phlebotomist (sample collector)", "phlebotomist2": "Suresh · phlebotomist",
+        "phlebotomist3": "Fatima · phlebotomist",
     },
 }
 
@@ -729,6 +732,7 @@ def demo_reset():
 
 app.include_router(live_router)
 app.include_router(visit_notes_router)
+app.include_router(labs_router)
 
 # --------------------------------------------------------------- frontend
 FRONTEND = Path(__file__).resolve().parents[2] / "frontend"

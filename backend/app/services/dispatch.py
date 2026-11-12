@@ -42,6 +42,9 @@ OFFER_SECONDS = int(os.environ.get("TRIYANA_OFFER_SECONDS", "45"))
 SIM_SPEEDUP = float(os.environ.get("TRIYANA_SIM_SPEEDUP", "8"))  # demo time runs this many times faster
 DOCTOR_RADIUS_KM = 15.0
 COURIER_RADIUS_KM = 12.0
+LAB_RADIUS_KM = 15.0
+ROLE_FOR = {"visit": Role.doctor, "delivery": Role.courier, "lab": Role.phlebotomist}
+RADIUS_FOR = {"visit": DOCTOR_RADIUS_KM, "delivery": COURIER_RADIUS_KM, "lab": LAB_RADIUS_KM}
 CITY_KMH = 22.0  # average city speed used for ETAs on synthetic routes
 GPS_FRESH = timedelta(seconds=30)
 
@@ -168,8 +171,7 @@ def candidates(db: Session, kind: str, target, *, online_only: bool = True) -> l
 
 
 def online_count(db: Session, kind: str, lat: float, lng: float) -> int:
-    role = Role.doctor if kind == "visit" else Role.courier
-    radius = DOCTOR_RADIUS_KM if kind == "visit" else COURIER_RADIUS_KM
+    role, radius = ROLE_FOR[kind], RADIUS_FOR[kind]
     n = 0
     for u in db.scalars(select(User).where(User.role == role, User.on_duty.is_(True))):
         plat, plng = provider_point(db, u)
@@ -249,6 +251,9 @@ def _redispatch(db: Session, offer: DispatchOffer) -> None:
         v.status = VisitStatus.cancelled
         notify(db, users_for_patient(db, v.patient_id), "No doctor free at that time",
                "We couldn't find another doctor for your booking. Please pick a new time.", f"visit:{v.id}")
+    elif offer.kind == "lab":
+        from . import labs  # local import avoids a cycle
+        labs.redispatch(db, offer)
     else:
         order = offer.order
         if order.delivery and order.delivery.courier_user_id is None:
@@ -266,6 +271,8 @@ def sweep(db: Session) -> None:
         _redispatch(db, o)
     if stale:
         db.commit()
+    from . import labs  # reports that are ready, and collectors for booked lab slots
+    labs.sweep(db)
 
 
 def _my_offer(db: Session, user: User, offer_id: int) -> DispatchOffer:
@@ -298,6 +305,9 @@ def accept(db: Session, user: User, offer_id: int) -> DispatchOffer:
             notify(db, users_for_patient(db, v.patient_id), "Doctor confirmed your visit",
                    f"{doc.name} confirmed your home visit.", f"visit:{v.id}")
         audit.record(db, user, "visit.accept", "home_visit", v.id, via="dispatch", on_demand=v.on_demand)
+    elif o.kind == "lab":
+        from . import labs
+        labs.on_accept(db, user, o)
     else:
         order = o.order
         d = order.delivery
@@ -343,12 +353,12 @@ def has_open_offer(db: Session, user: User, order_id: int) -> bool:
 
 # ------------------------------------------------------------------ trips
 def start_trip(db: Session, user: User, *, leg: str, dest: tuple[float, float], dest_label: str,
-               visit_id: int | None = None, order_id: int | None = None) -> Trip:
+               visit_id: int | None = None, order_id: int | None = None, lab_booking_id: int | None = None) -> Trip:
     for t in db.scalars(select(Trip).where(Trip.user_id == user.id, Trip.ended_at.is_(None))):
         end_trip(db, t)
     origin = provider_point(db, user)
     r = synthetic_route(origin, dest, dest_label)
-    trip = Trip(user_id=user.id, visit_id=visit_id, order_id=order_id, leg=leg, dest_label=dest_label,
+    trip = Trip(user_id=user.id, visit_id=visit_id, order_id=order_id, lab_booking_id=lab_booking_id, leg=leg, dest_label=dest_label,
                 speedup=SIM_SPEEDUP, started_at=utcnow(), **r)
     db.add(trip)
     db.flush()
@@ -390,9 +400,13 @@ def end_trip(db: Session, trip: Trip) -> None:
         u.lat, u.lng, u.loc_updated_at = trip.route[-1][0], trip.route[-1][1], now
 
 
-def end_trips_for(db: Session, *, visit_id: int | None = None, order_id: int | None = None) -> None:
+def end_trips_for(db: Session, *, visit_id: int | None = None, order_id: int | None = None,
+                  lab_booking_id: int | None = None) -> None:
     q = select(Trip).where(Trip.ended_at.is_(None))
-    q = q.where(Trip.visit_id == visit_id) if visit_id else q.where(Trip.order_id == order_id)
+    if lab_booking_id:
+        q = q.where(Trip.lab_booking_id == lab_booking_id)
+    else:
+        q = q.where(Trip.visit_id == visit_id) if visit_id else q.where(Trip.order_id == order_id)
     for t in db.scalars(q):
         end_trip(db, t)
 
@@ -424,8 +438,8 @@ def update_location(db: Session, user: User, lat: float, lng: float) -> None:
 
 
 def set_duty(db: Session, user: User, online: bool) -> None:
-    if user.role not in (Role.doctor, Role.courier):
-        raise Forbidden("forbidden_role", "Only doctors and couriers go online.")
+    if user.role not in (Role.doctor, Role.courier, Role.phlebotomist):
+        raise Forbidden("forbidden_role", "Only doctors, couriers and sample collectors go online.")
     if user.role == Role.doctor and not db.get(Doctor, user.doctor_id).license_verified:
         raise Forbidden("licence_not_verified", "Your licence must be verified before you can take visits.")
     user.on_duty = online
@@ -472,6 +486,9 @@ def tick(db: Session, trip: Trip) -> dict:
             v = db.get(HomeVisit, trip.visit_id)
             notify(db, users_for_patient(db, v.patient_id), "Your doctor has arrived",
                    f"{db.get(Doctor, v.doctor_id).name} is at your door.", f"visit:{v.id}")
+        elif trip.lab_booking_id:
+            from . import labs
+            labs.arrival_notice(db, trip)
         elif trip.order_id and trip.leg == "to_patient":
             o = db.get(PharmacyOrder, trip.order_id)
             notify(db, users_for_patient(db, o.patient_id), "Your courier has arrived",
@@ -484,6 +501,7 @@ def tick(db: Session, trip: Trip) -> dict:
 def trip_to_dict(db: Session, trip: Trip, *, with_route: bool = True) -> dict:
     p = tick(db, trip)
     out = {"id": trip.id, "leg": trip.leg, "visit_id": trip.visit_id, "order_id": trip.order_id,
+           "lab_booking_id": trip.lab_booking_id,
            "dest_label": trip.dest_label, "origin": trip.route[0] if trip.route else None,
            "destination": trip.route[-1] if trip.route else None, "distance_m": round(trip.distance_m),
            "duration_s": round(trip.duration_s), "source": trip.source, "speedup": trip.speedup,
@@ -509,6 +527,9 @@ def offer_to_dict(db: Session, o: DispatchOffer) -> dict:
                      "address": v.address or p.address, "earning": v.fee,
                      "dropoff": {"lat": p.lat, "lng": p.lng, "label": p.name},
                      "drive_min": math.ceil(o.distance_km * 1.3 / CITY_KMH * 60 + 1)})
+    elif o.kind == "lab":
+        from . import labs
+        base.update(labs.offer_fields(db, o))
     else:
         order = o.order
         p = db.get(Patient, order.patient_id)
@@ -529,7 +550,7 @@ def provider_status(db: Session, user: User) -> dict:
     trip = active_trip(db, user.id)
     lat, lng = provider_point(db, user)
     return {"name": user.name, "role": user.role.value, "online": user.on_duty, "location": [lat, lng],
-            "can_go_online": user.role in (Role.doctor, Role.courier),
+            "can_go_online": user.role in (Role.doctor, Role.courier, Role.phlebotomist),
             "offers": [offer_to_dict(db, o) for o in offers],
             "active_trip": trip_to_dict(db, trip, with_route=False) if trip else None,
             "sim_speedup": SIM_SPEEDUP}
@@ -635,4 +656,7 @@ def provider_jobs(db: Session, user: User) -> list[dict]:
                         "pickup": {"lat": o.pharmacy.lat, "lng": o.pharmacy.lng, "label": o.pharmacy.name},
                         "dropoff": {"lat": p.lat, "lng": p.lng, "label": p.name},
                         "cold_chain": o.delivery.cold_chain, "id_check_required": o.delivery.id_check_required})
+    elif user.role == Role.phlebotomist:
+        from . import labs
+        out = labs.provider_jobs(db, user)
     return out
