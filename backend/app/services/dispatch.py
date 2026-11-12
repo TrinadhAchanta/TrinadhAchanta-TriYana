@@ -27,6 +27,7 @@ from ..models import (
     Doctor,
     DispatchOffer,
     HomeVisit,
+    OrderStatus,
     Patient,
     Pharmacy,
     PharmacyOrder,
@@ -142,14 +143,18 @@ def _target_point(db: Session, offer_kind: str, target) -> tuple[float, float]:
     return ph.lat, ph.lng
 
 
-def _already_asked(db: Session, kind: str, target_id: int) -> set[int]:
+def _already_asked(db: Session, kind: str, target_id: int, *, retry_missed: bool = False) -> set[int]:
     col = DispatchOffer.visit_id if kind == "visit" else DispatchOffer.order_id
-    return set(db.scalars(select(DispatchOffer.user_id).where(col == target_id)))
+    q = select(DispatchOffer.user_id).where(col == target_id)
+    if retry_missed:  # providers who let an offer time out may be asked again; decliners are not
+        q = q.where(DispatchOffer.status != "expired")
+    return set(db.scalars(q))
 
 
-def candidates(db: Session, kind: str, target, *, online_only: bool = True) -> list[tuple[User, float]]:
+def candidates(db: Session, kind: str, target, *, online_only: bool = True,
+               retry_missed: bool = False) -> list[tuple[User, float]]:
     lat, lng = _target_point(db, kind, target)
-    asked = _already_asked(db, kind, target.id)
+    asked = _already_asked(db, kind, target.id, retry_missed=retry_missed)
     role = Role.doctor if kind == "visit" else Role.courier
     radius = DOCTOR_RADIUS_KM if kind == "visit" else COURIER_RADIUS_KM
     out = []
@@ -219,7 +224,7 @@ def offer_booked_visit(db: Session, visit: HomeVisit) -> DispatchOffer | None:
 
 
 def offer_delivery(db: Session, order: PharmacyOrder) -> DispatchOffer | None:
-    cands = candidates(db, "delivery", order)
+    cands = candidates(db, "delivery", order) or candidates(db, "delivery", order, retry_missed=True)
     if not cands:
         return None
     return _make_offer(db, "delivery", order, cands[0][0], cands[0][1], timed=True)
@@ -273,6 +278,26 @@ def sweep(db: Session) -> None:
         db.commit()
     from . import labs  # reports that are ready, and collectors for booked lab slots
     labs.sweep(db)
+    from .shop import autopack  # shop orders the pharmacy has packed are offered to riders here
+    autopack(db)
+    _offer_waiting_deliveries(db)
+
+
+def _offer_waiting_deliveries(db: Session) -> None:
+    """Packed road deliveries with no rider yet go to whoever is online now (e.g. a rider who just came online)."""
+    waiting = db.scalars(select(PharmacyOrder).join(DeliveryAssignment, DeliveryAssignment.order_id == PharmacyOrder.id)
+                         .where(PharmacyOrder.status == OrderStatus.ready_for_pickup,
+                                PharmacyOrder.fulfillment == "delivery",
+                                DeliveryAssignment.provider == "triyana-dispatch",
+                                DeliveryAssignment.courier_user_id.is_(None))).all()
+    made = False
+    for order in waiting:
+        open_offer = db.scalars(select(DispatchOffer.id).where(DispatchOffer.order_id == order.id,
+                                                               DispatchOffer.status == "offered")).first()
+        if open_offer is None and offer_delivery(db, order) is not None:
+            made = True
+    if made:
+        db.commit()
 
 
 def _my_offer(db: Session, user: User, offer_id: int) -> DispatchOffer:

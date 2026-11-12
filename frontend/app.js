@@ -94,7 +94,7 @@ const miniPill = (i, off = false) => `<div class="pill sm ${off ? "off" : pillCl
 
 /* ---------------------------------------------------------------- shell */
 const TABS = {
-  patient: [["home", "Home", "home"], ["book", "Book a doctor", "stethoscope"], ["rx", "Prescription", "rx"], ["cart", "Cart", "cart"], ["pharmacies", "Pharmacies", "store", "desktop"], ["orders", "Tracking", "truck"], ["meds", "My Medicines", "pills"], ["privacy", "Privacy & consent", "shield", "desktop"]],
+  patient: [["home", "Home", "home"], ["shop", "Shop", "bag"], ["book", "Book a doctor", "stethoscope"], ["rx", "Prescription", "rx", "desktop"], ["cart", "Cart", "cart"], ["pharmacies", "Pharmacies", "store", "desktop"], ["orders", "Tracking", "truck"], ["meds", "My Medicines", "pills"], ["privacy", "Privacy & consent", "shield", "desktop"]],
   doctor: [["visits", "Home visits", "calendar"], ["availability", "My hours", "clock"], ["prescriptions", "Prescriptions", "file"], ["clarifications", "Clarifications", "chat"]],
   pharmacist: [["queue", "Order queue", "inbox"], ["shipments", "Hospital drones", "drone"]],
   courier: [["dash", "Dashboard", "bolt"], ["deliveries", "Deliveries", "truck"]],
@@ -655,6 +655,7 @@ async function checkoutScreen(p) {
   render();
 }
 
+const SHOP_STEPS = [["order_accepted", "Order placed"], ["preparing", "Packing your order"], ["ready_for_pickup", "Packed · finding a rider"], ["out_for_delivery", "Rider on the way"], ["delivered", "Delivered"]];
 const STEPS = [["prescription_received", "Prescription received"], ["pharmacist_reviewing", "Pharmacist reviewing"], ["order_accepted", "Order accepted"], ["preparing", "Preparing medicines"], ["ready_for_pickup", "Ready for pickup"], ["out_for_delivery", "Out for delivery"], ["delivered", "Delivered"]];
 
 SCREENS.orders = async () => {
@@ -662,14 +663,14 @@ SCREENS.orders = async () => {
   const all = [...dash.active_orders, ...dash.purchase_history];
   if (!all.length) { view().innerHTML = pageHead("Tracking") + empty("truck", "No orders yet", "Once you place an order, you can follow it here step by step."); return; }
   const o = all.find((x) => x.id === state.ctx.orderId) || all[0];
-  const steps = o.fulfillment === "pickup" ? STEPS.slice(0, 5).concat([["picked_up", "Collected"]]) : STEPS;
+  const steps = o.source === "shop" ? SHOP_STEPS : o.fulfillment === "pickup" ? STEPS.slice(0, 5).concat([["picked_up", "Collected"]]) : STEPS;
   const seen = new Set(o.timeline.map((e) => e.status));
   const doneCount = steps.filter(([s]) => seen.has(s)).length;
   const bad = ["rejected", "cancelled"].includes(o.status);
   const last = o.timeline[o.timeline.length - 1];
   view().innerHTML = pageHead("Order tracking", `${esc(o.order_no)} · ${esc(shortName(o.pharmacy.name))}`,
     all.length > 1 ? `<select id="pickOrder">${all.map((x) => `<option value="${x.id}" ${x.id === o.id ? "selected" : ""}>${esc(x.order_no)} · ${esc(x.status_label)}</option>`).join("")}</select>` : "") + `
-    <section class="hero"><div class="eyebrow">${o.fulfillment === "pickup" ? "Pickup order" : esc(DELIV[o.delivery_option]?.[1] || "") + " delivery"}</div>
+    <section class="hero"><div class="eyebrow">${o.source === "shop" && o.delivery_option === "priority" ? "Express rider delivery" : o.fulfillment === "pickup" ? "Pickup order" : esc(DELIV[o.delivery_option]?.[1] || "") + " delivery"}</div>
       <h1>${esc(o.status_label)}</h1><p>${esc(last.note)}</p>
       ${o.delivery && !["delivered", "cancelled", "rejected"].includes(o.status) ? `<div class="actions"><button class="btn primary" id="liveOrder">${ic("pin")} ${o.delivery.courier ? `Track ${esc(o.delivery.courier)} live` : "Live map"}</button></div>` : ""}
       ${bad ? "" : `<div class="progress"><i style="width:${Math.round((doneCount / steps.length) * 100)}%"></i></div>
@@ -684,8 +685,9 @@ SCREENS.orders = async () => {
         return `<li class="${seen.has(s) ? "done" : ""} ${cur ? "current" : ""}"><span class="node">${seen.has(s) ? ic("check") : ""}</span><b>${l}</b>
           <div class="small muted">${ev ? `${time(ev.at)} · ${esc(ev.note)}` : cur ? "Up next" : ""}</div></li>`; }).join("")}</ul>`}</div>
       ${o.mission ? missionPanels(o.mission) : ""}
-      <div class="card"><h3>Items</h3><div class="table-wrap"><table><tr><th>Medicine</th><th>Prescribed</th><th>Requested</th><th>Approved</th></tr>
-        ${o.items.map((i) => `<tr><td><b>${esc(i.medicine)}</b> ${schedBadge(i.india_schedule)}</td><td>${i.prescribed_quantity}</td><td>${i.requested_quantity}</td><td>${i.approved_quantity ?? `<span class="badge warn">Pending</span>`}</td></tr>`).join("")}</table></div></div>
+      <div class="card"><h3>Items</h3><div class="table-wrap"><table>${o.source === "shop" ? `<tr><th>Item</th><th>Quantity</th><th>Price</th></tr>
+        ${o.items.map((i) => `<tr><td><b>${esc(i.medicine)}</b> ${schedBadge(i.india_schedule)}</td><td>${i.approved_quantity} ${esc(i.unit)}</td><td>${money(r2(i.unit_price * i.approved_quantity))}</td></tr>`).join("")}` : `<tr><th>Medicine</th><th>Prescribed</th><th>Requested</th><th>Approved</th></tr>
+        ${o.items.map((i) => `<tr><td><b>${esc(i.medicine)}</b> ${schedBadge(i.india_schedule)}</td><td>${i.prescribed_quantity}</td><td>${i.requested_quantity}</td><td>${i.approved_quantity ?? `<span class="badge warn">Pending</span>`}</td></tr>`).join("")}`}</table></div></div>
     </div><aside class="sticky">
       ${o.delivery && o.status !== "delivered" ? `<div class="code-box"><div class="tiny" style="opacity:.8">${o.mission?.mode === "drone" ? "SHARE THIS CODE WHEN THE DRONE ARRIVES" : "SHARE THIS CODE WITH YOUR COURIER"}</div><div class="code">${esc(o.delivery.handover_code)}</div><div class="tiny" style="opacity:.8">Proof of delivery</div></div>` : ""}
       ${o.delivery ? `<div class="card"><div class="row"><div class="avatar">${o.delivery.courier ? esc(initials(o.delivery.courier)) : ic("truck")}</div><div><b>${esc(o.delivery.courier || "Finding the nearest courier…")}</b><div class="tiny muted">${esc(o.delivery.provider)} · ${esc(o.delivery.tracking_ref)}</div></div></div>
@@ -697,6 +699,7 @@ SCREENS.orders = async () => {
         ${["prescription_received", "pharmacist_reviewing", "awaiting_clarification", "order_accepted"].includes(o.status) ? `<button class="btn danger block" id="cancel" style="margin-top:14px">Cancel order</button>` : ""}</div>
     </aside></div>`;
   if (o.mission && ["in_flight", "in_transit"].includes(o.mission.status)) state.poll = setInterval(() => state.tab === "orders" && SCREENS.orders(), 15000);
+  else if (o.source === "shop" && ["order_accepted", "preparing"].includes(o.status)) state.poll = setInterval(() => state.tab === "orders" && SCREENS.orders(), 8000);
   const lo = $("#liveOrder"); if (lo) lo.onclick = () => liveScreen("delivery", o.id);
   const pick = $("#pickOrder"); if (pick) pick.onchange = () => { state.ctx.orderId = +pick.value; SCREENS.orders(); };
   const c = $("#cancel");
@@ -1041,9 +1044,9 @@ SCREENS.queue = async () => {
   view().innerHTML = `<section class="hero"><div class="eyebrow">${esc(state.name)}</div><h1>Prescription order queue</h1><p>Validate prescriptions, review requested quantities, then approve, adjust or reject as legally appropriate.</p>
     <div class="stats"><div class="stat"><b>${open}</b><span>Awaiting review</span></div><div class="stat"><b>${orders.filter((o) => ["order_accepted", "preparing"].includes(o.status)).length}</b><span>To prepare</span></div><div class="stat"><b>${orders.filter((o) => o.status === "delivered" || o.status === "picked_up").length}</b><span>Completed</span></div></div></section>` +
     (orders.map((o) => `<article class="card" data-order="${o.id}"><div class="card-head"><div class="row"><div class="avatar">${esc(initials(o.patient.name))}</div><div><h3>${esc(o.order_no)} · ${esc(o.patient.name)}</h3>
-      <div class="meta"><span>${ic("rx")} ${esc(o.prescription.reference_no)}</span><span>${ic("stethoscope")} ${esc(o.prescription.doctor)}</span><span>${ic(o.fulfillment === "pickup" ? "bag" : "truck")} ${esc(o.fulfillment)}${o.delivery_option ? " · " + esc(o.delivery_option.replace("_", " ")) : ""}</span></div></div></div>
+      <div class="meta">${o.prescription ? `<span>${ic("rx")} ${esc(o.prescription.reference_no)}</span><span>${ic("stethoscope")} ${esc(o.prescription.doctor)}</span>` : `<span>${ic("bag")} Shop order · over the counter</span>`}<span>${ic(o.fulfillment === "pickup" ? "bag" : "truck")} ${esc(o.fulfillment)}${o.delivery_option ? " · " + esc(o.delivery_option.replace("_", " ")) : ""}</span></div></div></div>
       <span class="badge brand">${esc(o.status_label)}</span></div>
-      <div class="notice ${o.prescription.valid ? "good" : "bad"} small">${ic(o.prescription.valid ? "shield" : "alert")}<span>${o.prescription.valid ? `Signature, licence (${esc(o.prescription.license_no)}) and validity verified` : "Invalid prescription: " + esc(o.prescription.issue)}</span></div>
+      ${!o.prescription ? `<div class="notice info small">${ic("info")}<span>Over-the-counter products only. No prescription needed: pack and hand to the rider.</span></div>` : `<div class="notice ${o.prescription.valid ? "good" : "bad"} small">${ic(o.prescription.valid ? "shield" : "alert")}<span>${o.prescription.valid ? `Signature, licence (${esc(o.prescription.license_no)}) and validity verified` : "Invalid prescription: " + esc(o.prescription.issue)}</span></div>`}
       <div class="table-wrap"><table><tr><th>Medicine</th><th>Prescribed</th><th>Requested</th><th>Approve</th></tr>${o.items.map((i) => `<tr><td><b>${esc(i.medicine)}</b></td><td>${i.prescribed_quantity}</td>
         <td>${i.requested_quantity}${i.requested_quantity < i.prescribed_quantity ? ` <span class="badge warn">partial</span>` : ""}</td>
         <td>${i.approved_quantity ?? (["prescription_received", "pharmacist_reviewing"].includes(o.status) ? `<input type="number" min="0" max="${i.requested_quantity}" value="${i.requested_quantity}" data-adj="${i.id}" style="width:80px">` : "—")}</td></tr>`).join("")}</table></div>

@@ -20,6 +20,7 @@ from .deps import current_user, require
 from .routers.labs import router as labs_router
 from .routers.live import router as live_router
 from .routers.visit_notes import router as visit_notes_router
+from .routers.shop import router as shop_router
 from .errors import DomainError, NotFound
 from .models import (
     AuditLog,
@@ -514,6 +515,8 @@ def checkout(cart_id: int, body: CheckoutIn, user: User = Depends(require(Role.p
 def my_medicines(user: User = Depends(require(Role.patient)), db: Session = Depends(get_db)):
     """My Medicines dashboard. Prescribed, ordered and dispensed are kept distinct;
     nothing here implies a medicine has been taken."""
+    from .services.dispatch import sweep
+    sweep(db)  # moves shop orders along (packing, rider offers) for the demo
     rxs = rx_svc.list_for_patient(db, user.patient_id)
     out_rx = []
     for rx in rxs:
@@ -558,6 +561,8 @@ def my_medicines(user: User = Depends(require(Role.patient)), db: Session = Depe
 # --------------------------------------------------------------- orders
 @app.get("/api/orders/{order_id}")
 def get_order(order_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    from .services.dispatch import sweep
+    sweep(db)
     order = get_or_404(db, PharmacyOrder, order_id, "Order")
     ensure_order_access(user, order)
     return order_svc.serialize_order(db, order, user)
@@ -570,16 +575,22 @@ def cancel_order(order_id: int, body: CancelIn, user: User = Depends(current_use
 
 @app.get("/api/pharmacy/orders")
 def pharmacy_orders(user: User = Depends(require(Role.pharmacist, Role.courier)), db: Session = Depends(get_db)):
+    from .services.dispatch import sweep
+    sweep(db)
     rows = db.scalars(select(PharmacyOrder).where(PharmacyOrder.pharmacy_id == user.pharmacy_id)
                       .order_by(PharmacyOrder.id.desc())).all()
     out = []
     for o in rows:
         d = order_svc.serialize_order(db, o, user)
-        rx = db.get(Prescription, o.prescription_id)
-        ok, why = rx_svc.is_dispensable(rx)
-        d["prescription"] = {"reference_no": rx.reference_no, "doctor": rx.doctor.name,
-                             "license_no": rx.doctor.license_no, "valid": ok, "issue": why}
-        d["patient"] = {"name": rx.patient.name, "patient_ref": rx.patient.patient_ref}
+        rx = db.get(Prescription, o.prescription_id) if o.prescription_id else None
+        if rx is not None:
+            ok, why = rx_svc.is_dispensable(rx)
+            d["prescription"] = {"reference_no": rx.reference_no, "doctor": rx.doctor.name,
+                                 "license_no": rx.doctor.license_no, "valid": ok, "issue": why}
+        else:  # over-the-counter shop order: no prescription needed
+            d["prescription"] = None
+        patient = db.get(Patient, o.patient_id)
+        d["patient"] = {"name": patient.name, "patient_ref": patient.patient_ref}
         out.append(d)
     return out
 
@@ -733,6 +744,7 @@ def demo_reset():
 app.include_router(live_router)
 app.include_router(visit_notes_router)
 app.include_router(labs_router)
+app.include_router(shop_router)
 
 # --------------------------------------------------------------- frontend
 FRONTEND = Path(__file__).resolve().parents[2] / "frontend"

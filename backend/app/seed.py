@@ -84,28 +84,58 @@ def seed(db: Session) -> dict:
     db.flush()
 
     meds = {
-        "dolo": Medication(india_schedule="H", brand_name="Dolo", generic_name="Paracetamol", strength="650 mg", form="tablet",
+        "dolo": Medication(category="Fever & pain", description="Paracetamol for fever and pain. Prescription only in this demo.", india_schedule="H", brand_name="Dolo", generic_name="Paracetamol", strength="650 mg", form="tablet",
                            unit="tablets", schedule=MedSchedule.rx, pack_sizes=[1, 15], loose_units_allowed=True,
                            reference_unit_price=2.0),
-        "cetri": Medication(india_schedule="OTC", brand_name="Cetrizet", generic_name="Cetirizine", strength="10 mg", form="tablet",
+        "cetri": Medication(category="Cold & allergy", description="Non-drowsy allergy relief for sneezing, runny nose and itchy eyes.", india_schedule="OTC", brand_name="Cetrizet", generic_name="Cetirizine", strength="10 mg", form="tablet",
                             unit="tablets", schedule=MedSchedule.otc, pack_sizes=[10], loose_units_allowed=False,
                             reference_unit_price=1.8),
-        "amoxi": Medication(india_schedule="H1", brand_name="Amoxidemo", generic_name="Amoxicillin", strength="500 mg", form="capsule",
+        "amoxi": Medication(category="Antibiotics", description="Antibiotic. Only with a doctor's prescription.", india_schedule="H1", brand_name="Amoxidemo", generic_name="Amoxicillin", strength="500 mg", form="capsule",
                             unit="capsules", schedule=MedSchedule.restricted, pack_sizes=[1, 10],
                             loose_units_allowed=True, reference_unit_price=6.5),
-        "trama": Medication(india_schedule="H1", brand_name="Tramademo", generic_name="Tramadol", strength="50 mg", form="tablet",
+        "trama": Medication(category="Pain relief", description="Strong pain medicine with extra controls.", india_schedule="H1", brand_name="Tramademo", generic_name="Tramadol", strength="50 mg", form="tablet",
                             unit="tablets", schedule=MedSchedule.controlled, pack_sizes=[10],
                             loose_units_allowed=False, id_check_required=True, reference_unit_price=9.0),
-        "insu": Medication(india_schedule="H", brand_name="Insudemo Pen", generic_name="Insulin glargine", strength="100 IU/ml",
+        "insu": Medication(category="Diabetes", description="Long-acting insulin pen. Kept cold all the way to your door.", india_schedule="H", brand_name="Insudemo Pen", generic_name="Insulin glargine", strength="100 IU/ml",
                            form="pen", unit="pens", schedule=MedSchedule.rx, pack_sizes=[1, 5],
                            loose_units_allowed=True, cold_chain=True, reference_unit_price=420.0),
-        "panto": Medication(india_schedule="H", brand_name="Pantodemo", generic_name="Pantoprazole", strength="40 mg", form="tablet",
+        "panto": Medication(category="Digestive care", description="Reduces stomach acid. Prescription only.", india_schedule="H", brand_name="Pantodemo", generic_name="Pantoprazole", strength="40 mg", form="tablet",
                             unit="tablets", schedule=MedSchedule.rx, pack_sizes=[1, 15], loose_units_allowed=True,
                             reference_unit_price=3.2),
-        "rita": Medication(india_schedule="X", brand_name="Ritademo", generic_name="Methylphenidate", strength="10 mg",
+        "rita": Medication(category="Restricted", description="Schedule X. Not sold online.", india_schedule="X", brand_name="Ritademo", generic_name="Methylphenidate", strength="10 mg",
                            form="tablet", unit="tablets", schedule=MedSchedule.controlled, pack_sizes=[10],
                            loose_units_allowed=False, id_check_required=True, reference_unit_price=12.0),
     }
+    # Over-the-counter products for the online shop (fictional brands, illustrative demo prices).
+    def otc(brand, generic, strength, form, unit, pack, price, category, description):
+        return Medication(india_schedule="OTC", brand_name=brand, generic_name=generic, strength=strength, form=form,
+                          unit=unit, schedule=MedSchedule.otc, pack_sizes=[pack], loose_units_allowed=False,
+                          reference_unit_price=price, category=category, description=description)
+
+    meds.update({
+        "ors": otc("Hydrademo ORS", "Oral rehydration salts", "21 g", "sachet", "sachets", 5, 21.0, "Digestive care",
+                   "WHO-formula ORS to replace fluids and salts lost through diarrhoea, vomiting or heat."),
+        "antacid": otc("Gelademo Antacid", "Aluminium + magnesium hydroxide", "170 ml", "liquid", "bottles", 1, 112.0,
+                       "Digestive care", "Fast relief from acidity, heartburn and gas. Mint flavour."),
+        "vitc": otc("Vitademo C", "Vitamin C (ascorbic acid)", "500 mg", "chewable tablet", "tablets", 15, 2.4,
+                    "Vitamins & nutrition", "Orange-flavoured chewable vitamin C for everyday immunity support."),
+        "multi": otc("Dailydemo Multivitamin", "Multivitamin + minerals", "1 tablet", "tablet", "tablets", 30, 5.5,
+                     "Vitamins & nutrition", "A once-a-day multivitamin with zinc, iron and B-complex."),
+        "lozenge": otc("Throatdemo Lozenges", "Amylmetacresol + dichlorobenzyl alcohol", "honey lemon", "lozenge",
+                       "lozenges", 8, 4.0, "Cold & allergy", "Soothes a sore, scratchy throat. Honey lemon flavour."),
+        "steam": otc("Breathdemo Vapour Rub", "Menthol + camphor + eucalyptus oil", "25 g", "balm", "jars", 1, 95.0,
+                     "Cold & allergy", "Rub on chest and back for blocked-nose relief from colds."),
+        "gel": otc("Reliefdemo Pain Gel", "Diclofenac diethylamine 1.16%", "30 g", "gel", "tubes", 1, 145.0,
+                   "Pain relief", "Rub-on gel for back, neck, knee and muscle pain."),
+        "antiseptic": otc("Germidemo Antiseptic", "Chloroxylenol", "100 ml", "liquid", "bottles", 1, 86.0, "First aid",
+                          "Antiseptic liquid for cuts, scrapes and personal hygiene."),
+        "bandage": otc("Healdemo Bandages", "Sterile adhesive strips", "assorted", "strip", "strips", 20, 2.5, "First aid",
+                       "Breathable, water-resistant strips for small cuts."),
+        "thermo": otc("Thermodemo Digital Thermometer", "Digital thermometer", "1 unit", "device", "units", 1, 199.0,
+                      "Devices & hygiene", "Reads in about 60 seconds, with a fever beep and memory of the last reading."),
+        "sanitiser": otc("Cleandemo Hand Sanitiser", "Ethyl alcohol 70%", "200 ml", "gel", "bottles", 1, 99.0,
+                         "Devices & hygiene", "Kills 99.9% of germs without water."),
+    })
     db.add_all(meds.values())
     db.flush()
 
@@ -173,6 +203,16 @@ def seed(db: Session) -> dict:
         2: {"dolo": (300, 1.5), "cetri": (100, 1.4), "amoxi": (100, 5.5), "panto": (100, 2.6)},
         3: {"dolo": (999, 0.5), "cetri": (999, 0.5)},
     }
+    # Shop stock: GreenLeaf carries everything, Sunrise most things, WholePack the basics.
+    shop_stock = {
+        0: ("ors", "antacid", "vitc", "multi", "lozenge", "steam", "gel", "antiseptic", "bandage", "thermo", "sanitiser"),
+        1: ("ors", "antacid", "vitc", "multi", "lozenge", "gel", "antiseptic", "bandage", "sanitiser"),
+        2: ("ors", "antacid", "vitc", "bandage", "antiseptic"),
+    }
+    for idx, keys in shop_stock.items():
+        for key in keys:
+            ref = meds[key].reference_unit_price
+            stock[idx][key] = (60 * max(meds[key].pack_sizes), round(ref * (1.0, 0.95, 0.92)[idx], 2))
     for idx, items in stock.items():
         ph = pharmacies[idx]
         for key, (units, price) in items.items():
