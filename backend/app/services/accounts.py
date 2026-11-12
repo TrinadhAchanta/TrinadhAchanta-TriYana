@@ -317,6 +317,9 @@ def register(db: Session, body: dict) -> tuple[User, str]:
     db.flush()
     audit.record(db, user, "account.registered", "user", user.id, app=app, role=user.role.value)
     db.commit()
+    if user.role in (Role.doctor, Role.physio):
+        from . import verification
+        verification.run_registry_check(db, user)
     return user, open_session(db, user, app)
 
 
@@ -364,12 +367,22 @@ def account_dict(db: Session, user: User) -> dict:
     return out
 
 
-def set_verification(db: Session, user_id: int, status: str, note: str = "", actor: User | None = None) -> User:
+def set_verification(db: Session, user_id: int, status: str, note: str = "", actor: User | None = None,
+                     *, override: bool = False, require_checks: bool = False) -> User:
     if status not in ("verified", "rejected", "pending"):
         raise Unprocessable("bad_status", "Status must be verified, rejected or pending.")
     user = db.get(User, user_id)
     if not user or user.role not in PROVIDER_ROLES:
         raise NotFound("not_found", "Provider not found.")
+    if status == "verified" and require_checks:
+        from . import verification
+        if not verification.all_passed(db, user):
+            if not override:
+                raise Conflict("checks_incomplete", "Some checks have not passed. Approve with an override "
+                                                    "and a note if you have verified this provider by hand.")
+            if len((note or "").strip()) < 5:
+                raise Unprocessable("note_required", "Add a note saying how you verified this provider.")
+            note = "Override: " + note.strip()
     user.verification_status, user.verification_note = status, (note or None)
     if user.doctor_id:
         db.get(Doctor, user.doctor_id).license_verified = status == "verified"
@@ -382,9 +395,14 @@ def set_verification(db: Session, user_id: int, status: str, note: str = "", act
     return user
 
 
-def pending_providers(db: Session) -> list[dict]:
-    rows = db.scalars(select(User).where(User.verification_status == "pending").order_by(User.id)).all()
-    return [account_dict(db, u) for u in rows]
+def pending_providers(db: Session, status: str = "pending") -> list[dict]:
+    from . import verification
+    rows = db.scalars(select(User).where(User.verification_status == status).order_by(User.id)).all()
+    out = []
+    for u in rows:
+        verification.refresh(db, u)
+        out.append(account_dict(db, u) | {"verification": verification.status(db, u)})
+    return out
 
 
 def registered_accounts_exist(db: Session) -> bool:

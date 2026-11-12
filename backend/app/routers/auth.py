@@ -13,7 +13,7 @@ from ..db import get_db
 from ..deps import current_user
 from ..errors import Forbidden, NotFound
 from ..models import Patient, User
-from ..services import accounts
+from ..services import accounts, verification
 
 router = APIRouter(prefix="/api", tags=["accounts"])
 
@@ -76,6 +76,15 @@ class ProfileIn(BaseModel):
 class VerifyIn(BaseModel):
     status: Literal["verified", "rejected", "pending"]
     note: str = Field("", max_length=300)
+    override: bool = False
+
+
+class IdentityIn(BaseModel):
+    id_type: Literal["pan", "driving_licence"] = "pan"
+    id_number: str = Field(max_length=24)
+    date_of_birth: str = Field(max_length=10)
+    address: str = Field("", max_length=300)
+    consent: bool = False
 
 
 def _bearer(authorization: str | None) -> str:
@@ -163,19 +172,45 @@ def demo_verify(user: User = Depends(current_user), db: Session = Depends(get_db
     return accounts.account_dict(db, user)
 
 
+@router.get("/account/verification")
+def my_verification(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """The provider's own checks: registry lookup, ID check, court records, then Triyana's review."""
+    verification.refresh(db, user)
+    return verification.status(db, user)
+
+
+@router.post("/account/verification/identity")
+def submit_identity(body: IdentityIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    return verification.submit_identity(db, user, body.model_dump())
+
+
 # --------------------------------------------------------------- Triyana ops
+DEMO_ADMIN_KEY = "demo-admin"
+
+
 def _admin(x_admin_key: str | None = Header(default=None)) -> None:
     key = os.environ.get("TRIYANA_ADMIN_KEY", "")
+    if not key and verification.demo_admin_key_allowed():
+        key = DEMO_ADMIN_KEY  # demo site only, until TRIYANA_ADMIN_KEY is set
     if not key or not x_admin_key or not hmac.compare_digest(key, x_admin_key):
         raise Forbidden("forbidden", "Admin key required.")
 
 
 @router.get("/admin/providers/pending", dependencies=[Depends(_admin)])
-def pending(db: Session = Depends(get_db)):
-    return accounts.pending_providers(db)
+def pending(status: Literal["pending", "rejected", "verified"] = "pending", db: Session = Depends(get_db)):
+    return accounts.pending_providers(db, status)
 
 
 @router.post("/admin/providers/{user_id}/verification", dependencies=[Depends(_admin)])
 def verify(user_id: int, body: VerifyIn, db: Session = Depends(get_db)):
-    user = accounts.set_verification(db, user_id, body.status, body.note)
-    return accounts.account_dict(db, user)
+    user = accounts.set_verification(db, user_id, body.status, body.note, override=body.override,
+                                     require_checks=True)
+    return accounts.account_dict(db, user) | {"verification": verification.status(db, user)}
+
+
+@router.post("/admin/providers/{user_id}/checks/rerun", dependencies=[Depends(_admin)])
+def rerun_checks(user_id: int, db: Session = Depends(get_db)):
+    user = db.get(User, user_id)
+    if not user or user.role not in accounts.PROVIDER_ROLES:
+        raise NotFound("not_found", "Provider not found.")
+    return verification.rerun(db, user)

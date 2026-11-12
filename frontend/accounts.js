@@ -176,16 +176,42 @@ function accountChrome() {
 }
 const acctInitials = (n) => (n || "?").replace(/^Dr\.?\s+/i, "").split(/\s+/).slice(0, 2).map((w) => w[0] || "").join("").toUpperCase();
 
-/* Provider dashboard: shown until Triyana approves a newly registered provider. */
+/* Provider dashboard: shown until Triyana approves a newly registered provider.
+   Lists each partner check (council registry, ID, court records) and asks for an ID when needed. */
 function verifyBanner(st) {
   const v = st.verification_status || state.verification;
   if (!v || v === "verified") return "";
   const rejected = v === "rejected";
+  setTimeout(loadVerifyChecks, 0);
   return `<div class="card verify-card ${rejected ? "bad" : ""}">
       <div class="row" style="gap:12px;align-items:flex-start">${ic(rejected ? "alert" : "shield", "lg")}
       <div class="grow"><h3 style="margin:0 0 4px">${rejected ? "We couldn't verify your account" : "We're verifying your account"}</h3>
-        <p class="small muted" style="margin:0">${rejected ? "Please contact Triyana support to fix your details." : st.role === "doctor" || st.role === "physio" ? "We're checking your council registration. You can go online and take visits as soon as you're approved, usually within one working day." : "We're checking your ID. You can go online as soon as you're approved, usually within one working day."}</p>
+        <p class="small muted" style="margin:0" id="vIntro">${rejected ? "Please contact Triyana support to fix your details." : "You can go online and take requests as soon as Triyana approves you, usually within one working day."}</p>
+        <div id="vChecks"></div>
         ${!rejected && state.accounts.length ? `<button class="btn sm" id="demoVerify" style="margin-top:10px">${ic("check")} Approve me (demo only)</button>` : ""}</div></div></div>`;
+}
+const V_ICON = { passed: ["check", "good", "Passed"], needs_review: ["alert", "warn", "Needs review"], failed: ["alert", "bad", "Failed"], error: ["alert", "warn", "Retrying"], in_progress: ["clock", "", "Checking"], not_started: ["clock", "", "Waiting for you"] };
+const vRow = (c) => { const [i, cls, word] = V_ICON[c.status] || V_ICON.not_started;
+  return `<li class="v-row"><span class="badge ${cls}">${ic(i)} ${word}</span><span class="grow"><b>${esc(c.label)}</b>${c.partner ? `<span class="tiny muted"> · ${esc(c.partner)}</span>` : ""}<span class="tiny muted v-sum">${esc(c.summary)}</span></span></li>`; };
+const V_STAGE = { needs_documents: "Add your ID to continue.", checking: "Our verification partners are checking your details.", ready_for_review: "All checks passed. Triyana is doing a final review.", flagged: "Some checks need a closer look. Triyana will review them and may contact you." };
+async function loadVerifyChecks() {
+  const box = $("#vChecks"); if (!box) return;
+  let v; try { v = await api("/api/account/verification"); } catch { return; }
+  if (!$("#vChecks")) return;
+  if (V_STAGE[v.stage]) $("#vIntro").textContent = V_STAGE[v.stage] + " You can go online as soon as you're approved.";
+  const idForm = v.id_needed && v.stage !== "rejected" ? `<form class="form-grid v-form" id="vIdForm">
+      <label>ID type<select id="vType">${v.id_types.map((t) => `<option value="${t}">${t === "pan" ? "PAN card" : "Driving licence"}</option>`).join("")}</select></label>
+      <label>ID number<input id="vNum" required autocomplete="off" placeholder="ABCPE1234F" style="text-transform:uppercase"></label>
+      <label>Date of birth<input id="vDob" type="date" required></label>
+      <label class="wide">Address (for the court-record search)<input id="vAddr" placeholder="House, street, city"></label>
+      <label class="wide check"><input type="checkbox" id="vConsent"> I agree that Triyana and its verification partner (IDfy) may check this ID with the issuing authority and search court records in my name. Triyana keeps only a masked copy of the number.</label>
+      <div class="wide"><button class="btn primary sm">${ic("shield")} Start ID check</button></div></form>` : "";
+  box.innerHTML = `<ul class="v-list">${v.checks.map(vRow).join("")}<li class="v-row"><span class="badge ${v.stage === "ready_for_review" ? "warn" : ""}">${ic("clock")} ${v.stage === "ready_for_review" ? "In review" : "Next"}</span><span class="grow"><b>Final review</b><span class="tiny muted"> · Triyana</span><span class="tiny muted v-sum">A person at Triyana approves your account.</span></span></li></ul>${idForm}`;
+  const f = $("#vIdForm");
+  if (f) f.onsubmit = (e) => { e.preventDefault(); guard(async () => {
+    await post("/api/account/verification/identity", { id_type: $("#vType").value, id_number: $("#vNum").value, date_of_birth: $("#vDob").value, address: $("#vAddr").value, consent: $("#vConsent").checked });
+    toast("ID submitted. We'll let you know when you're approved."); loadVerifyChecks();
+  }); };
 }
 document.addEventListener("click", (e) => {
   if (!e.target.closest || !e.target.closest("#demoVerify")) return;
