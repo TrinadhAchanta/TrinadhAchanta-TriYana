@@ -120,6 +120,9 @@ def provider_point(db: Session, user: User) -> tuple[float, float]:
     if user.pharmacy_id:
         ph = db.get(Pharmacy, user.pharmacy_id)
         return ph.lat, ph.lng
+    if user.physio_id:
+        from .physio import physio_point
+        return physio_point(db, user)
     return 17.44, 78.35
 
 
@@ -232,6 +235,9 @@ def offer_delivery(db: Session, order: PharmacyOrder) -> DispatchOffer | None:
 
 def _redispatch(db: Session, offer: DispatchOffer) -> None:
     """After a decline or timeout, move to the next nearest provider."""
+    if offer.kind == "physio":
+        from .physio import redispatch
+        return redispatch(db, offer)
     if offer.kind == "visit":
         v = offer.visit
         if v.status != VisitStatus.requested:
@@ -314,7 +320,10 @@ def accept(db: Session, user: User, offer_id: int) -> DispatchOffer:
     sweep(db)
     o = _my_offer(db, user, offer_id)
     o.status, o.responded_at = "accepted", utcnow()
-    if o.kind == "visit":
+    if o.kind == "physio":
+        from .physio import on_accept
+        on_accept(db, user, o)
+    elif o.kind == "visit":
         v = o.visit
         if v.status != VisitStatus.requested:
             raise Conflict("bad_visit_state", "This visit is no longer waiting for a doctor.")
@@ -463,8 +472,11 @@ def update_location(db: Session, user: User, lat: float, lng: float) -> None:
 
 
 def set_duty(db: Session, user: User, online: bool) -> None:
-    if user.role not in (Role.doctor, Role.courier, Role.phlebotomist):
-        raise Forbidden("forbidden_role", "Only doctors, couriers and sample collectors go online.")
+    if user.role not in (Role.doctor, Role.courier, Role.phlebotomist, Role.physio):
+        raise Forbidden("forbidden_role", "Only doctors, physiotherapists, couriers and sample collectors go online.")
+    if user.role == Role.physio:
+        from .physio import ensure_physio_verified
+        ensure_physio_verified(db, user)
     if user.role == Role.doctor and not db.get(Doctor, user.doctor_id).license_verified:
         raise Forbidden("licence_not_verified", "Your licence must be verified before you can take visits.")
     user.on_duty = online
@@ -514,6 +526,9 @@ def tick(db: Session, trip: Trip) -> dict:
         elif trip.lab_booking_id:
             from . import labs
             labs.arrival_notice(db, trip)
+        elif trip.physio_session_id:
+            from .physio import notify_arrival
+            notify_arrival(db, trip)
         elif trip.order_id and trip.leg == "to_patient":
             o = db.get(PharmacyOrder, trip.order_id)
             notify(db, users_for_patient(db, o.patient_id), "Your courier has arrived",
@@ -527,6 +542,7 @@ def trip_to_dict(db: Session, trip: Trip, *, with_route: bool = True) -> dict:
     p = tick(db, trip)
     out = {"id": trip.id, "leg": trip.leg, "visit_id": trip.visit_id, "order_id": trip.order_id,
            "lab_booking_id": trip.lab_booking_id,
+           "physio_session_id": trip.physio_session_id,
            "dest_label": trip.dest_label, "origin": trip.route[0] if trip.route else None,
            "destination": trip.route[-1] if trip.route else None, "distance_m": round(trip.distance_m),
            "duration_s": round(trip.duration_s), "source": trip.source, "speedup": trip.speedup,
@@ -544,7 +560,10 @@ def offer_to_dict(db: Session, o: DispatchOffer) -> dict:
             "expires_at": o.expires_at.isoformat() if o.expires_at else None,
             "seconds_left": max(0, int((o.expires_at - now).total_seconds())) if o.expires_at else None,
             "offer_seconds": OFFER_SECONDS}
-    if o.kind == "visit":
+    if o.kind == "physio":
+        from .physio import offer_dict
+        base.update(offer_dict(db, o))
+    elif o.kind == "visit":
         v = o.visit
         p = db.get(Patient, v.patient_id)
         base.update({"title": "Home visit now" if v.on_demand else "Home visit booking", "on_demand": v.on_demand,
@@ -575,7 +594,7 @@ def provider_status(db: Session, user: User) -> dict:
     trip = active_trip(db, user.id)
     lat, lng = provider_point(db, user)
     return {"name": user.name, "role": user.role.value, "online": user.on_duty, "location": [lat, lng],
-            "can_go_online": user.role in (Role.doctor, Role.courier, Role.phlebotomist),
+            "can_go_online": user.role in (Role.doctor, Role.courier, Role.phlebotomist, Role.physio),
             "offers": [offer_to_dict(db, o) for o in offers],
             "active_trip": trip_to_dict(db, trip, with_route=False) if trip else None,
             "sim_speedup": SIM_SPEEDUP}
@@ -588,6 +607,11 @@ def _provider_card(db: Session, user: User | None) -> dict | None:
     if user.doctor_id:
         d = db.get(Doctor, user.doctor_id)
         card.update({"name": d.name, "specialty": d.specialty, "rating": d.rating, "license_no": d.license_no})
+    if user.physio_id:
+        from ..models import Physiotherapist
+        ph = db.get(Physiotherapist, user.physio_id)
+        card.update({"name": ph.name, "specialty": f"Physiotherapist · {ph.qualification}", "rating": ph.rating,
+                     "license_no": ph.registration_no})
     return card
 
 
@@ -660,6 +684,9 @@ def order_live(db: Session, user: User, order_id: int) -> dict:
 def provider_jobs(db: Session, user: User) -> list[dict]:
     """Accepted jobs for the provider app (visits for doctors, deliveries for couriers)."""
     out = []
+    if user.role == Role.physio:
+        from .physio import provider_jobs as physio_jobs
+        return physio_jobs(db, user)
     if user.role == Role.doctor:
         for v in db.scalars(select(HomeVisit).where(HomeVisit.doctor_id == user.doctor_id,
                                                     HomeVisit.status.in_((VisitStatus.accepted, VisitStatus.in_progress)))

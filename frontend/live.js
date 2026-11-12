@@ -77,7 +77,7 @@ const SERVICES = [
   { key: "meds", title: "My Medicines", sub: "Prescribed, ordered, dispensed", icon: "pills", go: "meds" },
   { key: "yana", title: "Ask Yana", sub: "Your medicine assistant", icon: "chat", tone: "gold" },
   { key: "lab", title: "Lab tests at home", sub: "Collector at your door, reports here", icon: "flask", go: "labs", tone: "blue" },
-  { key: "nurse", title: "Nurse & physio", sub: "Care visits at home", icon: "heart", soon: true },
+  { key: "physio", title: "Physio at home", sub: "Sessions & packages, live map", icon: "heart", go: "physio", tone: "gold" },
 ];
 
 function servicesHTML() {
@@ -158,6 +158,8 @@ async function patientLiveBanner(visits, orders) {
   const items = [];
   if (v) { const d = await api(`/api/patient/visits/${v.id}/live`).catch(() => null); if (d && ["searching", "on_the_way", "arrived"].includes(d.phase)) items.push(d); }
   if (o) { const d = await api(`/api/orders/${o.id}/live`).catch(() => null); if (d && ["searching", "to_pharmacy", "on_the_way", "arrived"].includes(d.phase)) items.push(d); }
+  const pb = (await api("/api/patient/physio/bookings").catch(() => [])).find((b) => b.next_session && ["searching", "active"].includes(b.status));
+  if (pb) { const d = await api(`/api/patient/physio/sessions/${pb.next_session.id}/live`).catch(() => null); if (d && ["searching", "on_the_way", "arrived", "with_you"].includes(d.phase)) items.push(d); }
   if (!slot.isConnected) return;
   slot.innerHTML = items.map((d) => `<button class="live-banner" data-live="${d.kind}:${d.id}"><span class="live-dot"></span>
       <span class="grow"><b>${esc(liveHeadline(d))}</b><span class="tiny">${d.trip && !d.trip.arrived ? `${d.trip.eta_min} min away · arriving around ${clock(d.trip.eta_min)}` : esc(liveSub(d))}</span></span>
@@ -167,41 +169,42 @@ async function patientLiveBanner(visits, orders) {
 
 /* ------------------------------------------------------------------ patient: live map */
 function liveHeadline(d) {
-  const who = d.provider?.name || (d.kind === "visit" ? "Your doctor" : "Your courier");
+  const who = d.provider?.name || (d.kind === "visit" ? "Your doctor" : d.kind === "physio" ? "Your physiotherapist" : "Your courier");
+  const care = d.kind !== "delivery";
   return ({
-    searching: d.kind === "visit" ? "Finding your doctor" : "Finding a courier near the pharmacy",
+    searching: d.kind === "visit" ? "Finding your doctor" : d.kind === "physio" ? "Finding your physiotherapist" : "Finding a courier near the pharmacy",
     waiting: `Waiting for ${who} to confirm`,
-    confirmed: `${who} confirmed your visit`,
+    confirmed: d.kind === "physio" ? `Session ${d.number} with ${who} is confirmed` : `${who} confirmed your visit`,
     to_pharmacy: `${who} is collecting your medicines`,
     on_the_way: `${who} is on the way`,
-    arrived: d.kind === "visit" ? `${who} has arrived` : `${who} is at your door`,
+    arrived: care ? `${who} has arrived` : `${who} is at your door`,
     with_you: `${who} is with you`,
     assigned: `${who} will collect your order`,
     preparing: "Your pharmacy is preparing your order",
-    done: d.kind === "visit" ? "Visit complete" : "Delivered",
-    cancelled: d.kind === "visit" ? "This request was cancelled" : "This order was cancelled",
+    done: d.kind === "visit" ? "Visit complete" : d.kind === "physio" ? `Session ${d.number} complete` : "Delivered",
+    cancelled: care ? "This request was cancelled" : "This order was cancelled",
   })[d.phase] || "Live tracking";
 }
 function liveSub(d) {
   return ({
-    searching: d.kind === "visit" ? `Asking the nearest available doctor · ${d.online_nearby} online near you` : "We're asking the nearest courier to pick it up.",
+    searching: d.kind === "visit" ? `Asking the nearest available doctor · ${d.online_nearby} online near you` : d.kind === "physio" ? `Asking the nearest available physiotherapist · ${d.online_nearby} online near you` : "We're asking the nearest courier to pick it up.",
     waiting: `Booked for ${when(d.scheduled_for)}. You'll see them on the map when they set off.`,
     confirmed: `Booked for ${when(d.scheduled_for)}. You'll see them on the map when they set off.`,
     to_pharmacy: `Picking up at ${shortName(d.pharmacy?.label)}.`,
-    arrived: d.kind === "visit" ? "Please open the door. Your doctor will show their ID." : "Share your handover code to receive your medicines.",
-    with_you: "Your prescription will appear here after the visit.",
-    done: "Thank you for using Triyana.",
+    arrived: d.kind === "visit" ? "Please open the door. Your doctor will show their ID." : d.kind === "physio" ? "Please open the door. Your physiotherapist will show their ID." : "Share your handover code to receive your medicines.",
+    with_you: d.kind === "physio" ? `Session ${d.number} of ${d.sessions_total}. Your notes and home exercises appear after the session.` : "Your prescription will appear here after the visit.",
+    done: d.kind === "physio" ? "Your session notes and home exercises are ready." : "Thank you for using Triyana.",
     cancelled: "No one is coming. You can book again any time.",
   })[d.phase] || "";
 }
 
 async function liveScreen(kind, id) {
   stopLive();
-  state.tab = kind === "visit" ? "book" : "orders"; renderNav();
+  state.tab = kind === "visit" ? "book" : kind === "physio" ? "physio" : "orders"; renderNav();
   document.body.classList.add("live-mode");
   state.cleanups.push(() => document.body.classList.remove("live-mode"));
   window.scrollTo({ top: 0 });
-  const url = kind === "visit" ? `/api/patient/visits/${id}/live` : `/api/orders/${id}/live`;
+  const url = kind === "visit" ? `/api/patient/visits/${id}/live` : kind === "physio" ? `/api/patient/physio/sessions/${id}/live` : `/api/orders/${id}/live`;
   let d = await api(url);
   const order = kind === "delivery" ? await api(`/api/orders/${id}`) : null;
   view().innerHTML = `<div class="live">
@@ -209,7 +212,7 @@ async function liveScreen(kind, id) {
         <button class="map-back" id="liveBack" aria-label="Back">${ic("arrow")}</button>
         <div class="live-chip" id="liveChip"></div></div>
       <div class="live-sheet" id="liveSheet"></div></div>`;
-  $("#liveBack").onclick = () => go(kind === "visit" ? "home" : "orders");
+  $("#liveBack").onclick = () => (kind === "physio" ? physioBookingScreen(d.booking_id) : go(kind === "visit" ? "home" : "orders"));
   const map = makeMap($("#liveMap"), { center: [d.home.lat, d.home.lng], zoom: 15 });
   const L_ = {};
   if (map) {
@@ -251,7 +254,7 @@ async function liveScreen(kind, id) {
     $("#liveSheet").innerHTML = `
       <div class="grab"></div>
       <div class="row between" style="align-items:flex-start;flex-wrap:nowrap">
-        <div><div class="eyebrow-sm">${kind === "visit" ? `${d.on_demand ? "Doctor now" : "Home visit"} · ${esc(d.booking_ref || "")}` : `Order ${esc(d.order_no)}`}</div>
+        <div><div class="eyebrow-sm">${kind === "visit" ? `${d.on_demand ? "Doctor now" : "Home visit"} · ${esc(d.booking_ref || "")}` : kind === "physio" ? `Physio · session ${d.number} of ${d.sessions_total} · ${esc(d.booking_ref)}` : `Order ${esc(d.order_no)}`}</div>
           <h2>${esc(liveHeadline(d))}</h2><p class="small muted" style="margin:2px 0 0">${t2 && !t2.arrived ? `${km(t2.remaining_m)} away · arriving around <b>${clock(t2.eta_min)}</b>` : esc(liveSub(d))}</p></div>
         ${t2 && !t2.arrived ? `<div class="eta"><b>${t2.eta_min}</b><span>min</span></div>` : d.phase === "arrived" ? `<div class="eta good">${ic("check", "lg")}</div>` : ""}
       </div>
@@ -260,16 +263,16 @@ async function liveScreen(kind, id) {
           <div class="tiny muted">${p.specialty ? `${esc(p.specialty)} · ` : ""}${p.rating ? `<span class="stars">★ ${p.rating.toFixed(1)}</span> · ` : ""}${esc(p.vehicle || (p.role === "courier" ? "Courier" : ""))}${p.license_no ? ` · Reg. ${esc(p.license_no)}` : ""}</div></div>
           <button class="btn sm" id="callProv" title="Calls are masked to protect both numbers">${ic("phoneCall")} Call</button></div>` : ""}
       ${order && order.delivery?.handover_code && !["done", "cancelled"].includes(d.phase) ? `<div class="code-inline"><span class="tiny">Handover code</span><b>${esc(order.delivery.handover_code)}</b><span class="tiny muted">Share it only at your door</span></div>` : ""}
-      <div class="live-steps">${(kind === "visit"
-        ? [["Requested", true], ["Doctor accepted", !["searching", "waiting", "cancelled"].includes(d.phase)], ["On the way", ["on_the_way", "arrived", "with_you", "done"].includes(d.phase)], ["Arrived", ["arrived", "with_you", "done"].includes(d.phase)], ["Visit", ["with_you", "done"].includes(d.phase)]]
+      <div class="live-steps">${(kind !== "delivery"
+        ? [["Requested", true], [kind === "physio" ? "Physio accepted" : "Doctor accepted", !["searching", "waiting", "cancelled"].includes(d.phase)], ["On the way", ["on_the_way", "arrived", "with_you", "done"].includes(d.phase)], ["Arrived", ["arrived", "with_you", "done"].includes(d.phase)], [kind === "physio" ? "Session" : "Visit", ["with_you", "done"].includes(d.phase)]]
         : [["Packed", d.phase !== "preparing"], ["Courier assigned", !!p], ["Picked up", ["on_the_way", "arrived", "done"].includes(d.phase)], ["Arriving", ["arrived", "done"].includes(d.phase)], ["Delivered", d.phase === "done"]])
         .map(([l, on]) => `<span class="${on ? "on" : ""}"><i></i>${l}</span>`).join("")}</div>
       <div class="row between" style="margin-top:10px">
         <span class="tiny muted">${ic("info")} Demo: GPS is simulated${t2 ? ` and runs ${t2.speedup}× faster` : ""}.</span>
-        ${kind === "visit" && ["searching", "waiting", "confirmed"].includes(d.phase) ? `<button class="btn ghost sm danger" id="liveCancel">${ic("x")} Cancel</button>` : ""}
-        ${["done", "with_you"].includes(d.phase) ? `<button class="btn sm" id="liveHome">${ic("home")} Home</button>` : ""}</div>`;
-    const c = $("#liveCancel"); if (c) c.onclick = () => guard(async () => { if (!confirm("Cancel this request?")) return; await post(`/api/patient/visits/${id}/cancel`); toast("Request cancelled"); d = await api(url); draw(); });
-    const h = $("#liveHome"); if (h) h.onclick = () => go("home");
+        ${kind !== "delivery" && ["searching", "waiting", "confirmed"].includes(d.phase) ? `<button class="btn ghost sm danger" id="liveCancel">${ic("x")} Cancel</button>` : ""}
+        ${["done", "with_you"].includes(d.phase) ? `<button class="btn sm" id="liveHome">${ic(kind === "physio" ? "file" : "home")} ${kind === "physio" ? "Session notes" : "Home"}</button>` : ""}</div>`;
+    const c = $("#liveCancel"); if (c) c.onclick = () => guard(async () => { if (!confirm("Cancel this request?")) return; await post(kind === "physio" ? `/api/patient/physio/bookings/${d.booking_id}/cancel` : `/api/patient/visits/${id}/cancel`); toast("Request cancelled"); d = await api(url); draw(); });
+    const h = $("#liveHome"); if (h) h.onclick = () => (kind === "physio" ? physioBookingScreen(d.booking_id) : go("home"));
     const cp = $("#callProv"); if (cp) cp.onclick = () => toast("Masked calling connects you in the live app (demo)", "phone");
   };
   draw();

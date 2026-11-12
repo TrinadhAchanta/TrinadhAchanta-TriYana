@@ -15,8 +15,8 @@ from ..services import privacy as privacy_svc
 from ..services import visits as visit_svc
 
 router = APIRouter()
-provider = require(Role.doctor, Role.courier, Role.pharmacist, Role.phlebotomist)
-traveller = require(Role.doctor, Role.courier, Role.phlebotomist)
+provider = require(Role.doctor, Role.courier, Role.pharmacist, Role.phlebotomist, Role.physio)
+traveller = require(Role.doctor, Role.courier, Role.phlebotomist, Role.physio)
 
 
 class DutyIn(BaseModel):

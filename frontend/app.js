@@ -135,9 +135,9 @@ function loginScreen() {
     const k = partner ? (a.label.split("·")[1] || "").trim().split(" ")[0] || "account" : "patient";
     (groups[k] = groups[k] || []).push(a);
   });
-  const icon = { doctor: "stethoscope", courier: "truck", pharmacist: "store", phlebotomist: "flask", patient: "user" };
+  const icon = { doctor: "stethoscope", courier: "truck", pharmacist: "store", phlebotomist: "flask", patient: "user", physiotherapist: "heart" };
   $("#login").innerHTML = `<div class="login-card">
-      <div class="brand"><div class="mark">${ic("logo")}</div><div><b>${partner ? "Triyana Partner" : "Triyana"}</b><small>${partner ? "For doctors, couriers, pharmacists & sample collectors" : "Home healthcare"}</small></div></div>
+      <div class="brand"><div class="mark">${ic("logo")}</div><div><b>${partner ? "Triyana Partner" : "Triyana"}</b><small>${partner ? "For doctors, physios, couriers, pharmacists & sample collectors" : "Home healthcare"}</small></div></div>
       <h1>${partner ? "Go online. Get nearby visits and deliveries." : "Doctors, medicines and care, at your door."}</h1>
       <p class="muted">${partner ? "Accept requests from patients near you and navigate there turn by turn." : "Book a verified doctor now or for later, get your prescription, and track your medicines live."}</p>
       ${Object.entries(groups).map(([g, list]) => `<div class="section-title">${partner ? `${esc(g)}s` : "Choose a demo account"}</div>
@@ -254,7 +254,7 @@ SCREENS.home = async () => {
     ${past.length ? `<div class="section-title">Visit history</div>${past.slice(0, 5).map(pastVisitCard).join("")}` : ""}
     <div class="section-title">Notifications</div>
     <div class="card">${notes.length ? notes.slice(0, 8).map((n) => `
-      <div class="list-item"><div class="avatar">${ic(n.link.startsWith("order") ? "truck" : n.link.startsWith("cart") ? "rx" : n.link.startsWith("visit") ? "stethoscope" : "info")}</div>
+      <div class="list-item"><div class="avatar">${ic(n.link.startsWith("order") ? "truck" : n.link.startsWith("cart") ? "rx" : n.link.startsWith("visit") ? "stethoscope" : n.link.startsWith("physio") ? "heart" : "info")}</div>
         <div class="grow"><div class="row between"><b>${esc(n.title)}</b><span class="tiny muted">${when(n.at)}</span></div>
         <div class="small muted">${esc(n.body)}</div></div></div>`).join("") : `<p class="muted small" style="margin:0">You're all caught up.</p>`}</div>`;
   $$("[data-go]").forEach((b) => (b.onclick = () => go(b.dataset.go)));
