@@ -773,6 +773,11 @@ if FRONTEND.exists():
         """Triyana Partner: the app for doctors, couriers and pharmacists."""
         return FileResponse(FRONTEND / "provider.html")
 
+    @app.get("/admin")
+    def admin_app():
+        """Triyana Ops: final review of provider verification (needs the admin key)."""
+        return FileResponse(FRONTEND / "admin.html")
+
     @app.get("/sw.js")
     def service_worker():
         return FileResponse(FRONTEND / "sw.js", media_type="text/javascript",

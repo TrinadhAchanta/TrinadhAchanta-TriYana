@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Triyana Ops</title>
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="/static/icons/provider.svg" type="image/svg+xml">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/live.css">
+  <style>
+    body { background: var(--bg-grad); background-attachment: fixed; min-height: 100vh; }
+    .prov-head > .grow { flex: 1; min-width: 220px; }
+    .ops { max-width: 980px; margin: 0 auto; padding: 24px 16px 60px; }
+    .ops-tabs { display: flex; gap: 8px; margin: 0 0 16px; flex-wrap: wrap; }
+    .ops-tabs button.on { background: var(--brand); color: var(--brand-ink); border-color: var(--brand); }
+    .prov { display: grid; gap: 10px; }
+    .prov-head { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    .prov-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .prov-actions input { flex: 1; min-width: 200px; }
+    .meta { font-size: 13px; color: var(--text-2); }
+  </style>
+</head>
+<body>
+<main class="ops">
+  <div class="page-head"><div><h1>Provider verification</h1><p>Partner checks come in automatically. You give the final approval.</p></div></div>
+  <div class="card" id="keyCard">
+    <form class="row" id="keyForm" style="gap:10px;flex-wrap:wrap">
+      <input id="key" type="password" placeholder="Admin key" autocomplete="current-password" style="flex:1;min-width:200px">
+      <button class="btn primary">Open</button>
+    </form>
+    <p class="tiny muted" id="keyHint" style="margin:8px 0 0">Use the TRIYANA_ADMIN_KEY set on the server. On the demo site, before a key is set, use <b>demo-admin</b>.</p>
+  </div>
+  <div id="main" hidden>
+    <div class="ops-tabs"><button class="btn sm on" data-s="pending">Waiting</button><button class="btn sm" data-s="rejected">Rejected</button><button class="btn sm" data-s="verified">Approved</button><span class="grow"></span><button class="btn sm" id="lock">Lock</button></div>
+    <div id="list"></div>
+  </div>
+</main>
+<div class="toast" id="toast"></div>
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+let key = ""; try { key = sessionStorage.getItem("triyana-admin") || ""; } catch {}
+let tab = "pending";
+const ROLE = { doctor: "Doctor", physio: "Physiotherapist", courier: "Delivery rider", phlebotomist: "Sample collector", pharmacist: "Pharmacist" };
+const ST = { passed: ["good", "Passed"], needs_review: ["warn", "Needs review"], failed: ["bad", "Failed"], error: ["warn", "Partner error"], in_progress: ["", "Checking"], not_started: ["", "Not started"] };
+const STAGE = { needs_documents: ["", "Waiting for provider's ID"], checking: ["", "Checks running"], ready_for_review: ["good", "Ready to approve"], flagged: ["warn", "Flagged"], rejected: ["bad", "Rejected"], verified: ["good", "Approved"] };
+function toast(m) { const t = $("#toast"); t.textContent = m; t.classList.add("show"); setTimeout(() => t.classList.remove("show"), 3500); }
+async function call(path, body) {
+  const r = await fetch(path, { method: body ? "POST" : "GET", headers: { "Content-Type": "application/json", "X-Admin-Key": key }, body: body ? JSON.stringify(body) : undefined });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { const e = new Error((d.detail && d.detail.message) || "Something went wrong."); e.status = r.status; e.code = d.detail && d.detail.code; throw e; }
+  return d;
+}
+function card(p) {
+  const v = p.verification, reg = p.doctor || p.physio;
+  const [sc, sw] = STAGE[v.stage] || ["", v.stage];
+  return `<div class="card prov" data-id="${p.id}">
+    <div class="prov-head"><div class="grow"><h3 style="margin:0">${esc(p.name)}</h3><div class="meta">${esc(ROLE[p.role] || p.role)} · ${esc(p.email || "")} · ${esc(p.phone || "")}</div>
+      ${reg ? `<div class="meta">${esc([reg.qualification, "Reg. No. " + reg.license_no, reg.medical_council].join(" · "))}</div>` : ""}</div>
+      <span class="badge ${sc}">${esc(sw)}</span></div>
+    <ul class="v-list">${v.checks.map((c) => { const [cls, w] = ST[c.status] || ["", c.status];
+      return `<li class="v-row"><span class="badge ${cls}">${w}</span><span class="grow"><b>${esc(c.label)}</b>${c.partner ? `<span class="tiny muted"> · ${esc(c.partner)}</span>` : ""}${c.reference ? `<span class="tiny muted"> · ref ${esc(c.reference)}</span>` : ""}<span class="tiny muted v-sum">${esc(c.summary)}</span></span></li>`; }).join("")}</ul>
+    ${p.verification_note ? `<div class="meta">Note: ${esc(p.verification_note)}</div>` : ""}
+    <div class="prov-actions"><input class="note" placeholder="Note (required to approve with an override)" maxlength="300">
+      ${p.verification_status !== "verified" ? `<button class="btn primary sm" data-a="verified">Approve</button>` : ""}
+      ${p.verification_status !== "rejected" ? `<button class="btn sm" data-a="rejected">Reject</button>` : ""}
+      ${p.verification_status !== "pending" ? `<button class="btn sm" data-a="pending">Move to waiting</button>` : ""}
+      <button class="btn sm" data-a="rerun">Re-run registry check</button></div></div>`;
+}
+async function load() {
+  try {
+    const rows = await call(`/api/admin/providers/pending?status=${tab}`);
+    $("#keyCard").hidden = true; $("#main").hidden = false;
+    $("#list").innerHTML = rows.length ? rows.map(card).join("") : `<div class="card empty"><h3>Nothing here</h3><p class="small">No providers in this list.</p></div>`;
+  } catch (e) {
+    $("#keyCard").hidden = false; $("#main").hidden = true;
+    if (key) toast(e.status === 403 ? "That admin key is not right." : e.message);
+  }
+}
+$("#keyForm").onsubmit = (e) => { e.preventDefault(); key = $("#key").value.trim(); try { sessionStorage.setItem("triyana-admin", key); } catch {} load(); };
+$("#lock").onclick = () => { key = ""; try { sessionStorage.removeItem("triyana-admin"); } catch {} $("#key").value = ""; load(); };
+document.querySelectorAll(".ops-tabs [data-s]").forEach((b) => b.onclick = () => { tab = b.dataset.s; document.querySelectorAll(".ops-tabs [data-s]").forEach((x) => x.classList.toggle("on", x === b)); load(); });
+$("#list").onclick = async (e) => {
+  const b = e.target.closest("button[data-a]"); if (!b) return;
+  const c = b.closest(".prov"), id = c.dataset.id, note = c.querySelector(".note").value.trim(), a = b.dataset.a;
+  b.disabled = true;
+  try {
+    if (a === "rerun") { await call(`/api/admin/providers/${id}/checks/rerun`, {}); toast("Checks refreshed."); }
+    else {
+      try { await call(`/api/admin/providers/${id}/verification`, { status: a, note }); }
+      catch (err) {
+        if (err.code !== "checks_incomplete") throw err;
+        if (!confirm("Some checks have not passed. Approve anyway because you verified this provider by hand?")) return;
+        await call(`/api/admin/providers/${id}/verification`, { status: a, note, override: true });
+      }
+      toast(a === "verified" ? "Approved. They can go online now." : a === "rejected" ? "Rejected." : "Moved back to waiting.");
+    }
+    load();
+  } catch (err) { toast(err.message); } finally { b.disabled = false; }
+};
+load();
+</script>
+</body>
+</html>

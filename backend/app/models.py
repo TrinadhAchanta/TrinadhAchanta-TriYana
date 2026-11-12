@@ -136,6 +136,22 @@ class User(Base):
         return (self.verification_status or "verified") == "verified"
 
 
+class VerificationCheck(Base):
+    """One automated check on a provider who signed up: a council-registry lookup (ABDM HPR)
+    or an ID / background check (IDfy). Triyana's ops team gives the final approval."""
+    __tablename__ = "verification_checks"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(16))  # registry | identity | background
+    partner: Mapped[str] = mapped_column(String(24))  # demo | hpr | idfy
+    status: Mapped[str] = mapped_column(String(16))  # in_progress | passed | needs_review | failed | error
+    reference: Mapped[str | None] = mapped_column(String(120))  # partner request / registry id
+    summary: Mapped[str] = mapped_column(String(300), default="")
+    details: Mapped[dict] = mapped_column(JSON, default=dict)  # never holds a full ID number
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
 class PhoneOtp(Base):
     """A one-time SMS code. Only a hash of the code is stored."""
     __tablename__ = "phone_otps"

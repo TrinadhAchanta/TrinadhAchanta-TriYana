@@ -56,6 +56,7 @@ For drones, sign in as **Nisha (Lotus Hospital)**: open **Coverage** to see whic
 | Duplicate dispensing | `services/orders.py` | Ordered items are locked. Dispensed plus open quantities can't exceed quantity × (1 + refills). One dispensing record per order item. |
 | My Medicines | `GET /api/patient/medicines` | Prescribed, ordered and dispensed quantities kept separate. Expiry, refill eligibility, messages, follow-up. |
 | Yana | `services/yana.py` | Shows prescriptions, finds and compares pharmacies, changes purchase quantity, removes items, tracks orders. Refuses to change prescriptions or doses, suggest stopping a medicine, or approve substitutions. |
+| Provider verification | `services/verification.py`, `adapters/verification.py`, `/admin` | New doctors and physios are looked up on the council registry (ABDM HPR) at sign-up. Every provider then adds a PAN (riders and collectors may use a driving licence) with consent, and the ID and a court-record search go to IDfy. Only a masked ID is stored. Triyana ops approve at `/admin` (admin key); approving with a failed or missing check needs an override and a note, and is audited. Demo partners run until keys are set. See `docs/VERIFICATION.md`. |
 | Security | `security.py`, `audit.py`, `deps.py` | Role-based access. Cross-patient and cross-pharmacy requests return 404. Health fields are encrypted at rest (Fernet). The audit log is hash-chained. `no-store` headers. |
 
 ## Going to production
