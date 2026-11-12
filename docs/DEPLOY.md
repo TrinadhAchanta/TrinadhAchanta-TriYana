@@ -27,6 +27,9 @@ docker run -p 8000:8000 -e TRIYANA_SECRET="$(openssl rand -hex 32)" -v triyana-d
 | `TRIYANA_DEMO` | `1` | Enables the demo account switcher and **Reset demo**. Set to `0` to hide both. |
 | `RAZORPAY_KEY_ID` | unset | Razorpay key. Use a `rzp_test_...` key for test mode. When unset, the built-in sandbox is used. |
 | `RAZORPAY_KEY_SECRET` | unset | Razorpay key secret. Set it as a secret, never in code. |
+| `TRIYANA_ADMIN_KEY` | unset | Key for the ops review page at `/admin`. Until it is set, the demo site accepts `demo-admin`. |
+| `TRIYANA_REGISTRY_PROVIDER` | `demo` | `hpr` to look doctors up on the ABDM Healthcare Professionals Registry. See `docs/VERIFICATION.md`. |
+| `TRIYANA_BACKGROUND_PROVIDER` | `demo` | `idfy` for real ID and court-record checks. See `docs/VERIFICATION.md`. |
 
 ## Turn on Razorpay (India)
 

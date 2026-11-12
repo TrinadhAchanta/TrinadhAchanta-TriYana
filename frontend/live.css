@@ -338,3 +338,13 @@ div.field { display: flex; flex-direction: column; gap: 6px; }
   .topbar { z-index: 40; background: var(--surface); }
   .bottom-nav { z-index: 40; background: var(--surface); }
 }
+
+/* Provider verification checks (registry, ID, court records, final review) */
+.v-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; }
+.v-row { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); }
+.v-row .badge { flex: none; min-width: 112px; justify-content: center; }
+.v-row .v-sum { display: block; margin-top: 2px; }
+.v-form { margin-top: 12px; padding: 12px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); }
+.v-form label.check { display: flex; flex-direction: row; gap: 8px; letter-spacing: 0; color: var(--text-2); align-items: flex-start; font-weight: 500; }
+.v-form label.check input { width: auto; margin-top: 3px; }
+@media (max-width: 560px) { .v-row { flex-direction: column; gap: 6px; } .v-row .badge { min-width: 0; } }

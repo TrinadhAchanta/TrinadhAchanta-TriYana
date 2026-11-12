@@ -98,6 +98,10 @@ def test_new_doctor_must_be_verified_before_going_online(env):
         assert c.get("/api/admin/providers/pending", headers={"X-Admin-Key": "wrong"}).status_code == 403
         pend = c.get("/api/admin/providers/pending", headers={"X-Admin-Key": "ops-test-key"}).json()
         assert [p["email"] for p in pend] == ["dr.neha@example.com"]
+        assert pend[0]["verification"]["stage"] == "needs_documents"
+        r = c.post("/api/account/verification/identity", headers=h,
+                   json={"id_number": "ABCPR1234F", "date_of_birth": "1988-02-01", "consent": True})
+        assert r.json()["stage"] == "ready_for_review", r.text
         ok = c.post(f"/api/admin/providers/{acct['id']}/verification", headers={"X-Admin-Key": "ops-test-key"},
                     json={"status": "verified"})
         assert ok.json()["doctor"]["license_verified"] is True
