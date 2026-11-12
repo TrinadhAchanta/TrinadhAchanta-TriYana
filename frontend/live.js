@@ -71,13 +71,13 @@ const km = (m) => (m < 1000 ? `${Math.round(m / 10) * 10} m` : `${(m / 1000).toF
 const SERVICES = [
   { key: "shop", title: "Medicine shop", sub: "Rider delivery in under an hour", icon: "bag", go: "shop", tone: "blue" },
   { key: "book", title: "Book a home visit", sub: "Pick a doctor and a time", icon: "calendar", go: "book" },
+  { key: "physio", title: "Physio at home", sub: "Sessions & packages, live map", icon: "heart", go: "physio", tone: "gold" },
+  { key: "lab", title: "Lab tests at home", sub: "Collector at your door, reports here", icon: "flask", go: "labs", tone: "blue" },
   { key: "rx", title: "Prescriptions", sub: "E-signed by your doctor", icon: "rx", go: "rx" },
   { key: "cart", title: "Medicine cart", sub: "Choose what to buy, and how much", icon: "cart", go: "cart", tone: "blue" },
   { key: "orders", title: "Track orders", sub: "Live courier map", icon: "truck", go: "orders", tone: "blue" },
   { key: "meds", title: "My Medicines", sub: "Prescribed, ordered, dispensed", icon: "pills", go: "meds" },
   { key: "yana", title: "Ask Yana", sub: "Your medicine assistant", icon: "chat", tone: "gold" },
-  { key: "lab", title: "Lab tests at home", sub: "Collector at your door, reports here", icon: "flask", go: "labs", tone: "blue" },
-  { key: "physio", title: "Physio at home", sub: "Sessions & packages, live map", icon: "heart", go: "physio", tone: "gold" },
 ];
 
 function servicesHTML() {
@@ -91,6 +91,9 @@ function servicesHTML() {
         <span class="row svc-meta"><span class="chip-glass">${ic("stethoscope")} <span id="onlineDocs">Doctors online nearby</span></span><span class="chip-glass">${ic("clock")} Arrives in ~15–30 min</span></span>
         <span class="svc-cta">Get a doctor now ${ic("arrow")}</span>
       </button>
+      <button class="card now-banner physio-banner" data-svc="physio" data-svc-go="physio"><div class="row" style="flex-wrap:nowrap"><div class="ico">${ic("heart", "lg")}</div>
+        <div><h3 style="margin:0">Physiotherapy at home</h3><span class="small muted">Back, knee, post-surgery and stroke rehab. Book a session or a package; a verified physio comes to you.</span></div></div>
+        <span class="btn primary sm">${ic("heart")} Book physio</span></button>
       ${SERVICES.map((s) => `<button class="svc ${s.soon ? "soon" : ""}" data-svc="${s.key}" ${s.go ? `data-svc-go="${s.go}"` : ""}>
         <span class="ico ${s.tone || ""}">${ic(s.icon, "lg")}</span><b>${s.title}</b><span class="tiny muted">${s.sub}</span>
         ${s.soon ? `<span class="badge">Coming soon</span>` : ""}</button>`).join("")}
