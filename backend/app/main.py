@@ -23,6 +23,7 @@ from .routers.live import router as live_router
 from .routers.visit_notes import router as visit_notes_router
 from .routers.shop import router as shop_router
 from .routers.physio import router as physio_router
+from .routers.face import router as face_router
 from .errors import DomainError, Forbidden, NotFound
 from .models import (
     AuditLog,
@@ -394,9 +395,14 @@ def set_doctor_availability(body: AvailabilityIn, user: User = Depends(require(R
     return visit_svc.set_availability(db, user, body.date, body.hours)
 
 
+class VisitActionIn(BaseModel):
+    arrival_code: str | None = Field(None, max_length=8)
+
+
 @app.post("/api/doctor/visits/{visit_id}/{action}")
-def visit_action(visit_id: int, action: Literal["accept", "start", "complete"], user: User = Depends(require(Role.doctor)), db: Session = Depends(get_db)):
-    v = rx_svc.advance_visit(db, user, visit_id, action)
+def visit_action(visit_id: int, action: Literal["accept", "start", "complete"], body: VisitActionIn | None = None,
+                 user: User = Depends(require(Role.doctor)), db: Session = Depends(get_db)):
+    v = rx_svc.advance_visit(db, user, visit_id, action, body.arrival_code if body else None)
     return {"id": v.id, "status": v.status.value}
 
 
@@ -757,6 +763,7 @@ app.include_router(visit_notes_router)
 app.include_router(labs_router)
 app.include_router(shop_router)
 app.include_router(physio_router)
+app.include_router(face_router)
 
 # --------------------------------------------------------------- frontend
 FRONTEND = Path(__file__).resolve().parents[2] / "frontend"
@@ -795,3 +802,6 @@ def startup():
         if not db.scalars(select(User)).first():
             from .seed import seed
             seed(db)
+        from .services.face_verification import seed_demo_enrollments
+        seed_demo_enrollments(db)
+        db.commit()

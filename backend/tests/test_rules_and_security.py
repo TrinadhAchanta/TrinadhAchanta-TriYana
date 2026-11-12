@@ -1,5 +1,5 @@
 """Quantity rules, pharmacy validation, payments, refunds, privacy and tamper protection."""
-from conftest import rx_items
+from conftest import rx_items, start_visit
 from sqlalchemy import select
 
 from app.models import Prescription, PrescriptionItem, PharmacyInventory
@@ -15,8 +15,8 @@ def _checkout(patient, cart_id, pharmacy_id, key, **kw):
 def _sign_new(env, as_, *items, visit="arjun"):
     doc = as_("doctor")
     vid = env["ids"]["visits"][visit]
-    for a in ("accept", "start"):
-        doc.post(f"/api/doctor/visits/{vid}/{a}")
+    doc.post(f"/api/doctor/visits/{vid}/accept")
+    start_visit(env, doc, vid)
     rx = doc.post("/api/prescriptions", {"visit_id": vid, "items": rx_items(env["ids"], *items)}).json()
     doc.post(f"/api/prescriptions/{rx['id']}/sign", {"confirm_reviewed": True})
     return rx
@@ -34,7 +34,7 @@ def test_draft_is_invisible_and_has_no_cart(env, as_):
     vid = env["ids"]["visits"]["meera"]
     doc.post(f"/api/doctor/visits/{vid}/accept")
     assert doc.post("/api/prescriptions", {"visit_id": vid, "items": rx_items(env["ids"], ("dolo", 5))}).status_code == 409
-    doc.post(f"/api/doctor/visits/{vid}/start")
+    start_visit(env, doc, vid)
     rx = doc.post("/api/prescriptions", {"visit_id": vid, "items": rx_items(env["ids"], ("dolo", 5))}).json()
     assert patient.get("/api/patient/carts").json() == []
     assert patient.get("/api/patient/prescriptions").json() == []

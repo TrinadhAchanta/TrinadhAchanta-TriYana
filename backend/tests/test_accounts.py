@@ -79,6 +79,16 @@ def test_apps_keep_their_own_accounts(env):
     assert r.status_code == 403 and r.json()["detail"]["code"] == "wrong_app"
 
 
+def enrol(c, h):
+    """Doctor enrols their face in the Partner app: consent + a live capture."""
+    from tests.conftest import live_frames
+    ch = c.post("/api/provider/face/challenges", headers=h, json={"purpose": "enroll", "consent": True}).json()
+    r = c.post(f"/api/provider/face/challenges/{ch['id']}/submit", headers=h,
+               json={"nonce": ch["nonce"], "frames": live_frames()})
+    assert r.json()["status"] == "passed", r.text
+    return r.json()
+
+
 def test_new_doctor_must_be_verified_before_going_online(env):
     c = env["client"]
     r = _doctor(c)
@@ -101,7 +111,12 @@ def test_new_doctor_must_be_verified_before_going_online(env):
         assert pend[0]["verification"]["stage"] == "needs_documents"
         r = c.post("/api/account/verification/identity", headers=h,
                    json={"id_number": "ABCPR1234F", "date_of_birth": "1988-02-01", "consent": True})
-        assert r.json()["stage"] == "ready_for_review", r.text
+        assert r.json()["stage"] == "needs_documents", r.text  # face not enrolled yet
+        no = c.post(f"/api/admin/providers/{acct['id']}/verification", headers={"X-Admin-Key": "ops-test-key"},
+                    json={"status": "verified", "override": True, "note": "Trying without a face"})
+        assert no.json()["detail"]["code"] == "face_enrollment_required"
+        assert enrol(c, h)["enrollment"]["status"] == "pending_review"
+        assert c.get("/api/account/verification", headers=h).json()["stage"] == "ready_for_review"
         ok = c.post(f"/api/admin/providers/{acct['id']}/verification", headers={"X-Admin-Key": "ops-test-key"},
                     json={"status": "verified"})
         assert ok.json()["doctor"]["license_verified"] is True
@@ -116,7 +131,10 @@ def test_demo_self_verify_and_duplicate_licence(env):
     r = _doctor(c)
     assert _doctor(c, email="other@example.com").json()["detail"]["code"] == "licence_taken"
     h = H(r.json()["token"], "provider")
+    assert c.post("/api/account/demo-verify", headers=h).json()["detail"]["code"] == "face_enrollment_required"
+    enrol(c, h)
     assert c.post("/api/account/demo-verify", headers=h).json()["verification_status"] == "verified"
+    assert c.get("/api/provider/face", headers=h).json()["active"] is True
 
 
 def test_courier_signup_pending(env):

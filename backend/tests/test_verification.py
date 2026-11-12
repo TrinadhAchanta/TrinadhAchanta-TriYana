@@ -4,7 +4,7 @@ import os
 import pytest
 
 from app.adapters import verification as partners
-from tests.test_accounts import H, _doctor, _phone, otp
+from tests.test_accounts import H, _doctor, _phone, enrol, otp
 
 ADMIN = {"X-Admin-Key": "demo-admin"}
 
@@ -32,7 +32,10 @@ def test_registry_lookup_runs_at_signup_and_ops_approve_after_checks(env):
     assert _id(c, h, consent=False).json()["detail"]["code"] == "consent_required"
     assert _id(c, h, number="12345").json()["detail"]["code"] == "invalid_id"
     v = _id(c, h).json()
-    assert v["stage"] == "ready_for_review" and not v["id_needed"]
+    assert v["stage"] == "needs_documents" and not v["id_needed"] and v["face_needed"]
+    enrol(c, h)
+    v = c.get("/api/account/verification", headers=h).json()
+    assert v["stage"] == "ready_for_review" and not v["face_needed"]
     assert all(ch["status"] == "passed" for ch in v["checks"])
     # Only a masked ID is kept.
     assert v["checks"][1]["details"]["id_masked"].endswith("234F") and "ABCPR" not in str(v)
@@ -50,6 +53,7 @@ def test_failed_registry_needs_override_with_note(env):
     r = _doctor(c, licence="TSMC-FAIL-1")
     h, uid = H(r.json()["token"], "provider"), r.json()["account"]["id"]
     _id(c, h)
+    enrol(c, h)
     v = c.get("/api/account/verification", headers=h).json()
     assert v["stage"] == "flagged" and v["checks"][0]["status"] == "failed"
     url = f"/api/admin/providers/{uid}/verification"
@@ -67,9 +71,10 @@ def test_name_mismatch_and_court_record_are_flagged(env):
     c = env["client"]
     r = _doctor(c, licence="TSMC-MISMATCH-2")
     h = H(r.json()["token"], "provider")
+    enrol(c, h)
     v = _id(c, h, number="ABCPR9999F").json()
     assert v["stage"] == "flagged"
-    assert [ch["status"] for ch in v["checks"]] == ["needs_review", "passed", "needs_review"]
+    assert [ch["status"] for ch in v["checks"]] == ["needs_review", "passed", "needs_review", "passed"]
 
 
 def test_rider_uses_driving_licence_and_has_no_registry_check(env):
@@ -105,6 +110,7 @@ def test_partner_outage_is_recorded_as_error_and_rerun(env, monkeypatch):
     r = _doctor(c)
     uid, h = r.json()["account"]["id"], H(r.json()["token"], "provider")
     _id(c, h)
+    enrol(c, h)
     v = c.get("/api/account/verification", headers=h).json()
     assert v["stage"] == "checking" and v["checks"][0]["status"] == "error"
     monkeypatch.undo()
@@ -127,6 +133,7 @@ def test_idfy_async_results_are_polled(env, monkeypatch):
         started.append(path)
         return partners.Result("in_progress", summary, f"req-{len(started)}", details)
     monkeypatch.setattr(partners, "_idfy_start", fake_start)
+    enrol(c, h)
     v = _id(c, h).json()
     assert v["stage"] == "checking" and started[0].endswith("/verify_with_source/ind_pan")
 

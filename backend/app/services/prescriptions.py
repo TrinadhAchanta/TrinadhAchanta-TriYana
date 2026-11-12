@@ -36,7 +36,7 @@ VISIT_FLOW = {
 }
 
 
-def advance_visit(db: Session, user: User, visit_id: int, action: str) -> HomeVisit:
+def advance_visit(db: Session, user: User, visit_id: int, action: str, arrival_code: str | None = None) -> HomeVisit:
     visit = get_or_404(db, HomeVisit, visit_id, "Visit")
     ensure_visit_doctor(user, visit)
     if action not in VISIT_FLOW:
@@ -44,6 +44,11 @@ def advance_visit(db: Session, user: User, visit_id: int, action: str) -> HomeVi
     frm, to = VISIT_FLOW[action]
     if visit.status != frm:
         raise Conflict("bad_visit_state", f"Visit is '{visit.status.value}', cannot {action}.")
+    from . import face_verification as face
+    if action == "accept":
+        face.require_enrolled(db, user)
+    elif action == "start":
+        face.require_for_start(db, user, visit, arrival_code)  # face check + patient's arrival code
     visit.status = to
     if to == VisitStatus.completed:
         visit.completed_at = utcnow()

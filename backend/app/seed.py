@@ -298,6 +298,8 @@ def seed(db: Session) -> dict:
     db.flush()
     db.add_all([DispatchOffer(kind="visit", visit_id=v.id, user_id=carter_user.id, distance_km=km)
                 for v, km in ((visit, 0.8), (visit2, 2.6))])
+    from .services.face_verification import seed_demo_enrollments
+    seed_demo_enrollments(db)
     labs = seed_labs(db, users, meera)
     physio_ids = seed_physio(db, meera, arjun)
     db.commit()

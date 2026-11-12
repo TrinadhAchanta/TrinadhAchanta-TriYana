@@ -37,6 +37,7 @@ from ..models import (
     VisitStatus,
     utcnow,
 )
+from . import face_verification as face
 from .common import notify, users_for_patient
 
 OFFER_SECONDS = int(os.environ.get("TRIYANA_OFFER_SECONDS", "45"))
@@ -132,6 +133,10 @@ def active_trip(db: Session, user_id: int) -> Trip | None:
 
 def _busy(db: Session, user: User) -> bool:
     if active_trip(db, user.id):
+        return True
+    if user.doctor_id and db.scalars(select(HomeVisit.id).where(  # accepted "Doctor now", still verifying
+            HomeVisit.doctor_id == user.doctor_id, HomeVisit.on_demand.is_(True),
+            HomeVisit.status == VisitStatus.accepted)).first() is not None:
         return True
     return db.scalars(select(DispatchOffer.id).where(DispatchOffer.user_id == user.id, DispatchOffer.status == "offered",
                                                      DispatchOffer.expires_at.isnot(None))).first() is not None
@@ -327,13 +332,14 @@ def accept(db: Session, user: User, offer_id: int) -> DispatchOffer:
         v = o.visit
         if v.status != VisitStatus.requested:
             raise Conflict("bad_visit_state", "This visit is no longer waiting for a doctor.")
+        face.require_enrolled(db, user)
         v.doctor_id = user.doctor_id
         v.status = VisitStatus.accepted
         doc = db.get(Doctor, user.doctor_id)
         if v.on_demand:
-            trip = start_trip_to_patient(db, user, v)
-            notify(db, users_for_patient(db, v.patient_id), "Your doctor is on the way",
-                   f"{doc.name} accepted and is heading to you. Arriving in about {math.ceil(trip.duration_s / 60)} min.",
+            # No trip yet: the doctor must pass a live face check for this visit before Start journey.
+            notify(db, users_for_patient(db, v.patient_id), "Doctor accepted your request",
+                   f"{doc.name} accepted. They're completing Triyana's live identity check before they set off.",
                    f"visit:{v.id}")
         else:
             notify(db, users_for_patient(db, v.patient_id), "Doctor confirmed your visit",
@@ -418,6 +424,7 @@ def depart(db: Session, user: User, visit_id: int) -> Trip:
     t = active_trip(db, user.id)
     if t and t.visit_id == v.id:
         return t
+    face.require_for_journey(db, user, v)  # mandatory live face check for THIS visit, enforced here
     trip = start_trip_to_patient(db, user, v)
     notify(db, users_for_patient(db, v.patient_id), "Your doctor is on the way",
            f"{db.get(Doctor, user.doctor_id).name} is heading to you. Follow them live on the map.", f"visit:{v.id}")
@@ -484,6 +491,8 @@ def set_duty(db: Session, user: User, online: bool) -> None:
         ensure_physio_verified(db, user)
     if user.role == Role.doctor and not db.get(Doctor, user.doctor_id).license_verified:
         raise Forbidden("licence_not_verified", "Your licence must be verified before you can take visits.")
+    if online:
+        face.require_enrolled(db, user)
     user.on_duty = online
     if not online:
         for o in db.scalars(select(DispatchOffer).where(DispatchOffer.user_id == user.id, DispatchOffer.status == "offered",
@@ -572,6 +581,7 @@ def offer_to_dict(db: Session, o: DispatchOffer) -> dict:
         v = o.visit
         p = db.get(Patient, v.patient_id)
         base.update({"title": "Home visit now" if v.on_demand else "Home visit booking", "on_demand": v.on_demand,
+                     "visit_id": v.id,
                      "patient": p.name, "reason": v.reason, "scheduled_for": v.scheduled_for.isoformat(),
                      "address": v.address or p.address, "earning": v.fee,
                      "dropoff": {"lat": p.lat, "lng": p.lng, "label": p.name},
@@ -640,15 +650,18 @@ def visit_live(db: Session, patient_user: User, visit_id: int) -> dict:
         phase = "searching" if v.on_demand else "waiting"
     elif trip and not trip.ended_at:
         phase = "on_the_way"
+    elif v.on_demand and doc_user and not face.ever_passed(db, doc_user.id, v.id):
+        phase = "verifying"
     else:
         phase = "confirmed"
     t = trip_to_dict(db, trip) if trip and not trip.ended_at else None
     if t and t["arrived"]:
         phase = "arrived"
+    identity = face.patient_view(db, v, doc_user) if doc_user else None
     return {"kind": "visit", "id": v.id, "booking_ref": v.booking_ref, "status": v.status.value, "phase": phase,
             "on_demand": v.on_demand, "reason": v.reason, "scheduled_for": v.scheduled_for.isoformat(),
             "home": {"lat": p.lat, "lng": p.lng, "label": "Home", "address": v.address or p.address},
-            "provider": _provider_card(db, doc_user), "trip": t, "providers_asked": asked,
+            "provider": _provider_card(db, doc_user), "trip": t, "providers_asked": asked, "identity": identity,
             "online_nearby": online_count(db, "visit", p.lat, p.lng),
             "provider_location": t["position"] if t else (list(provider_point(db, doc_user)) if doc_user else None)}
 
@@ -700,6 +713,8 @@ def provider_jobs(db: Session, user: User) -> list[dict]:
             p = db.get(Patient, v.patient_id)
             trip = db.scalars(select(Trip).where(Trip.visit_id == v.id, Trip.ended_at.is_(None))).first()
             out.append({"kind": "visit", "id": v.id, "status": v.status.value, "patient": p.name, "reason": v.reason,
+                        "identity_verified": face.visit_pass(db, user, v.id) is not None,
+                        "arrival_confirmed": v.arrival_confirmed_at is not None,
                         "address": v.address or p.address, "scheduled_for": v.scheduled_for.isoformat(),
                         "on_demand": v.on_demand, "earning": v.fee, "trip_id": trip.id if trip else None,
                         "dropoff": {"lat": p.lat, "lng": p.lng, "label": p.name}})

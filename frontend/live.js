@@ -159,7 +159,7 @@ async function patientLiveBanner(visits, orders) {
   const v = visits.find((x) => (x.status === "requested" && x.on_demand) || x.status === "accepted");
   const o = orders.find((x) => x.delivery && ["ready_for_pickup", "out_for_delivery"].includes(x.status));
   const items = [];
-  if (v) { const d = await api(`/api/patient/visits/${v.id}/live`).catch(() => null); if (d && ["searching", "on_the_way", "arrived"].includes(d.phase)) items.push(d); }
+  if (v) { const d = await api(`/api/patient/visits/${v.id}/live`).catch(() => null); if (d && ["searching", "verifying", "on_the_way", "arrived"].includes(d.phase)) items.push(d); }
   if (o) { const d = await api(`/api/orders/${o.id}/live`).catch(() => null); if (d && ["searching", "to_pharmacy", "on_the_way", "arrived"].includes(d.phase)) items.push(d); }
   const pb = (await api("/api/patient/physio/bookings").catch(() => [])).find((b) => b.next_session && ["searching", "active"].includes(b.status));
   if (pb) { const d = await api(`/api/patient/physio/sessions/${pb.next_session.id}/live`).catch(() => null); if (d && ["searching", "on_the_way", "arrived", "with_you"].includes(d.phase)) items.push(d); }
@@ -177,6 +177,7 @@ function liveHeadline(d) {
   return ({
     searching: d.kind === "visit" ? "Finding your doctor" : d.kind === "physio" ? "Finding your physiotherapist" : "Finding a courier near the pharmacy",
     waiting: `Waiting for ${who} to confirm`,
+    verifying: `${who} accepted`,
     confirmed: d.kind === "physio" ? `Session ${d.number} with ${who} is confirmed` : `${who} confirmed your visit`,
     to_pharmacy: `${who} is collecting your medicines`,
     on_the_way: `${who} is on the way`,
@@ -192,9 +193,10 @@ function liveSub(d) {
   return ({
     searching: d.kind === "visit" ? `Asking the nearest available doctor · ${d.online_nearby} online near you` : d.kind === "physio" ? `Asking the nearest available physiotherapist · ${d.online_nearby} online near you` : "We're asking the nearest courier to pick it up.",
     waiting: `Booked for ${when(d.scheduled_for)}. You'll see them on the map when they set off.`,
+    verifying: "They're doing Triyana's live identity check. You'll see them on the map as soon as they set off.",
     confirmed: `Booked for ${when(d.scheduled_for)}. You'll see them on the map when they set off.`,
     to_pharmacy: `Picking up at ${shortName(d.pharmacy?.label)}.`,
-    arrived: d.kind === "visit" ? "Please open the door. Your doctor will show their ID." : d.kind === "physio" ? "Please open the door. Your physiotherapist will show their ID." : "Share your handover code to receive your medicines.",
+    arrived: d.kind === "visit" ? (d.identity?.verified ? "Check they match the photo below, then give them your arrival code." : "Please open the door. Your doctor will show their ID.") : d.kind === "physio" ? "Please open the door. Your physiotherapist will show their ID." : "Share your handover code to receive your medicines.",
     with_you: d.kind === "physio" ? `Session ${d.number} of ${d.sessions_total}. Your notes and home exercises appear after the session.` : "Your prescription will appear here after the visit.",
     done: d.kind === "physio" ? "Your session notes and home exercises are ready." : "Thank you for using Triyana.",
     cancelled: "No one is coming. You can book again any time.",
@@ -210,6 +212,12 @@ async function liveScreen(kind, id) {
   const url = kind === "visit" ? `/api/patient/visits/${id}/live` : kind === "physio" ? `/api/patient/physio/sessions/${id}/live` : `/api/orders/${id}/live`;
   let d = await api(url);
   const order = kind === "delivery" ? await api(`/api/orders/${id}`) : null;
+  let idProf = null; // the verified doctor's photo + credentials, fetched once they pass the face check
+  const loadId = async () => {
+    if (kind !== "visit" || idProf || !d.identity?.verified) return;
+    idProf = await api(`/api/patient/visits/${id}/doctor-identity`).catch(() => null);
+    if (idProf?.verified) draw();
+  };
   view().innerHTML = `<div class="live">
       <div class="live-map-wrap"><div class="live-map" id="liveMap"></div>
         <button class="map-back" id="liveBack" aria-label="Back">${ic("arrow")}</button>
@@ -262,24 +270,29 @@ async function liveScreen(kind, id) {
         ${t2 && !t2.arrived ? `<div class="eta"><b>${t2.eta_min}</b><span>min</span></div>` : d.phase === "arrived" ? `<div class="eta good">${ic("check", "lg")}</div>` : ""}
       </div>
       ${d.phase === "searching" ? `<div class="search-bar"><i></i></div>` : t2 ? `<div class="trip-bar"><i style="width:${pct}%"></i></div>` : ""}
-      ${p ? `<div class="prov-card"><div class="avatar lg">${esc(initials(p.name))}</div><div class="grow"><b>${esc(p.name)}</b> ${p.license_no ? `<span class="verified" title="Verified licence">${ic("badge")}</span>` : ""}
+      ${p ? `<div class="prov-card">${idProf?.photo ? `<img class="prov-photo" src="${esc(idProf.photo)}" alt="Verified photo of ${esc(p.name)}">` : `<div class="avatar lg">${esc(initials(p.name))}</div>`}<div class="grow"><b>${esc(p.name)}</b> ${p.license_no ? `<span class="verified" title="Verified licence">${ic("badge")}</span>` : ""}${d.identity?.verified ? ` <span class="id-verified">${ic("shield")} Identity verified</span>` : ""}
           <div class="tiny muted">${p.specialty ? `${esc(p.specialty)} · ` : ""}${p.rating ? `<span class="stars">★ ${p.rating.toFixed(1)}</span> · ` : ""}${esc(p.vehicle || (p.role === "courier" ? "Courier" : ""))}${p.license_no ? ` · Reg. ${esc(p.license_no)}` : ""}</div></div>
           <button class="btn sm" id="callProv" title="Calls are masked to protect both numbers">${ic("phoneCall")} Call</button></div>` : ""}
+      ${idProf?.verified ? `<div class="id-card"><div class="small"><b>Verified ${esc(time(idProf.verified_at))}</b> by ${esc(idProf.method.toLowerCase())}. ${idProf.photo ? "Compare the person at your door with this photo and name." : "Check their name and registration at the door and ask them to enter your arrival code."}</div>
+          <div class="tiny">${esc([idProf.qualification, idProf.specialty, `Reg. No. ${idProf.license_no}`, idProf.medical_council].filter(Boolean).join(" · "))}</div></div>` : ""}
+      ${d.identity?.arrival_code ? `<div class="code-inline"><span class="tiny">Arrival code</span><b>${esc(d.identity.arrival_code)}</b><span class="tiny muted">Your doctor types this into their app at your door. Never share it by phone or message.</span></div>` : ""}
+      ${d.identity?.arrival_confirmed && d.phase !== "done" ? `<div class="arrival-ok">${ic("check")} Your doctor confirmed your arrival code</div>` : ""}
       ${order && order.delivery?.handover_code && !["done", "cancelled"].includes(d.phase) ? `<div class="code-inline"><span class="tiny">Handover code</span><b>${esc(order.delivery.handover_code)}</b><span class="tiny muted">Share it only at your door</span></div>` : ""}
       <div class="live-steps">${(kind !== "delivery"
-        ? [["Requested", true], [kind === "physio" ? "Physio accepted" : "Doctor accepted", !["searching", "waiting", "cancelled"].includes(d.phase)], ["On the way", ["on_the_way", "arrived", "with_you", "done"].includes(d.phase)], ["Arrived", ["arrived", "with_you", "done"].includes(d.phase)], [kind === "physio" ? "Session" : "Visit", ["with_you", "done"].includes(d.phase)]]
+        ? [["Requested", true], [kind === "physio" ? "Physio accepted" : "Doctor accepted", !["searching", "waiting", "cancelled"].includes(d.phase)], ...(kind === "visit" ? [["ID verified", !!d.identity?.verified]] : []), ["On the way", ["on_the_way", "arrived", "with_you", "done"].includes(d.phase)], ["Arrived", ["arrived", "with_you", "done"].includes(d.phase)], [kind === "physio" ? "Session" : "Visit", ["with_you", "done"].includes(d.phase)]]
         : [["Packed", d.phase !== "preparing"], ["Courier assigned", !!p], ["Picked up", ["on_the_way", "arrived", "done"].includes(d.phase)], ["Arriving", ["arrived", "done"].includes(d.phase)], ["Delivered", d.phase === "done"]])
         .map(([l, on]) => `<span class="${on ? "on" : ""}"><i></i>${l}</span>`).join("")}</div>
       <div class="row between" style="margin-top:10px">
         <span class="tiny muted">${ic("info")} Demo: GPS is simulated${t2 ? ` and runs ${t2.speedup}× faster` : ""}.</span>
-        ${kind !== "delivery" && ["searching", "waiting", "confirmed"].includes(d.phase) ? `<button class="btn ghost sm danger" id="liveCancel">${ic("x")} Cancel</button>` : ""}
+        ${kind !== "delivery" && ["searching", "waiting", "verifying", "confirmed"].includes(d.phase) ? `<button class="btn ghost sm danger" id="liveCancel">${ic("x")} Cancel</button>` : ""}
         ${["done", "with_you"].includes(d.phase) ? `<button class="btn sm" id="liveHome">${ic(kind === "physio" ? "file" : "home")} ${kind === "physio" ? "Session notes" : "Home"}</button>` : ""}</div>`;
     const c = $("#liveCancel"); if (c) c.onclick = () => guard(async () => { if (!confirm("Cancel this request?")) return; await post(kind === "physio" ? `/api/patient/physio/bookings/${d.booking_id}/cancel` : `/api/patient/visits/${id}/cancel`); toast("Request cancelled"); d = await api(url); draw(); });
     const h = $("#liveHome"); if (h) h.onclick = () => (kind === "physio" ? physioBookingScreen(d.booking_id) : go("home"));
     const cp = $("#callProv"); if (cp) cp.onclick = () => toast("Masked calling connects you in the live app (demo)", "phone");
   };
   draw();
-  every(2000, async () => { d = await api(url); draw(); });
+  loadId();
+  every(2000, async () => { d = await api(url); draw(); loadId(); });
 }
 
 /* Start the app once every screen is registered. */

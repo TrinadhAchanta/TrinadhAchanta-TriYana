@@ -1,12 +1,12 @@
 """India launch rules: drug schedules, NMC registration details."""
-from conftest import rx_items
+from conftest import rx_items, start_visit
 
 
 def _sign(env, as_, *items):
     doc = as_("doctor")
     vid = env["ids"]["visits"]["arjun"]
-    for a in ("accept", "start"):
-        doc.post(f"/api/doctor/visits/{vid}/{a}")
+    doc.post(f"/api/doctor/visits/{vid}/accept")
+    start_visit(env, doc, vid)
     rx = doc.post("/api/prescriptions", {"visit_id": vid, "items": rx_items(env["ids"], *items)}).json()
     assert doc.post(f"/api/prescriptions/{rx['id']}/sign", {"confirm_reviewed": True}).status_code == 200
     return rx

@@ -20,11 +20,19 @@
     .prov-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
     .prov-actions input { flex: 1; min-width: 200px; }
     .meta { font-size: 13px; color: var(--text-2); }
+    .areas { display: flex; gap: 8px; margin: 0 0 12px; flex-wrap: wrap; }
+    .areas button.on { background: var(--text); color: var(--surface); border-color: var(--text); }
+    .case-photo { width: 72px; height: 72px; border-radius: 12px; object-fit: cover; flex: none; }
+    .sev-high { border-left: 4px solid var(--bad); }
+    .sev-medium { border-left: 4px solid var(--warn); }
+    .log { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .log th, .log td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    .log-wrap { overflow-x: auto; }
   </style>
 </head>
 <body>
 <main class="ops">
-  <div class="page-head"><div><h1>Provider verification</h1><p>Partner checks come in automatically. You give the final approval.</p></div></div>
+  <div class="page-head"><div><h1 id="pageTitle">Provider verification</h1><p id="pageSub">Partner checks come in automatically. You give the final approval.</p></div></div>
   <div class="card" id="keyCard">
     <form class="row" id="keyForm" style="gap:10px;flex-wrap:wrap">
       <input id="key" type="password" placeholder="Admin key" autocomplete="current-password" style="flex:1;min-width:200px">
@@ -33,7 +41,9 @@
     <p class="tiny muted" id="keyHint" style="margin:8px 0 0">Use the TRIYANA_ADMIN_KEY set on the server. On the demo site, before a key is set, use <b>demo-admin</b>.</p>
   </div>
   <div id="main" hidden>
-    <div class="ops-tabs"><button class="btn sm on" data-s="pending">Waiting</button><button class="btn sm" data-s="rejected">Rejected</button><button class="btn sm" data-s="verified">Approved</button><span class="grow"></span><button class="btn sm" id="lock">Lock</button></div>
+    <div class="areas"><button class="btn sm on" data-area="providers">Providers</button><button class="btn sm" data-area="identity">Identity &amp; security <span class="badge bad" id="caseCount" hidden></span></button><button class="btn sm" data-area="log">Face check log</button></div>
+    <div id="idTabs" class="ops-tabs" hidden><button class="btn sm on" data-c="open">Open cases</button><button class="btn sm" data-c="resolved">Resolved</button></div>
+    <div class="ops-tabs" id="provTabs"><button class="btn sm on" data-s="pending">Waiting</button><button class="btn sm" data-s="rejected">Rejected</button><button class="btn sm" data-s="verified">Approved</button><span class="grow"></span><button class="btn sm" id="lock">Lock</button></div>
     <div id="list"></div>
   </div>
 </main>
@@ -42,7 +52,7 @@
 const $ = (s) => document.querySelector(s);
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 let key = ""; try { key = sessionStorage.getItem("triyana-admin") || ""; } catch {}
-let tab = "pending";
+let tab = "pending", area = "providers", caseTab = "open";
 const ROLE = { doctor: "Doctor", physio: "Physiotherapist", courier: "Delivery rider", phlebotomist: "Sample collector", pharmacist: "Pharmacist" };
 const ST = { passed: ["good", "Passed"], needs_review: ["warn", "Needs review"], failed: ["bad", "Failed"], error: ["warn", "Partner error"], in_progress: ["", "Checking"], not_started: ["", "Not started"] };
 const STAGE = { needs_documents: ["", "Waiting for provider's ID"], checking: ["", "Checks running"], ready_for_review: ["good", "Ready to approve"], flagged: ["warn", "Flagged"], rejected: ["bad", "Rejected"], verified: ["good", "Approved"] };
@@ -57,7 +67,7 @@ function card(p) {
   const v = p.verification, reg = p.doctor || p.physio;
   const [sc, sw] = STAGE[v.stage] || ["", v.stage];
   return `<div class="card prov" data-id="${p.id}">
-    <div class="prov-head"><div class="grow"><h3 style="margin:0">${esc(p.name)}</h3><div class="meta">${esc(ROLE[p.role] || p.role)} · ${esc(p.email || "")} · ${esc(p.phone || "")}</div>
+    <div class="prov-head">${p.face && p.face.photo ? `<img class="case-photo" src="${esc(p.face.photo)}" alt="Enrolled face of ${esc(p.name)}" title="Live enrolment selfie: compare with their ID">` : ""}<div class="grow"><h3 style="margin:0">${esc(p.name)}</h3><div class="meta">${esc(ROLE[p.role] || p.role)} · ${esc(p.email || "")} · ${esc(p.phone || "")}</div>
       ${reg ? `<div class="meta">${esc([reg.qualification, "Reg. No. " + reg.license_no, reg.medical_council].join(" · "))}</div>` : ""}</div>
       <span class="badge ${sc}">${esc(sw)}</span></div>
     <ul class="v-list">${v.checks.map((c) => { const [cls, w] = ST[c.status] || ["", c.status];
@@ -69,11 +79,52 @@ function card(p) {
       ${p.verification_status !== "pending" ? `<button class="btn sm" data-a="pending">Move to waiting</button>` : ""}
       <button class="btn sm" data-a="rerun">Re-run registry check</button></div></div>`;
 }
+const KIND = { spoof_suspected: "Possible spoofing", repeated_failures: "Locked after failed checks", arrival_code: "Wrong arrival codes", alternative_requested: "Asked for another way to verify", enrollment_review: "New face to approve" };
+const ACTIONS = {
+  spoof_suspected: [["allow_retry", "Clear, allow retries"], ["require_reenrol", "Require re-enrolment"], ["suspend", "Suspend account"]],
+  repeated_failures: [["allow_retry", "Allow retries"], ["approve_alternative", "Approve alternative check for this visit"], ["require_reenrol", "Require re-enrolment"], ["suspend", "Suspend account"]],
+  arrival_code: [["allow_retry", "Allow retries"], ["suspend", "Suspend account"]],
+  alternative_requested: [["approve_alternative", "Approve alternative check for this visit"], ["dismiss", "Close"]],
+  enrollment_review: [["approve_enrollment", "Approve new face"], ["reject_enrollment", "Reject new face"]],
+};
+const CK = { passed: ["good", "Passed"], failed: ["bad", "Failed"], spoof: ["bad", "Spoof suspected"], poor_quality: ["warn", "Poor quality"], expired: ["", "Expired"], error: ["warn", "Error"] };
+const at = (iso) => iso ? new Date(iso).toLocaleString() : "—";
+function caseCard(c) {
+  const e = c.enrollment, acts = c.status === "open" ? (ACTIONS[c.kind] || [["dismiss", "Close"]]) : [];
+  return `<div class="card prov sev-${esc(c.severity)}" data-case="${c.id}">
+    <div class="prov-head">${e && e.photo ? `<img class="case-photo" src="${esc(e.photo)}" alt="Enrolled face of ${esc(c.provider.name)}">` : ""}
+      <div class="grow"><h3 style="margin:0">${esc(KIND[c.kind] || c.kind)} · ${esc(c.provider.name)}</h3>
+        <div class="meta">Case #${c.id} · ${esc(at(c.created_at))}${c.visit_id ? ` · visit #${c.visit_id}` : ""} · ${c.blocking ? "Journeys locked" : "Not blocking"} · severity ${esc(c.severity)}</div>
+        <div class="meta">${esc(c.summary)}</div>
+        <div class="meta">Face enrolment: ${e ? `${esc(e.status)} (${esc(e.partner)})` : "none"} · account ${esc(c.provider.verification_status || "verified")}</div></div>
+      <span class="badge ${c.status === "open" ? "warn" : "good"}">${c.status === "open" ? "Open" : esc(c.resolution)}</span></div>
+    ${c.recent_checks.length ? `<ul class="v-list">${c.recent_checks.map((k) => { const [cls, w] = CK[k.status] || ["", k.status];
+      return `<li class="v-row"><span class="badge ${cls}">${w}</span><span class="grow"><b>${esc(k.purpose === "enroll" ? "Enrolment" : `Visit #${k.visit_id}`)}</b><span class="tiny muted"> · ${esc(at(k.at))}${k.method === "manual" ? " · manual" : ""}${k.liveness != null ? ` · liveness ${k.liveness}` : ""}${k.match != null ? ` · match ${k.match}` : ""}</span><span class="tiny muted v-sum">${esc(k.reason)}</span></span></li>`; }).join("")}</ul>` : ""}
+    ${c.resolution_note ? `<div class="meta">Resolution note: ${esc(c.resolution_note)}</div>` : ""}
+    ${acts.length ? `<div class="prov-actions"><input class="note" placeholder="What did you check? (required)" maxlength="300">${acts.map(([a, l]) => `<button class="btn sm ${a === "suspend" ? "danger" : ""}" data-r="${a}">${esc(l)}</button>`).join("")}</div>` : ""}</div>`;
+}
+async function loadIdentity() {
+  const rows = await call(`/api/admin/identity/cases?status=${caseTab}`);
+  if (caseTab === "open") { const n = rows.filter((c) => c.blocking).length; $("#caseCount").hidden = !n; $("#caseCount").textContent = n; }
+  $("#list").innerHTML = rows.length ? rows.map(caseCard).join("") : `<div class="card empty"><h3>No ${caseTab} cases</h3><p class="small">Spoofing alerts, lockouts and requests for another way to verify appear here.</p></div>`;
+}
+async function loadLog() {
+  const rows = await call("/api/admin/identity/checks?limit=200");
+  $("#list").innerHTML = `<div class="card log-wrap"><table class="log"><thead><tr><th>Time</th><th>Doctor</th><th>For</th><th>Result</th><th>Scores</th><th>Detail</th></tr></thead><tbody>${rows.map((k) => { const [cls, w] = CK[k.status] || ["", k.status];
+    return `<tr><td>${esc(at(k.at))}</td><td>${esc(k.provider || k.user_id)}</td><td>${k.purpose === "enroll" ? "Enrolment" : `Visit #${k.visit_id}`}${k.method === "manual" ? " (manual)" : ""}</td><td><span class="badge ${cls}">${w}</span></td><td>${k.liveness != null ? `L ${k.liveness}` : ""}${k.match != null ? ` · M ${k.match}` : ""}</td><td>${esc(k.reason)}${k.approved_by ? ` · ${esc(k.approved_by)}` : ""}</td></tr>`; }).join("") || `<tr><td colspan="6">No face checks yet.</td></tr>`}</tbody></table>
+    <p class="tiny muted" style="margin:10px 0 0">No images are stored from these checks. Every row is also in the tamper-evident audit log.</p></div>`;
+}
 async function load() {
   try {
+    const head = { providers: ["Provider verification", "Partner checks come in automatically. You give the final approval."], identity: ["Identity & security", "Face-check alerts, lockouts and recovery. Only Triyana's security team should act here."], log: ["Face check log", "Every live face check: outcome, scores and time."] }[area];
+    $("#pageTitle").textContent = head[0]; $("#pageSub").textContent = head[1];
+    $("#provTabs").hidden = area !== "providers"; $("#idTabs").hidden = area !== "identity";
+    if (area === "identity") { await loadIdentity(); $("#keyCard").hidden = true; $("#main").hidden = false; return; }
+    if (area === "log") { await loadLog(); $("#keyCard").hidden = true; $("#main").hidden = false; return; }
     const rows = await call(`/api/admin/providers/pending?status=${tab}`);
     $("#keyCard").hidden = true; $("#main").hidden = false;
     $("#list").innerHTML = rows.length ? rows.map(card).join("") : `<div class="card empty"><h3>Nothing here</h3><p class="small">No providers in this list.</p></div>`;
+    call("/api/admin/identity/cases?status=open").then((cs) => { const n = cs.filter((c) => c.blocking).length; $("#caseCount").hidden = !n; $("#caseCount").textContent = n; }).catch(() => {});
   } catch (e) {
     $("#keyCard").hidden = false; $("#main").hidden = true;
     if (key) toast(e.status === 403 ? "That admin key is not right." : e.message);
@@ -81,7 +132,18 @@ async function load() {
 }
 $("#keyForm").onsubmit = (e) => { e.preventDefault(); key = $("#key").value.trim(); try { sessionStorage.setItem("triyana-admin", key); } catch {} load(); };
 $("#lock").onclick = () => { key = ""; try { sessionStorage.removeItem("triyana-admin"); } catch {} $("#key").value = ""; load(); };
+document.querySelectorAll("[data-area]").forEach((b) => b.onclick = () => { area = b.dataset.area; document.querySelectorAll("[data-area]").forEach((x) => x.classList.toggle("on", x === b)); load(); });
+document.querySelectorAll("[data-c]").forEach((b) => b.onclick = () => { caseTab = b.dataset.c; document.querySelectorAll("[data-c]").forEach((x) => x.classList.toggle("on", x === b)); load(); });
 document.querySelectorAll(".ops-tabs [data-s]").forEach((b) => b.onclick = () => { tab = b.dataset.s; document.querySelectorAll(".ops-tabs [data-s]").forEach((x) => x.classList.toggle("on", x === b)); load(); });
+$("#list").addEventListener("click", async (e) => {
+  const b = e.target.closest("button[data-r]"); if (!b) return;
+  const c = b.closest("[data-case]"), note = c.querySelector(".note").value.trim();
+  if (note.length < 5) { toast("Add a note saying what you checked (at least 5 characters)."); return; }
+  if (b.dataset.r === "suspend" && !confirm("Suspend this doctor's account? They won't be able to take any requests.")) return;
+  b.disabled = true;
+  try { await call(`/api/admin/identity/cases/${c.dataset.case}/resolve`, { action: b.dataset.r, note }); toast("Case resolved."); load(); }
+  catch (err) { toast(err.message); } finally { b.disabled = false; }
+});
 $("#list").onclick = async (e) => {
   const b = e.target.closest("button[data-a]"); if (!b) return;
   const c = b.closest(".prov"), id = c.dataset.id, note = c.querySelector(".note").value.trim(), a = b.dataset.a;

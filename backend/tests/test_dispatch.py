@@ -2,6 +2,7 @@
 from datetime import timedelta
 
 from app.models import DispatchOffer, Trip, utcnow
+from conftest import arrival_code, face_check, face_pass
 
 
 def _status(api):
@@ -73,9 +74,15 @@ def test_doctor_now_goes_to_nearest_online_then_next_on_decline_and_timeout(env,
     assert len(vo) == 1
     assert rohan.post(f"/api/provider/offers/{ro[0]['id']}/accept").status_code == 409  # too late
 
-    # Vikram accepts -> trip starts, patient sees him on the map with an ETA.
+    # Vikram accepts -> no journey yet: the patient sees he's doing the identity check.
     acc = vikram.post(f"/api/provider/offers/{vo[0]['id']}/accept").json()
-    assert acc["status"] == "accepted" and acc["trip"]["steps"][0]["type"] == "depart"
+    assert acc["status"] == "accepted" and acc["trip"] is None
+    assert patient.get(f"/api/patient/visits/{v['id']}/live").json()["phase"] == "verifying"
+    # Start journey is refused on the server until he passes a live face check for this visit.
+    r = vikram.post(f"/api/provider/visits/{v['id']}/depart")
+    assert r.status_code == 403 and r.json()["detail"]["code"] == "face_check_required"
+    face_pass(vikram, v["id"])
+    assert vikram.post(f"/api/provider/visits/{v['id']}/depart").json()["steps"][0]["type"] == "depart"
     live = patient.get(f"/api/patient/visits/{v['id']}/live").json()
     assert live["phase"] == "on_the_way" and live["provider"]["name"] == "Dr. Vikram Demo"
     assert live["trip"]["eta_min"] >= 1 and len(live["trip"]["route"]) >= 2
@@ -94,7 +101,9 @@ def test_doctor_now_goes_to_nearest_online_then_next_on_decline_and_timeout(env,
     _age_trip(env, t1["id"], 10_000)
     assert patient.get(f"/api/patient/visits/{v['id']}/live").json()["phase"] == "arrived"
     assert any(n["title"] == "Your doctor has arrived" for n in patient.get("/api/notifications").json())
-    assert vikram.post(f"/api/doctor/visits/{v['id']}/start").json()["status"] == "in_progress"
+    assert vikram.post(f"/api/doctor/visits/{v['id']}/start").status_code == 422  # no arrival code
+    r = vikram.post(f"/api/doctor/visits/{v['id']}/start", {"arrival_code": arrival_code(env, v["id"])})
+    assert r.json()["status"] == "in_progress"
     assert vikram.get("/api/provider/trip").json() is None
     assert patient.get(f"/api/patient/visits/{v['id']}/live").json()["phase"] == "with_you"
 
@@ -128,6 +137,8 @@ def test_booked_time_offer_accept_depart_and_decline_reassigns(env, as_):
     assert offer["seconds_left"] is None  # booked times wait for an answer
     assert carter.post(f"/api/provider/offers/{offer['id']}/accept").status_code == 200
     assert patient.get(f"/api/patient/visits/{vid}/live").json()["phase"] == "confirmed"
+    assert carter.post(f"/api/provider/visits/{vid}/depart").status_code == 403
+    face_pass(carter, vid)
     trip = carter.post(f"/api/provider/visits/{vid}/depart").json()
     assert trip["leg"] == "to_patient"
     assert patient.get(f"/api/patient/visits/{vid}/live").json()["phase"] == "on_the_way"
@@ -145,7 +156,9 @@ def test_road_route_can_replace_synthetic_route(as_):
     patient, carter = as_("patient"), as_("doctor")
     v = patient.post("/api/patient/visits/now", {"reason": "Fever"}).json()
     oid = next(o for o in _status(carter)["offers"] if o["on_demand"])["id"]
-    trip = carter.post(f"/api/provider/offers/{oid}/accept").json()["trip"]
+    carter.post(f"/api/provider/offers/{oid}/accept")
+    face_pass(carter, v["id"])
+    trip = carter.post(f"/api/provider/visits/{v['id']}/depart").json()
     body = {"route": [trip["origin"], [17.443, 78.352], trip["destination"]], "distance_m": 1800, "duration_s": 420,
             "source": "osrm", "steps": [{"text": "Head west on Demo Road", "along_m": 0, "type": "depart"},
                                          {"text": "Arrive", "along_m": 1800, "type": "arrive"}]}
