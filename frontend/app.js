@@ -732,7 +732,11 @@ SCREENS.visits = async () => {
       <div class="instructions">${esc(v.reason)}</div>
       <div class="actions-bar">${next[v.status] ? `<button class="btn primary sm" data-v="${v.id}" data-a="${next[v.status][0]}">${ic(next[v.status][2])} ${next[v.status][1]}</button>` : ""}
       ${["in_progress", "completed"].includes(v.status) ? `<button class="btn sm" data-rx="${v.id}">${ic("rx")} Write prescription</button>` : ""}</div></article>`).join("") || empty("calendar", "No visits scheduled"));
-  $$("[data-a]").forEach((b) => (b.onclick = () => guard(async () => { await post(`/api/doctor/visits/${b.dataset.v}/${b.dataset.a}`); SCREENS.visits(); })));
+  $$("[data-a]").forEach((b) => (b.onclick = () => guard(async () => {
+    await post(`/api/doctor/visits/${b.dataset.v}/${b.dataset.a}`);
+    if (b.dataset.a === "complete") { const v = visits.find((x) => x.id === +b.dataset.v); toast(`Visit complete. You earned ${money((v?.fee || 0) + (v?.on_demand ? 100 : 0))}. See Earnings.`, "wallet"); }
+    SCREENS.visits();
+  })));
   $$("[data-rx]").forEach((b) => (b.onclick = () => guard(() => prescribeScreen(+b.dataset.rx, visits.find((v) => v.id === +b.dataset.rx)))));
 };
 

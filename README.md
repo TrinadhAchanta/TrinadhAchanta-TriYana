@@ -28,6 +28,8 @@ Both are installable PWAs (Add to Home Screen) with their own sign-in; a patient
 
 **Live tracking.** On acceptance a trip starts. GPS is simulated along the route on the server (`TRIYANA_SIM_SPEEDUP`, default 8× faster) and real phone GPS overrides it when the Partner app posts `/api/provider/location`. The Partner app swaps the starter route for a real road route with turn-by-turn steps from the free OSRM demo server when reachable. Maps use Leaflet (vendored in `frontend/vendor/leaflet`) with OpenStreetMap data and CARTO tiles. For production, self-host OSRM or use a licensed routing/tiles provider, since the public demo servers have usage limits.
 
+**Earnings (Partner app)**, `services/earnings.py`: every completed visit or delivery adds a pay line (visit fee, +₹100 for Doctor now; couriers get the pay shown on the request). The Earnings tab shows today, this week by day, each job's breakdown, the balance, Monday payouts and an instant **Cash out** (sandbox UPI).
+
 Demo walk-through: open `/` as Meera and tap **Doctor now**. In another tab open `/provider` as Dr. Carter, accept the request, and watch both maps move. Decline instead to see it go to Dr. Rohan, then Dr. Vikram. Native app-store builds (Capacitor or React Native around the same API) are the next step.
 
 The web app has a demo account switcher (patient, doctor, pharmacist, courier, hospital). Walk the journey: Dr. Carter accepts → starts → completes the visit → writes and signs a prescription → Meera reviews the cart, buys 3 of 5 tablets, removes another item, picks a pharmacy, authorises payment → Ravi reviews and dispenses → Asha delivers with Meera's handover code. Use **Reset demo** to start again.

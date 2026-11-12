@@ -203,6 +203,8 @@ def seed(db: Session) -> dict:
                           on_duty=online, lat=doc.lat, lng=doc.lng, vehicle="Car")
     db.add_all(users.values())
     db.flush()
+    from .services.earnings import seed_history
+    seed_history(db, users)
 
     from .services.visits import _all_slots, _local_days  # aligned to real bookable slots
     slots = _all_slots(now)
