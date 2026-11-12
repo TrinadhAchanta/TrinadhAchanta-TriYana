@@ -1,0 +1,73 @@
+/* Triyana — Lab tests at home */
+.lab-hero { --hero-grad: linear-gradient(135deg, #0a2346 0%, #1d4f9a 50%, #2c7bf2 100%); background: var(--hero-grad); }
+.lab-hero .chip-glass { color: #fff; }
+.good-text { color: var(--good); font-weight: 700; }
+
+.lab-search { display: flex; align-items: center; gap: 10px; margin: 18px 0 10px; padding: 0 14px; border: 1.5px solid var(--line-strong); border-radius: 16px; background: var(--surface); box-shadow: var(--sh-1); }
+.lab-search:focus-within { border-color: var(--brand); }
+.lab-search span { color: var(--muted); display: grid; }
+.lab-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; padding: 13px 0; font-size: 15px; }
+.lab-cats { display: flex; gap: 6px; overflow-x: auto; padding: 2px 0 6px; scrollbar-width: none; }
+.lab-cats::-webkit-scrollbar { display: none; }
+.lab-cats button { flex: none; font-size: 13px; font-weight: 600; border: 1px solid var(--line-strong); background: var(--surface); border-radius: 99px; padding: 7px 13px; cursor: pointer; }
+.lab-cats button.on { background: var(--text); color: var(--surface); border-color: var(--text); }
+
+.lab-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); }
+.lab-item { margin: 0; transition: border-color .15s var(--ease), box-shadow .15s var(--ease); }
+.lab-item.on { border-color: var(--brand); box-shadow: 0 0 0 1px var(--brand) inset, var(--sh-1); }
+.lab-item.package { background: linear-gradient(160deg, var(--info-soft), var(--surface) 55%); }
+.lab-item h3 { margin: 8px 0 0; font-size: 16px; }
+.lab-includes { margin-bottom: 4px; }
+.lab-price { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex: none; text-align: right; }
+.lab-price b { font-size: 18px; letter-spacing: -.02em; }
+.lab-price .btn { margin-top: 8px; min-width: 84px; justify-content: center; }
+
+.lab-bar { position: sticky; bottom: 12px; z-index: 30; display: flex; gap: 12px; align-items: center; margin-top: 18px; padding: 12px 12px 12px 18px; border-radius: 20px; background: var(--hero-grad); color: #fff; box-shadow: var(--sh-3); transform: translateY(140%); opacity: 0; pointer-events: none; transition: .25s var(--ease); }
+.lab-bar.show { transform: none; opacity: 1; pointer-events: auto; }
+.lab-bar .grow { min-width: 0; }
+.lab-bar .grow b { display: block; }
+.lab-bar .grow .tiny { display: block; opacity: .75; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lab-bar .btn.primary { background: #fff; color: #063a33; border-color: #fff; flex: none; }
+@media (max-width: 860px) { .lab-bar { bottom: calc(78px + env(safe-area-inset-bottom)); } }
+
+.choice-grid.two { grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); }
+.choice[disabled] { opacity: .45; cursor: not-allowed; }
+.slot.rec { border-color: var(--brand); }
+.slot span { display: block; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--brand); }
+.slot.on span { color: #fff; }
+.x-mini { border: 0; background: transparent; color: var(--muted); cursor: pointer; padding: 6px; border-radius: 8px; display: grid; }
+.x-mini:hover { background: var(--surface-2); color: var(--bad); }
+.lab-booking .code-inline { margin-top: 10px; }
+
+/* report */
+.report { padding: 22px; }
+.report-head { display: flex; flex-wrap: wrap; gap: 16px; justify-content: space-between; padding-bottom: 14px; border-bottom: 1px solid var(--line); margin-bottom: 14px; }
+.report-meta { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 140px), 1fr)); gap: 8px 18px; flex: 1 1 320px; min-width: 0; max-width: 560px; }
+.report-meta span { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.report-meta b { font-size: 13.5px; word-break: break-word; }
+.report-sec { margin-top: 18px; }
+.report-sec h3 { margin: 0 0 8px; font-size: 15px; }
+.report-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.report-table th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 700; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.report-table td { padding: 10px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.report-table tr.high td:nth-child(2) b { color: var(--bad); }
+.report-table tr.low td:nth-child(2) b { color: var(--warn); }
+.bar-cell { width: 26%; min-width: 90px; }
+.rng { position: relative; height: 8px; border-radius: 99px; background: var(--surface-3); }
+.rng .ok { position: absolute; top: 0; bottom: 0; background: var(--good-soft); border: 1px solid color-mix(in srgb, var(--good) 35%, transparent); border-radius: 99px; }
+.rng b { position: absolute; top: 50%; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; background: var(--good); border: 2px solid var(--surface); box-shadow: var(--sh-1); }
+.rng b.high { background: var(--bad); }
+.rng b.low { background: var(--warn); }
+.report-foot { margin-top: 16px; padding-top: 12px; border-top: 1px dashed var(--line-strong); }
+.show-sm { display: none; }
+@media (max-width: 640px) {
+  .hide-sm { display: none; }
+  .show-sm { display: block; }
+  .report { padding: 16px; }
+  .bar-cell { width: 30%; }
+}
+@media print {
+  .sidebar, .topbar, .bottom-nav, .yana-fab, .page-head .btn, .no-print, .toast { display: none !important; }
+  body { background: #fff; }
+  .report { box-shadow: none; border: 0; }
+}

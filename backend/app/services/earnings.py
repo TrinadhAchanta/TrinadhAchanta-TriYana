@@ -75,8 +75,8 @@ def _job(e: Earning) -> dict:
 
 
 def summary(db: Session, user: User) -> dict:
-    if user.role not in (Role.doctor, Role.courier):
-        raise Forbidden("forbidden_role", "Earnings are for doctors and couriers.")
+    if user.role not in (Role.doctor, Role.courier, Role.phlebotomist):
+        raise Forbidden("forbidden_role", "Earnings are for doctors, couriers and sample collectors.")
     now_l = _local(utcnow())
     week0 = _week_start(now_l)
     rows = db.scalars(select(Earning).where(Earning.user_id == user.id).order_by(Earning.earned_at.desc())).all()
@@ -111,8 +111,8 @@ def summary(db: Session, user: User) -> dict:
 
 
 def cash_out(db: Session, user: User) -> dict:
-    if user.role not in (Role.doctor, Role.courier):
-        raise Forbidden("forbidden_role", "Earnings are for doctors and couriers.")
+    if user.role not in (Role.doctor, Role.courier, Role.phlebotomist):
+        raise Forbidden("forbidden_role", "Earnings are for doctors, couriers and sample collectors.")
     unpaid = db.scalars(select(Earning).where(Earning.user_id == user.id, Earning.payout_id.is_(None))).all()
     amount = round(sum(e.total for e in unpaid), 2)
     if amount < MIN_CASH_OUT:

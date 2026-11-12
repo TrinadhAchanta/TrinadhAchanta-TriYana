@@ -39,6 +39,9 @@ DEMO_TOKENS = {
     "doctor_rohan": "demo-doctor-rohan",
     "doctor_sana": "demo-doctor-sana",
     "doctor_vikram": "demo-doctor-vikram",
+    "phlebotomist": "demo-phlebotomist-priya",
+    "phlebotomist2": "demo-phlebotomist-suresh",
+    "phlebotomist3": "demo-phlebotomist-fatima",
 }
 
 
@@ -253,6 +256,7 @@ def seed(db: Session) -> dict:
     db.flush()
     db.add_all([DispatchOffer(kind="visit", visit_id=v.id, user_id=carter_user.id, distance_km=km)
                 for v, km in ((visit, 0.8), (visit2, 2.6))])
+    labs = seed_labs(db, users, meera)
     db.commit()
     return {
         "patients": {"meera": meera.id, "arjun": arjun.id},
@@ -264,4 +268,119 @@ def seed(db: Session) -> dict:
         "visits": {"meera": visit.id, "arjun": visit2.id, "unverified_doctor": visit3.id,
                    "meera_past": past_meera.id, "arjun_past": past_arjun.id},
         "tokens": DEMO_TOKENS,
+        "lab_tests": labs["tests"],
+        "lab_bookings": labs["bookings"],
     }
+
+
+# ------------------------------------------------------------------ lab tests at home
+def _p(name, unit, low, high, typical, dp=1, rng=None):
+    return {"name": name, "unit": unit, "low": low, "high": high, "typical": typical, "dp": dp, "range": rng}
+
+
+LAB_TESTS = [
+    # code, name, category, sample, fasting h, turnaround h, price, mrp, popular, about, parameters
+    ("CBC", "Complete Blood Count (CBC)", "Blood health", "Blood", 0, 12, 299, 450, True,
+     "Checks red cells, white cells and platelets. Useful for fever, tiredness and infections.",
+     [_p("Haemoglobin", "g/dL", 12.0, 15.5, 13.4), _p("Total WBC count", "x10³/µL", 4.0, 11.0, 7.2),
+      _p("Platelet count", "x10³/µL", 150, 410, 260, 0), _p("RBC count", "million/µL", 4.0, 5.5, 4.7, 2),
+      _p("Haematocrit (PCV)", "%", 36, 46, 41)]),
+    ("FBS", "Blood Sugar, Fasting", "Diabetes", "Blood", 10, 6, 99, 150, False,
+     "Your blood sugar after an overnight fast. Screens for diabetes.",
+     [_p("Glucose, fasting", "mg/dL", 70, 100, 94, 0)]),
+    ("HBA1C", "HbA1c (3-month sugar average)", "Diabetes", "Blood", 0, 12, 449, 700, True,
+     "Average blood sugar over the last 2 to 3 months. No fasting needed.",
+     [_p("HbA1c", "%", 4.0, 5.6, 5.5), _p("Estimated average glucose", "mg/dL", 68, 114, 110, 0)]),
+    ("LIPID", "Lipid Profile (Cholesterol)", "Heart", "Blood", 12, 12, 399, 650, True,
+     "Cholesterol and triglycerides, for heart health. Fast for 10 to 12 hours.",
+     [_p("Total cholesterol", "mg/dL", None, 200, 182, 0), _p("LDL cholesterol", "mg/dL", None, 100, 104, 0),
+      _p("HDL cholesterol", "mg/dL", 40, None, 48, 0), _p("Triglycerides", "mg/dL", None, 150, 138, 0)]),
+    ("LFT", "Liver Function Test (LFT)", "Liver", "Blood", 0, 12, 499, 800, False,
+     "Liver enzymes, bilirubin and protein. Checks how your liver is working.",
+     [_p("Bilirubin, total", "mg/dL", 0.2, 1.2, 0.7), _p("SGPT (ALT)", "U/L", 7, 56, 28, 0),
+      _p("SGOT (AST)", "U/L", 8, 48, 24, 0), _p("Alkaline phosphatase", "U/L", 44, 147, 88, 0),
+      _p("Albumin", "g/dL", 3.5, 5.0, 4.3)]),
+    ("KFT", "Kidney Function Test (KFT)", "Kidney", "Blood", 0, 12, 549, 850, False,
+     "Creatinine, urea, uric acid and salts. Checks how your kidneys are working.",
+     [_p("Creatinine", "mg/dL", 0.6, 1.2, 0.9, 2), _p("Blood urea", "mg/dL", 15, 40, 26, 0),
+      _p("Uric acid", "mg/dL", 3.5, 7.2, 5.4), _p("Sodium", "mmol/L", 135, 145, 139, 0),
+      _p("Potassium", "mmol/L", 3.5, 5.1, 4.3)]),
+    ("THYROID", "Thyroid Profile (T3, T4, TSH)", "Thyroid", "Blood", 0, 12, 349, 600, True,
+     "Thyroid hormones. Useful for weight change, tiredness, hair fall and mood.",
+     [_p("T3, total", "ng/dL", 80, 200, 120, 0), _p("T4, total", "µg/dL", 5.1, 14.1, 8.4),
+      _p("TSH", "µIU/mL", 0.4, 4.0, 2.4, 2)]),
+    ("VITD", "Vitamin D (25-OH)", "Vitamins", "Blood", 0, 24, 799, 1400, True,
+     "Vitamin D level. Low levels are common and can cause bone pain and tiredness.",
+     [_p("25-OH Vitamin D", "ng/mL", 30, 100, 31)]),
+    ("VITB12", "Vitamin B12", "Vitamins", "Blood", 0, 24, 599, 1000, False,
+     "Vitamin B12 level. Low levels can cause tiredness, tingling and memory problems.",
+     [_p("Vitamin B12", "pg/mL", 211, 911, 420, 0)]),
+    ("CRP", "C-Reactive Protein (CRP)", "Infection", "Blood", 0, 12, 399, 650, False,
+     "A marker of inflammation or infection in the body.",
+     [_p("CRP, quantitative", "mg/L", None, 6.0, 3.0)]),
+    ("URINE", "Urine Routine & Microscopy", "Kidney", "Urine", 0, 12, 149, 250, False,
+     "Checks urine for infection, sugar and protein. First morning urine is best.",
+     [_p("pH", "", 4.5, 8.0, 6.0), _p("Specific gravity", "", 1.005, 1.030, 1.018, 3),
+      _p("Pus cells", "/hpf", 0, 5, 2, 0)]),
+]
+
+LAB_PACKAGES = [
+    ("PKG-FULL", "Full Body Checkup", "Most booked: 8 tests in one visit. Sugar, cholesterol, liver, kidney, thyroid and more.",
+     ["CBC", "FBS", "HBA1C", "LIPID", "LFT", "KFT", "THYROID", "URINE"], 1499, 4800, True),
+    ("PKG-DIAB", "Diabetes Care", "Sugar control, kidney and cholesterol checks for people with diabetes.",
+     ["FBS", "HBA1C", "KFT", "LIPID", "URINE"], 999, 2600, True),
+    ("PKG-FEVER", "Fever Panel", "For fever over 2 days: blood count, infection marker, liver and urine.",
+     ["CBC", "CRP", "LFT", "URINE"], 699, 1500, False),
+    ("PKG-WOMEN", "Women's Wellness", "Blood count, thyroid, vitamin D and B12. Common causes of tiredness.",
+     ["CBC", "THYROID", "VITD", "VITB12"], 1299, 3400, False),
+    ("PKG-SENIOR", "Senior Citizen Care", "A complete yearly check for parents and grandparents.",
+     ["CBC", "FBS", "HBA1C", "LIPID", "LFT", "KFT", "THYROID", "VITD", "VITB12"], 1999, 6200, False),
+]
+
+
+def seed_labs(db: Session, users: dict, meera: Patient) -> dict:
+    from .models import Lab, LabBooking, LabTest
+    lab = Lab(name="Triyana Diagnostics Lab (Demo)", accreditation="NABL MC-DEMO-4412",
+              address="7 Science Park Rd, Demo City", lat=17.4480, lng=78.3610)
+    db.add(lab)
+    tests = {}
+    for code, name, cat, sample, fast, tat, price, mrp, pop, about, params in LAB_TESTS:
+        tests[code] = LabTest(code=code, name=name, kind="test", category=cat, sample=sample, fasting_hours=fast,
+                              turnaround_hours=tat, price=price, mrp=mrp, popular=pop, about=about, parameters=params)
+    for code, name, about, inc, price, mrp, pop in LAB_PACKAGES:
+        subs = [tests[c] for c in inc]
+        tests[code] = LabTest(code=code, name=name, kind="package", category="Packages", about=about,
+                              sample=", ".join(sorted({s.sample for s in subs})), includes=inc,
+                              fasting_hours=max(s.fasting_hours for s in subs),
+                              turnaround_hours=max(s.turnaround_hours for s in subs), price=price, mrp=mrp, popular=pop)
+    db.add_all(tests.values())
+    # Sample collectors (phlebotomists) for the Partner app. Priya and Suresh start online.
+    for key, name, lat, lng, online in (("phlebotomist", "Priya (Phlebotomist)", 17.4415, 78.3525, True),
+                                        ("phlebotomist2", "Suresh (Phlebotomist)", 17.4560, 78.3740, True),
+                                        ("phlebotomist3", "Fatima (Phlebotomist)", 17.4700, 78.3900, False)):
+        users[key] = User(name=name, role=Role.phlebotomist, token=DEMO_TOKENS[key], on_duty=online,
+                          lat=lat, lng=lng, vehicle="Scooter")
+        db.add(users[key])
+    db.flush()
+    # Meera already has a past report, so the report screen has something to show.
+    now = utcnow()
+    t = tests["PKG-DIAB"]
+    past = LabBooking(booking_ref="LB-DEMO0001", patient_id=meera.id, lab_id=lab.id,
+                      items=[{"id": t.id, "code": t.code, "name": t.name, "kind": t.kind, "price": t.price, "mrp": t.mrp}],
+                      status="at_lab", slot_start=now - timedelta(days=20, hours=3), address=meera.address,
+                      lat=meera.lat, lng=meera.lng, fasting_hours=t.fasting_hours, subtotal=t.price, collection_fee=0,
+                      total=t.price, payment_method="upi", payment_status="captured", payment_ref="auth_demo",
+                      collection_code="0000", phlebotomist_user_id=users["phlebotomist"].id,
+                      sample_ids=["0001-BLO-7A1C", "0001-URI-2F9B"], collected_at=now - timedelta(days=20, hours=3),
+                      at_lab_at=now - timedelta(days=20, hours=2), created_at=now - timedelta(days=21),
+                      events=[{"at": (now - timedelta(days=21)).isoformat(), "status": "booked", "note": "Collection booked"},
+                              {"at": (now - timedelta(days=20, hours=3)).isoformat(), "status": "collected",
+                               "note": "2 samples collected and sealed"}])
+    db.add(past)
+    db.flush()
+    from .services.labs import _report
+    past.report = _report(db, past)
+    past.report["reported_at"] = (now - timedelta(days=19, hours=20)).isoformat()
+    past.status, past.report_ready_at = "report_ready", now - timedelta(days=19, hours=20)
+    past.events = [*past.events, {"at": past.report_ready_at.isoformat(), "status": "report_ready", "note": "Report ready"}]
+    return {"tests": {k: v.id for k, v in tests.items()}, "bookings": {"meera_past": past.id}}

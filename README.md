@@ -20,7 +20,7 @@ Or with Docker: `docker build -t triyana . && docker run -p 8000:8000 triyana`. 
 | App | URL | Who | What |
 |---|---|---|---|
 | **Triyana** | `/` | Patients | Service tiles (Doctor now, book a visit, prescriptions, medicine cart, tracking, Yana), live map with ETA |
-| **Triyana Partner** | `/provider` | Doctors, couriers, pharmacists | Go online / offline, nearby request offers with a countdown, accept or decline, turn-by-turn navigation |
+| **Triyana Partner** | `/provider` | Doctors, couriers, pharmacists, phlebotomists | Go online / offline, nearby request offers with a countdown, accept or decline, turn-by-turn navigation |
 
 Both are installable PWAs (Add to Home Screen) with their own sign-in; a patient token is refused by the Partner app and vice versa (`X-Triyana-App` header).
 
@@ -33,6 +33,8 @@ Both are installable PWAs (Add to Home Screen) with their own sign-in; a patient
 Demo walk-through: open `/` as Meera and tap **Doctor now**. In another tab open `/provider` as Dr. Carter, accept the request, and watch both maps move. Decline instead to see it go to Dr. Rohan, then Dr. Vikram. Native app-store builds (Capacitor or React Native around the same API) are the next step.
 
 The web app has a demo account switcher (patient, doctor, pharmacist, courier, hospital). Walk the journey: Dr. Carter accepts → starts → completes the visit → writes and signs a prescription → Meera reviews the cart, buys 3 of 5 tablets, removes another item, picks a pharmacy, authorises payment → Ravi reviews and dispenses → Asha delivers with Meera's handover code. Use **Reset demo** to start again.
+
+**Lab tests at home**, `services/labs.py`: patients pick packages or single tests (search, categories, MRP vs price, fasting and sample info), then **Collect now** (nearest online phlebotomist, +₹99) or a one-hour slot (6 AM–7 PM, fasting-friendly morning slots suggested, free collection above ₹499). Payment is cash/UPI at the door or an online hold captured only after collection. The booking is dispatched like the other jobs (nearest first, 45 s for collect-now, decline goes to the next). The phlebotomist navigates to the patient, enters the patient's 4-digit collection code (and confirms fasting) to collect barcoded samples, then navigates to the NABL lab (demo) and hands over. The report appears in the patient app after `TRIYANA_LAB_REPORT_SECONDS` (default 60) with reference ranges, High/Low flags, PDF download, and a "Book a doctor" prompt. Demo: Meera → **Lab tests at home**; Partner app → **Priya · phlebotomist**.
 
 For drones, sign in as **Nisha (Lotus Hospital)**: open **Coverage** to see which hospitals a drone can reach and why not, then **Send or request** to book a drone from GreenLeaf Pharmacy and follow it on the tracking map.
 

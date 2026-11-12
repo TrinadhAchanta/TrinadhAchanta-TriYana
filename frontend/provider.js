@@ -23,13 +23,14 @@ const MANEUVER = (s) => {
 [TABS.doctor, TABS.courier].forEach((t) => t.splice(1, 0, ["earnings", "Earnings", "wallet"]));
 const inr = (n) => new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: n % 1 ? 2 : 0 }).format(n || 0);
 
-const ROLE_WORD = { doctor: "visits", courier: "deliveries" };
+const ROLE_WORD = { doctor: "visits", courier: "deliveries", phlebotomist: "sample collections" };
 let seenOffers = new Set();
 
 /* ------------------------------------------------------------------ dashboard */
 SCREENS.dash = async () => {
   let st = await api("/api/provider/status");
-  let jobs = st.can_go_online ? await api("/api/provider/jobs") : [];
+  const activeJobs = (list) => list.filter((j) => j.kind !== "lab" || ["assigned", "collected"].includes(j.status)); // finished collections live on the Collections tab
+  let jobs = st.can_go_online ? activeJobs(await api("/api/provider/jobs")) : [];
   let earn = st.can_go_online ? await api("/api/provider/earnings").catch(() => null) : null;
   let sig = "";
   const signature = () => JSON.stringify([st.online, st.offers.map((o) => o.id), st.active_trip?.id, st.active_trip?.arrived, jobs.map((j) => [j.id, j.status, j.trip_id])]);
@@ -105,6 +106,7 @@ SCREENS.dash = async () => {
     $$("[data-nav]").forEach((b) => (b.onclick = () => navScreen()));
     $$("[data-visits]").forEach((b) => (b.onclick = () => go("visits")));
     $$("[data-collect]").forEach((b) => (b.onclick = () => guard(async () => { await post(`/api/pharmacy/orders/${b.dataset.collect}/dispatch`); navScreen(); })));
+    wireLabJobs();
   };
 
   render();
@@ -115,7 +117,7 @@ SCREENS.dash = async () => {
     if (e2 && earn && e2.today.total !== earn.today.total) sig = "";
     earn = e2;
     const fresh = s2.offers.filter((o) => !seenOffers.has(o.id));
-    st = s2; jobs = j2;
+    st = s2; jobs = activeJobs(j2);
     if (fresh.length) {
       fresh.forEach((o) => seenOffers.add(o.id));
       try { navigator.vibrate?.([120, 60, 120]); } catch {}
@@ -149,7 +151,8 @@ function offerCard(o) {
       ${ring}</div>
     <div class="route-list">
       ${o.pickup ? `<div><span class="dot a"></span><div><b>Pick up</b><span class="tiny muted">${esc(shortName(o.pickup.label))}</span></div></div>` : ""}
-      <div><span class="dot b"></span><div><b>${o.kind === "visit" ? "Patient" : "Drop off"}</b><span class="tiny muted">${esc(o.patient)}${o.address ? ` · ${esc(o.address)}` : o.dropoff_km ? ` · ${o.dropoff_km} km from pickup` : ""}</span></div></div>
+      <div><span class="dot b"></span><div><b>${o.kind === "delivery" ? "Drop off" : o.kind === "lab" ? "Collect from" : "Patient"}</b><span class="tiny muted">${esc(o.patient)}${o.address ? ` · ${esc(o.address)}` : o.dropoff_km ? ` · ${o.dropoff_km} km from pickup` : ""}</span></div></div>
+      ${o.lab ? `<div><span class="dot a"></span><div><b>Drop at lab</b><span class="tiny muted">${esc(shortName(o.lab.label))} · ${o.lab_km} km from patient</span></div></div>` : ""}
     </div>
     ${o.reason ? `<div class="instructions">${esc(o.reason)}</div>` : ""}
     ${o.cold_chain ? `<div class="row small" style="margin-top:8px"><span class="badge info">${ic("snow")} Keep cold</span></div>` : ""}
@@ -158,6 +161,7 @@ function offerCard(o) {
 }
 
 function jobCard(j) {
+  if (j.kind === "lab") return labJobCard(j);
   const visit = j.kind === "visit";
   const label = { accepted: ["Accepted", "brand"], in_progress: ["With patient", "warn"], ready_for_pickup: ["Collect from pharmacy", "info"], out_for_delivery: ["Out for delivery", "brand"], delivered: ["Delivered", "good"] }[j.status] || [j.status, ""];
   let action = "";
@@ -209,6 +213,8 @@ async function navScreen() {
   state.tab = "dash"; renderNav();
   let t = await api("/api/provider/trip");
   if (!t) { toast("No active trip", "info"); return go("dash"); }
+  const labJob = t.lab_booking_id ? (await api("/api/provider/jobs")).find((j) => j.kind === "lab" && j.id === t.lab_booking_id) : null;
+  const destIco = t.leg === "to_lab" ? "flask" : t.leg === "to_pharmacy" ? "store" : "home2";
   document.body.classList.add("nav-mode");
   state.cleanups.push(() => document.body.classList.remove("nav-mode"));
   view().innerHTML = `<div class="nav">
@@ -223,7 +229,7 @@ async function navScreen() {
   let follow = true, routeKey = "";
   if (map) {
     map.on("dragstart", () => { follow = false; $("#recenter").classList.add("show"); });
-    M.dest = L.marker(t.destination, { icon: markerIcon(t.leg === "to_pharmacy" ? "pharmacy" : "home", ic(t.leg === "to_pharmacy" ? "store" : "home2")), zIndexOffset: 100 }).addTo(map);
+    M.dest = L.marker(t.destination, { icon: markerIcon(t.leg === "to_patient" ? "home" : "pharmacy", ic(destIco)), zIndexOffset: 100 }).addTo(map);
     M.me = L.marker(t.position, { icon: markerIcon("me", `<i class="hd">${ic("nav")}</i>`), zIndexOffset: 600 }).addTo(map);
   }
   $("#recenter").onclick = () => { follow = true; $("#recenter").classList.remove("show"); map && map.setView(t.position, 16); };
@@ -257,7 +263,8 @@ async function navScreen() {
     }
     const isVisit = !!t.visit_id;
     let actions;
-    if (isVisit) actions = `<button class="btn primary block" id="navStart" ${t.arrived ? "" : "disabled"}>${ic("stethoscope")} ${t.arrived ? "Start visit" : "Start visit on arrival"}</button>`;
+    if (t.lab_booking_id) actions = labNavActions(t, labJob);
+    else if (isVisit) actions = `<button class="btn primary block" id="navStart" ${t.arrived ? "" : "disabled"}>${ic("stethoscope")} ${t.arrived ? "Start visit" : "Start visit on arrival"}</button>`;
     else if (t.leg === "to_pharmacy") actions = `<button class="btn primary block" id="navCollect">${ic("bag")} ${t.arrived ? "Collected, start delivery" : "Collected the order"}</button>`;
     else actions = `<div class="form-grid"><label>Handover code<input id="hoCode" inputmode="numeric" maxlength="4" placeholder="4 digits"></label><label>Received by<input id="hoWho" placeholder="Name"></label></div>
       <label class="check" style="margin:10px 0"><input type="checkbox" id="hoId"><span>Photo ID checked (if required)</span></label>
@@ -267,7 +274,7 @@ async function navScreen() {
         <div><div class="eta-big">${t.arrived ? "Arrived" : `${t.eta_min} min`}</div><div class="small muted">${t.arrived ? esc(t.dest_label) : `${km(t.remaining_m)} · arrive ${clock(t.eta_min)}`}</div></div>
         <a class="btn sm" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${t.destination[0]},${t.destination[1]}&travelmode=driving">${ic("nav")} Google Maps</a></div>
       <div class="trip-bar"><i style="width:${Math.round(t.fraction * 100)}%"></i></div>
-      <div class="row small" style="margin:8px 0 12px"><span class="badge">${ic(t.leg === "to_pharmacy" ? "store" : "home2")} ${esc(t.dest_label)}</span><span class="badge ${t.source === "osrm" ? "good" : ""}">${t.source === "osrm" ? "Road route" : "Approximate route"}</span><span class="badge">Demo GPS ×${t.speedup}</span></div>
+      <div class="row small" style="margin:8px 0 12px"><span class="badge">${ic(destIco)} ${esc(t.dest_label)}</span><span class="badge ${t.source === "osrm" ? "good" : ""}">${t.source === "osrm" ? "Road route" : "Approximate route"}</span><span class="badge">Demo GPS ×${t.speedup}</span></div>
       <div id="navActions">${actions}</div>`;
     wireActions();
   };
@@ -279,6 +286,7 @@ async function navScreen() {
       await post(`/api/orders/${t.order_id}/handover`, { code: $("#hoCode").value, recipient_name: $("#hoWho").value || "Patient", id_verified: $("#hoId").checked });
       toast("Delivered. Your pay was added to Earnings."); go("dash");
     });
+    wireLabNav(t);
   };
 
   drawRoute(); draw();
@@ -290,8 +298,9 @@ async function navScreen() {
   every(1500, async () => {
     const nt = await api("/api/provider/trip");
     if (!nt) return go("dash");
-    const typing = document.activeElement && ["hoCode", "hoWho"].includes(document.activeElement.id);
-    keepForms = typing || ($("#hoCode")?.value || "") !== "";
+    if (nt.id !== t.id) return navScreen(); // e.g. sample collected: now heading to the lab
+    const typing = document.activeElement && ["hoCode", "hoWho", "labCode"].includes(document.activeElement.id);
+    keepForms = typing || ($("#hoCode")?.value || "") !== "" || ($("#labCode")?.value || "") !== "";
     const arrivedNow = nt.arrived && !t.arrived;
     t = nt; drawRoute();
     if (keepForms && !arrivedNow) { // update only the moving parts while the courier is typing
@@ -329,7 +338,7 @@ SCREENS.earnings = async () => {
     <div class="split earn-split"><div>
       <div class="section-title">Jobs</div>
       ${Object.keys(byDay).length ? Object.entries(byDay).map(([k, list]) => `<div class="card earn-day" data-k="${k}"><div class="row between"><h3>${esc(dayTitle(k))}</h3><b>${inr(list.reduce((a, j) => a + j.total, 0))}</b></div>
-        ${list.map((j) => `<details class="earn-job"><summary><span class="avatar">${ic(j.kind === "visit" ? "stethoscope" : "truck")}</span>
+        ${list.map((j) => `<details class="earn-job"><summary><span class="avatar">${ic(j.kind === "visit" ? "stethoscope" : j.kind === "lab" ? "flask" : "truck")}</span>
             <span class="grow"><b>${esc(j.title)}</b><span class="tiny muted">${time(j.earned_at)} · ${j.distance_km} km${j.paid_out ? " · paid out" : ""}</span></span>
             <span class="amt">${inr(j.total)}</span></summary>
           <table class="price"><tr><td>${j.kind === "visit" ? "Visit fee" : "Delivery pay"}</td><td>${inr(j.base)}</td></tr>

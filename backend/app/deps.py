@@ -9,7 +9,7 @@ from .db import get_db
 from .models import Role, User
 
 
-PROVIDER_ROLES = (Role.doctor, Role.courier, Role.pharmacist)
+PROVIDER_ROLES = (Role.doctor, Role.courier, Role.pharmacist, Role.phlebotomist)
 
 
 def current_user(authorization: str | None = Header(default=None), x_triyana_app: str | None = Header(default=None),

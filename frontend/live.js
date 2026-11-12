@@ -75,7 +75,7 @@ const SERVICES = [
   { key: "orders", title: "Track orders", sub: "Live courier map", icon: "truck", go: "orders", tone: "blue" },
   { key: "meds", title: "My Medicines", sub: "Prescribed, ordered, dispensed", icon: "pills", go: "meds" },
   { key: "yana", title: "Ask Yana", sub: "Your medicine assistant", icon: "chat", tone: "gold" },
-  { key: "lab", title: "Lab tests at home", sub: "Sample collection", icon: "flask", soon: true },
+  { key: "lab", title: "Lab tests at home", sub: "Collector at your door, reports here", icon: "flask", go: "labs", tone: "blue" },
   { key: "nurse", title: "Nurse & physio", sub: "Care visits at home", icon: "heart", soon: true },
 ];
 
