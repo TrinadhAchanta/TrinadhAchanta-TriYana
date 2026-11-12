@@ -18,7 +18,7 @@ const AISLE_ICON = { "Cold & allergy": ["drop", "c2"], "Digestive care": ["pills
 const aisleIcon = (cat) => AISLE_ICON[cat] || ["pills", "c3"];
 
 /* ------------------------------------------------------------------ basket (per signed-in patient) */
-const basketKey = () => `triyana.basket.${state.token}`;
+const basketKey = () => `triyana.basket.${state.userId}`; // per account, survives signing out and in
 function basket() { try { return JSON.parse(localStorage.getItem(basketKey()) || "{}"); } catch { return {}; } }
 function saveBasket(b) { try { localStorage.setItem(basketKey(), JSON.stringify(b)); } catch {} }
 const basketLines = (b = basket()) => Object.entries(b).map(([id, l]) => ({ medication_id: +id, ...l })).filter((l) => l.packs > 0);
