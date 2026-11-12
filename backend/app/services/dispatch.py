@@ -359,6 +359,9 @@ def accept(db: Session, user: User, offer_id: int) -> DispatchOffer:
 
 def decline(db: Session, user: User, offer_id: int) -> DispatchOffer:
     sweep(db)
+    o = db.get(DispatchOffer, offer_id)
+    if o is not None and o.user_id == user.id and o.status in ("declined", "expired", "withdrawn"):
+        return o  # already off their list (double tap, or it timed out a moment ago): nothing to undo
     o = _my_offer(db, user, offer_id)
     o.status, o.responded_at = "declined", utcnow()
     db.flush()

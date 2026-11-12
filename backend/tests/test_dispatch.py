@@ -209,3 +209,22 @@ def test_delivery_goes_to_nearest_courier_with_live_tracking(env, as_, signed_rx
     assert done["status"] == "delivered" and done["delivery"]["courier"] == "Kiran"
     assert kiran.get("/api/provider/trip").json() is None
     assert patient.get(f"/api/orders/{oid}/live").json()["phase"] == "done"
+
+
+def test_decline_is_safe_to_tap_twice_or_after_the_timer_runs_out(env, as_):
+    patient, carter, rohan = as_("patient"), as_("doctor"), as_("doctor_rohan")
+    patient.post("/api/patient/visits/now", {"reason": "Sore throat"})
+    mine = next(o for o in _status(carter)["offers"] if o["on_demand"])
+    assert carter.post(f"/api/provider/offers/{mine['id']}/decline").json()["status"] == "declined"
+    # A second tap (slow network) is fine and doesn't move the job again.
+    assert carter.post(f"/api/provider/offers/{mine['id']}/decline").json()["status"] == "declined"
+    assert not any(o["id"] == mine["id"] for o in _status(carter)["offers"])
+    ro = next(o for o in _status(rohan)["offers"] if o["on_demand"])
+    # Declining right after it timed out also just takes it off the list.
+    with env["Session"]() as s:
+        s.get(DispatchOffer, ro["id"]).expires_at = utcnow() - timedelta(seconds=1)
+        s.commit()
+    assert rohan.post(f"/api/provider/offers/{ro['id']}/decline").status_code == 200
+    assert not any(o["id"] == ro["id"] for o in _status(rohan)["offers"])
+    # Someone else's request is still off limits.
+    assert rohan.post(f"/api/provider/offers/{mine['id']}/decline").status_code == 404

@@ -70,6 +70,7 @@ function toast(msg, icon = "check") {
 async function api(path, opts = {}) {
   const res = await fetch(path, {
     method: opts.method || "GET",
+    cache: "no-store", // live data: never show a stale list of requests
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${state.token}`, "X-Triyana-App": APP },
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
