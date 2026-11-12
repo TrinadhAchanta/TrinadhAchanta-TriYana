@@ -25,10 +25,12 @@ const inr = (n) => new Intl.NumberFormat("en-IN", { style: "currency", currency:
 
 const ROLE_WORD = { doctor: "visits", courier: "deliveries", phlebotomist: "sample collections", physio: "physio sessions" };
 let seenOffers = new Set();
+const declinedOffers = new Set(); // hidden at once on tap, even before the server answers
 
 /* ------------------------------------------------------------------ dashboard */
 SCREENS.dash = async () => {
-  let st = await api("/api/provider/status");
+  const status = async () => { const s = await api("/api/provider/status"); s.offers = s.offers.filter((o) => !declinedOffers.has(o.id)); return s; };
+  let st = await status();
   const activeJobs = (list) => list.filter((j) => j.kind !== "lab" || ["assigned", "collected"].includes(j.status)); // finished collections live on the Collections tab
   let jobs = st.can_go_online ? activeJobs(await api("/api/provider/jobs")) : [];
   let earn = st.can_go_online ? await api("/api/provider/earnings").catch(() => null) : null;
@@ -98,11 +100,21 @@ SCREENS.dash = async () => {
       toast("Accepted. Let's go!", "check");
       if (r.trip) navScreen(); else { stopLive(); SCREENS.dash(); }
     })));
-    $$("[data-decline]").forEach((b) => (b.onclick = () => guard(async () => {
-      await post(`/api/provider/offers/${b.dataset.decline}/decline`);
-      toast("Declined. We'll offer it to the next nearest provider.", "info");
+    $$("[data-decline]").forEach((b) => (b.onclick = async () => {
+      /* Take the card away straight away (like Dasher) so a slow network never looks like a dead button. */
+      const id = +b.dataset.decline, card = b.closest(".offer");
+      card.querySelectorAll("button").forEach((x) => (x.disabled = true));
+      b.textContent = "Declining…";
+      declinedOffers.add(id);
+      card.classList.add("leaving");
+      try {
+        await post(`/api/provider/offers/${id}/decline`);
+        toast("Declined. We'll offer it to the next nearest provider.", "info");
+      } catch (e) {
+        if (e.status !== 409 && e.status !== 404) { declinedOffers.delete(id); toast(e.message, "alert"); }
+      }
       stopLive(); SCREENS.dash();
-    })));
+    }));
     $$("[data-depart]").forEach((b) => (b.onclick = () => guard(async () => { await post(`/api/provider/visits/${b.dataset.depart}/depart`); navScreen(); })));
     $$("[data-nav]").forEach((b) => (b.onclick = () => navScreen()));
     $$("[data-visits]").forEach((b) => (b.onclick = () => go("visits")));
@@ -117,7 +129,7 @@ SCREENS.dash = async () => {
   st.offers.forEach((o) => seenOffers.add(o.id));
   every(1000, async () => tickCountdowns());
   every(3000, async () => {
-    const [s2, j2, e2] = await Promise.all([api("/api/provider/status"), st.can_go_online ? api("/api/provider/jobs") : [], st.can_go_online ? api("/api/provider/earnings").catch(() => earn) : null]);
+    const [s2, j2, e2] = await Promise.all([status(), st.can_go_online ? api("/api/provider/jobs") : [], st.can_go_online ? api("/api/provider/earnings").catch(() => earn) : null]);
     if (e2 && earn && e2.today.total !== earn.today.total) sig = "";
     earn = e2;
     const fresh = s2.offers.filter((o) => !seenOffers.has(o.id));

@@ -103,7 +103,7 @@ body.partner-app {
 
 /* ------------------------------------------------------------- map markers */
 .map-off { height: 100%; display: grid; place-items: center; gap: 6px; color: var(--muted); background: var(--surface-2); }
-.leaflet-container { font: inherit; background: var(--surface-2); }
+.leaflet-container { font: inherit; background: var(--surface-2); isolation: isolate; z-index: 0; } /* keep map pins and panes inside the map, under the top bar and bottom tabs */
 .mk { width: 100%; height: 100%; border-radius: 50%; display: grid; place-items: center; color: #fff; box-shadow: 0 6px 16px rgba(0, 0, 0, .28); border: 3px solid #fff; }
 .mk svg.i { width: 18px; height: 18px; stroke-width: 2.2; }
 .mk-home { background: #0c1a16; }
@@ -329,6 +329,15 @@ div.field { display: flex; flex-direction: column; gap: 6px; }
 .auth-form input, .auth-form select { width: 100%; min-width: 0; }
 .auth-form .form-grid > * { min-width: 0; }
 .login-card { min-width: 0; overflow: hidden; }
+
+/* Declined request: fade it out at once while the server catches up. */
+.offer.leaving { opacity: .45; transform: scale(.98); pointer-events: none; transition: opacity .2s, transform .2s; }
+
+/* Phones: the top bar and bottom tabs stay put and stay on top while the page scrolls. */
+@media (max-width: 780px) {
+  .topbar { z-index: 40; background: var(--surface); }
+  .bottom-nav { z-index: 40; background: var(--surface); }
+}
 
 /* Provider verification checks (registry, ID, court records, final review) */
 .v-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; }
