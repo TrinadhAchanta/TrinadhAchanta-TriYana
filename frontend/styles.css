@@ -460,3 +460,17 @@ hr.soft { border: 0; border-top: 1px solid var(--line); margin: 14px 0; }
 .legend .sw { display: inline-block; width: 12px; height: 12px; border-radius: 4px; border: 1.5px solid var(--line-strong); vertical-align: -1px; margin-right: 4px; }
 .legend .sw.on { background: var(--brand); border-color: var(--brand); }
 .legend .sw.booked { background: #f6dca6; border-color: #f6dca6; }
+
+/* visit notes & vitals */
+.vitals { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); margin-bottom: 14px; }
+.vital { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); }
+.vital b { font-size: 22px; font-weight: 800; letter-spacing: -.01em; }
+.vital b small { font-size: 12px; font-weight: 600; color: var(--muted); }
+.vital.flag-watch { border-color: var(--warn); background: var(--warn-soft); }
+.vital.flag-high { border-color: var(--bad); background: var(--bad-soft); }
+.vital.flag-watch > .tiny:last-child { color: var(--warn); font-weight: 700; }
+.vital.flag-high > .tiny:last-child { color: var(--bad); font-weight: 700; }
+.bp-pair { display: flex; align-items: center; gap: 6px; }
+.bp-pair input { min-width: 0; flex: 1; }
+.bp-pair b { color: var(--muted); }
+.sticky-actions { gap: 8px; flex-wrap: wrap; margin-top: 4px; }

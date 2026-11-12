@@ -10,7 +10,7 @@ from .. import audit
 from ..adapters.geo import haversine_km
 from ..errors import Conflict, NotFound, Unprocessable
 from ..models import Doctor, DoctorAvailability, HomeVisit, Patient, User, VisitStatus, utcnow
-from . import dispatch
+from . import dispatch, visit_notes
 from .common import new_ref, notify, users_for_doctor, users_for_patient
 
 SERVICE_RADIUS_KM = 15.0
@@ -301,6 +301,7 @@ def visit_to_dict(v: HomeVisit, patient: Patient | None = None) -> dict:
         "doctor": doctor_to_dict(v.doctor, km) if v.doctor else None,
         "follow_up_of": follow_up_info(v),
         "can_cancel": v.status in (VisitStatus.requested, VisitStatus.accepted),
+        "notes": visit_notes.summary(v) if v.status == VisitStatus.completed else None,
     }
 
 
