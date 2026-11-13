@@ -466,8 +466,9 @@ def patient_view(db: Session, v: HomeVisit, doc_user: User | None) -> dict:
 
 
 def patient_profile(db: Session, patient_user: User, visit_id: int) -> dict:
+    from .family import can_view_patient
     v = db.get(HomeVisit, visit_id)
-    if v is None or v.patient_id != patient_user.patient_id or not v.doctor_id:
+    if v is None or not can_view_patient(db, patient_user, v.patient_id) or not v.doctor_id:
         raise NotFound("not_found", "Visit not found.")
     doc_user = db.scalars(select(User).where(User.doctor_id == v.doctor_id)).first()
     view = patient_view(db, v, doc_user)

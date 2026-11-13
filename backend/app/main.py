@@ -27,6 +27,7 @@ from .routers.physio import router as physio_router
 from .routers.face import router as face_router
 from .routers.perks import router as perks_router
 from .routers.care import router as care_router
+from .routers.family import router as family_router
 from .errors import DomainError, Forbidden, NotFound
 from .models import (
     AuditLog,
@@ -341,6 +342,7 @@ class BookingIn(BaseModel):
     asap: bool = False  # whoever is available soonest
     follow_up_of: int | None = None  # the completed visit this one follows up
     cashless: bool = False  # bill the visit to the patient's health insurer
+    member_id: int | None = None  # family booking: the family member this visit is for
 
 
 class AvailabilityIn(BaseModel):
@@ -349,8 +351,9 @@ class AvailabilityIn(BaseModel):
 
 
 @app.get("/api/doctors")
-def nearby_doctors(user: User = Depends(require(Role.patient)), db: Session = Depends(get_db)):
-    patient = db.get(Patient, user.patient_id)
+def nearby_doctors(member: int | None = None, user: User = Depends(require(Role.patient)), db: Session = Depends(get_db)):
+    from .services.family import patient_for
+    patient = patient_for(db, user, member)
     return {"address": patient.address, "radius_km": visit_svc.SERVICE_RADIUS_KM,
             "doctors": visit_svc.list_doctors(db, patient), "soonest": visit_svc.soonest_to_dict(db, patient)}
 
@@ -361,8 +364,10 @@ def follow_up(user: User = Depends(require(Role.patient)), db: Session = Depends
 
 
 @app.get("/api/visit-slots")
-def visit_slots(doctor_id: int | None = None, user: User = Depends(require(Role.patient)), db: Session = Depends(get_db)):
-    return visit_svc.slots_for(db, db.get(Patient, user.patient_id), doctor_id)
+def visit_slots(doctor_id: int | None = None, member: int | None = None, user: User = Depends(require(Role.patient)),
+                db: Session = Depends(get_db)):
+    from .services.family import patient_for
+    return visit_svc.slots_for(db, patient_for(db, user, member), doctor_id)
 
 
 @app.get("/api/patient/visits")
@@ -374,8 +379,9 @@ def patient_visits(user: User = Depends(require(Role.patient)), db: Session = De
 def book_visit(body: BookingIn, user: User = Depends(require(Role.patient)), db: Session = Depends(get_db)):
     privacy_svc.require_care(db, user)
     v = visit_svc.book(db, user, body.doctor_id, body.scheduled_for, body.reason, body.address,
-                       asap=body.asap, follow_up_of=body.follow_up_of, cashless=body.cashless)
-    return visit_svc.visit_to_dict(v, db.get(Patient, user.patient_id))
+                       asap=body.asap, follow_up_of=body.follow_up_of, cashless=body.cashless,
+                       member_id=body.member_id)
+    return visit_svc.visit_to_dict(v, v.patient)
 
 
 @app.post("/api/patient/visits/{visit_id}/cancel")
@@ -776,6 +782,7 @@ app.include_router(physio_router)
 app.include_router(face_router)
 app.include_router(perks_router)
 app.include_router(care_router)
+app.include_router(family_router)
 
 # --------------------------------------------------------------- frontend
 FRONTEND = Path(__file__).resolve().parents[2] / "frontend"
@@ -796,6 +803,11 @@ if FRONTEND.exists():
     def admin_app():
         """Triyana Ops: final review of provider verification (needs the admin key)."""
         return FileResponse(FRONTEND / "admin.html")
+
+    @app.get("/track/{token}")
+    def family_tracking_page(token: str):
+        """Read-only live map a family member opens from an SOS text or a shared link."""
+        return FileResponse(FRONTEND / "track.html")
 
     @app.get("/sw.js")
     def service_worker():

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, object_session
 
 from ..errors import Forbidden, NotFound
 from ..models import (
+    FamilyMember,
     HomeVisit,
     Notification,
     PharmacyOrder,
@@ -68,7 +69,11 @@ def ensure_visit_doctor(user: User, visit: HomeVisit) -> None:
 
 
 def users_for_patient(db: Session, patient_id: int) -> list[User]:
-    return list(db.scalars(select(User).where(User.patient_id == patient_id)))
+    """The patient's own account plus any family account that manages them (e.g. a son in another city)."""
+    own = list(db.scalars(select(User).where(User.patient_id == patient_id)))
+    family = db.scalars(select(User).join(FamilyMember, FamilyMember.owner_user_id == User.id)
+                        .where(FamilyMember.patient_id == patient_id, FamilyMember.removed_at.is_(None))).all()
+    return own + [u for u in family if u not in own]
 
 
 def users_for_doctor(db: Session, doctor_id: int) -> list[User]:
@@ -80,5 +85,12 @@ def users_for_pharmacy(db: Session, pharmacy_id: int, role: Role = Role.pharmaci
 
 
 def notify(db: Session, users: list[User], title: str, body: str, link: str = "") -> None:
+    about = None  # family accounts get the member's name on visit updates, e.g. "Kamala: Doctor on the way"
+    if link.startswith("visit:") and any(u.role == Role.patient for u in users):
+        v = db.get(HomeVisit, int(link.split(":")[1])) if link.split(":")[1].isdigit() else None
+        about = v.patient if v else None
     for u in users:
-        db.add(Notification(user_id=u.id, title=title, body=body, link=link))
+        t = title
+        if about is not None and u.role == Role.patient and u.patient_id != about.id:
+            t = f"{about.name.split(' ')[0]}: {title}"[:120]
+        db.add(Notification(user_id=u.id, title=t, body=body, link=link))

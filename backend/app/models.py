@@ -296,6 +296,10 @@ class HomeVisit(Base):
     arrival_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime)
     # "Doctor in 10 minutes": the minutes promised at booking (None when the patient chose a farther doctor).
     promise_min: Mapped[int | None] = mapped_column(Integer)
+    # Family booking: the account that booked, when it was booked for a family member.
+    booked_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    # SOS: emergency visits jump the queue and alert family.
+    sos: Mapped[bool | None] = mapped_column(Boolean, default=False)
 
     doctor = relationship("Doctor")
     patient = relationship("Patient")
@@ -1045,3 +1049,65 @@ class FollowUpCall(Base):
 
     visit = relationship("HomeVisit")
     doctor = relationship("Doctor")
+
+
+# ------------------------------------------------------------------ family + SOS
+class FamilyMember(Base):
+    """Someone an account books care for (an elderly parent, a child). Each member is their own
+    ``Patient`` with their own home, so the nearest doctor to *their* door is sent."""
+    __tablename__ = "family_members"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    owner_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    relation: Mapped[str] = mapped_column(String(40))
+    phone: Mapped[str | None] = mapped_column(EncryptedText)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    removed_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    patient = relationship("Patient")
+
+
+class EmergencyContact(Base):
+    """People told by SMS (with a live tracking link) when the account sends an SOS."""
+    __tablename__ = "emergency_contacts"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    owner_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    relation: Mapped[str] = mapped_column(String(40), default="")
+    phone: Mapped[str] = mapped_column(EncryptedText)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    removed_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class TrackingShare(Base):
+    """A read-only live tracking link for a visit, for family who are not on the account."""
+    __tablename__ = "tracking_shares"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    token: Mapped[str] = mapped_column(String(48), unique=True, index=True)
+    visit_id: Mapped[int] = mapped_column(ForeignKey("home_visits.id"), index=True)
+    created_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    label: Mapped[str] = mapped_column(String(80), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    visit = relationship("HomeVisit")
+
+
+class SosAlert(Base):
+    """One SOS press: the emergency visit it started, who was alerted, and any ambulance hand-off."""
+    __tablename__ = "sos_alerts"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    visit_id: Mapped[int | None] = mapped_column(ForeignKey("home_visits.id"))
+    symptoms: Mapped[list] = mapped_column(JSON, default=list)
+    note: Mapped[str] = mapped_column(EncryptedText, default="")
+    serious: Mapped[bool] = mapped_column(Boolean, default=False)
+    lat: Mapped[float | None] = mapped_column(Float)
+    lng: Mapped[float | None] = mapped_column(Float)
+    contacts_alerted: Mapped[list] = mapped_column(JSON, default=list)  # [{"name", "relation", "channel"}]
+    ambulance_status: Mapped[str] = mapped_column(String(16), default="none")  # none|advised|requested|called
+    ambulance_ref: Mapped[str | None] = mapped_column(String(40))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime)

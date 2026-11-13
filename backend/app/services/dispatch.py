@@ -230,6 +230,8 @@ def _make_offer(db: Session, kind: str, target, user: User, km: float, timed: bo
     if kind == "visit":
         title = "New visit request near you" if target.on_demand else "New home visit booking"
         body = f"{km} km away · {target.reason}"
+        if target.sos:
+            title = "SOS: emergency visit near you"
         if target.on_demand and target.promise_min:
             title = f"{target.promise_min}-minute visit near you"
             body = f"Patient promised a doctor in {target.promise_min} min · {body}"
@@ -284,7 +286,10 @@ def _redispatch(db: Session, offer: DispatchOffer) -> None:
             if nxt is None:
                 v.status = VisitStatus.cancelled
                 notify(db, users_for_patient(db, v.patient_id), "No doctor available right now",
+                       "No nearby doctor could take your SOS. Call 108 for an ambulance now." if v.sos else
                        "All nearby doctors are busy. Please try again in a few minutes or book a time.", f"visit:{v.id}")
+            elif v.sos:
+                nxt.expires_at = utcnow() + timedelta(seconds=30)  # SOS moves on faster
             elif (v.promise_min and doorstep_minutes(offer.distance_km) <= v.promise_min
                   < doorstep_minutes(nxt.distance_km)):
                 # The 10-minute zone ran out. Keep the patient's care going, and say so honestly.
@@ -621,7 +626,8 @@ def offer_to_dict(db: Session, o: DispatchOffer) -> dict:
     elif o.kind == "visit":
         v = o.visit
         p = db.get(Patient, v.patient_id)
-        base.update({"title": "Home visit now" if v.on_demand else "Home visit booking", "on_demand": v.on_demand,
+        base.update({"title": "SOS · emergency home visit" if v.sos else "Home visit now" if v.on_demand else "Home visit booking",
+                     "on_demand": v.on_demand, "sos": bool(v.sos),
                      "visit_id": v.id,
                      "patient": p.name, "reason": v.reason, "scheduled_for": v.scheduled_for.isoformat(),
                      "address": v.address or p.address, "earning": v.fee,
@@ -647,6 +653,7 @@ def provider_status(db: Session, user: User) -> dict:
     sweep(db)
     offers = db.scalars(select(DispatchOffer).where(DispatchOffer.user_id == user.id, DispatchOffer.status == "offered")
                         .order_by(DispatchOffer.id.desc())).all()
+    offers = sorted(offers, key=lambda o: not (o.kind == "visit" and o.visit and o.visit.sos))  # SOS first
     trip = active_trip(db, user.id)
     lat, lng = provider_point(db, user)
     return {"name": user.name, "role": user.role.value, "online": user.on_duty, "location": [lat, lng],
@@ -674,9 +681,13 @@ def _provider_card(db: Session, user: User | None) -> dict | None:
 
 def visit_live(db: Session, patient_user: User, visit_id: int) -> dict:
     sweep(db)
-    v = db.get(HomeVisit, visit_id)
-    if v is None or v.patient_id != patient_user.patient_id:
-        raise NotFound("not_found", "Visit not found.")
+    from . import family
+    return visit_view(db, family.visit_or_404(db, patient_user, visit_id), patient_user)
+
+
+def visit_view(db: Session, v: HomeVisit, patient_user: User | None) -> dict:
+    """The live visit as the patient (or a family member managing them) sees it."""
+    from . import family
     p = db.get(Patient, v.patient_id)
     trip = db.scalars(select(Trip).where(Trip.visit_id == v.id).order_by(Trip.id.desc())).first()
     doc_user = db.scalars(select(User).where(User.doctor_id == v.doctor_id)).first() if v.doctor_id else None
@@ -705,7 +716,11 @@ def visit_live(db: Session, patient_user: User, visit_id: int) -> dict:
         promise = {"minutes": v.promise_min, "seconds_left": round(left)}
     arrived_in_s = (round((trip.arrived_at - v.created_at).total_seconds())
                     if v.on_demand and trip and trip.arrived_at else None)
-    return {"kind": "visit", "promise": promise, "arrived_in_s": arrived_in_s, "id": v.id, "booking_ref": v.booking_ref, "status": v.status.value, "phase": phase,
+    from . import doctor_card, sos
+    me = patient_user is not None and patient_user.patient_id == v.patient_id
+    return {"kind": "visit", "sos": sos.for_visit(db, v), "doctor_card": doctor_card.card(db, v),
+            "for": None if me or patient_user is None else {"name": p.name, "relation": family.relation_for(db, patient_user, p.id)},
+            "promise": promise, "arrived_in_s": arrived_in_s, "id": v.id, "booking_ref": v.booking_ref, "status": v.status.value, "phase": phase,
             "on_demand": v.on_demand, "reason": v.reason, "scheduled_for": v.scheduled_for.isoformat(),
             "home": {"lat": p.lat, "lng": p.lng, "label": "Home", "address": v.address or p.address},
             "provider": _provider_card(db, doc_user), "trip": t, "providers_asked": asked, "identity": identity,

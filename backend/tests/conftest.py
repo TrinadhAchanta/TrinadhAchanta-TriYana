@@ -56,6 +56,9 @@ class Api:
     def patch(self, url, json=None):
         return self.c.patch(url, headers=self.h, json=json or {})
 
+    def delete(self, url):
+        return self.c.delete(url, headers=self.h)
+
 
 @pytest.fixture()
 def as_(env):

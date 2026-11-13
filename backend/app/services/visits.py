@@ -177,8 +177,10 @@ def follow_up(db: Session, user: User) -> dict:
 
 
 def book(db: Session, user: User, doctor_id: int | None, scheduled_for: str, reason: str, address: str,
-         asap: bool = False, follow_up_of: int | None = None, cashless: bool = False) -> HomeVisit:
-    patient = db.get(Patient, user.patient_id)
+         asap: bool = False, follow_up_of: int | None = None, cashless: bool = False,
+         member_id: int | None = None) -> HomeVisit:
+    from . import family  # family booking: a visit for a parent or child, at their home
+    patient = family.patient_for(db, user, member_id)
     prev = None
     if follow_up_of is not None:
         prev = db.get(HomeVisit, follow_up_of)
@@ -206,7 +208,8 @@ def book(db: Session, user: User, doctor_id: int | None, scheduled_for: str, rea
     visit = HomeVisit(doctor_id=doc.id, patient_id=patient.id, status=VisitStatus.requested,
                       reason=reason.strip(), scheduled_for=when, booking_ref=new_ref("BK"),
                       address=(address.strip() or patient.address), fee=doc.visit_fee,
-                      follow_up_of_id=prev.id if prev else None)
+                      follow_up_of_id=prev.id if prev else None,
+                      booked_by_user_id=user.id if patient.id != user.patient_id else None)
     db.add(visit)
     db.flush()
     perks.bill_visit(db, visit, cashless)
@@ -274,14 +277,17 @@ def set_availability(db: Session, user: User, day: str, hours: list[int]) -> dic
 
 
 def book_now(db: Session, user: User, reason: str, address: str, accept_longer: bool = False,
-             cashless: bool = False) -> HomeVisit:
+             cashless: bool = False, member_id: int | None = None, sos: bool = False) -> HomeVisit:
     """"Doctor now": a doctor at the door in 10 minutes.
 
     Offered to the nearest online doctor, who has a short time to accept (DoorDash style). When no doctor
     can make it inside the 10-minute promise, the patient is told the real wait and must choose to go ahead.
+    An SOS always goes ahead with the nearest doctor, however far.
     """
-    patient = db.get(Patient, user.patient_id)
+    from . import family
+    patient = family.patient_for(db, user, member_id)
     quote = dispatch.doctor_quote(db, patient)
+    accept_longer = accept_longer or sos
     if not quote["available"]:
         raise Conflict("no_doctor_online", "No doctors are online near you right now. Please book a time instead.")
     if not quote["within_promise"] and not accept_longer:
@@ -294,17 +300,20 @@ def book_now(db: Session, user: User, reason: str, address: str, accept_longer: 
                       reason=reason.strip(), scheduled_for=utcnow().replace(second=0, microsecond=0),
                       booking_ref=new_ref("BK"), address=(address.strip() or patient.address),
                       fee=max(fees) if fees else 800,
-                      promise_min=quote["promise_min"] if quote["within_promise"] else None)
+                      promise_min=quote["promise_min"] if quote["within_promise"] else None,
+                      booked_by_user_id=user.id if patient.id != user.patient_id else None, sos=sos)
     db.add(visit)
     db.flush()
     perks.bill_visit(db, visit, cashless)
     dispatch.offer_on_demand_visit(db, visit)
-    notify(db, users_for_patient(db, patient.id), "Finding your doctor",
+    notify(db, users_for_patient(db, patient.id), "SOS: finding the nearest doctor" if sos else "Finding your doctor",
            "We're asking the nearest available doctor. You'll see them on the map as soon as they accept."
            + (f" Our promise: a doctor at your door within {visit.promise_min} minutes." if visit.promise_min else ""),
            f"visit:{visit.id}")
-    audit.record(db, user, "visit.book_now", "home_visit", visit.id)
-    db.commit()
+    audit.record(db, user, "visit.book_now", "home_visit", visit.id, sos=sos,
+                 for_family=patient.id != user.patient_id)
+    if not sos:
+        db.commit()
     return visit
 
 
@@ -318,20 +327,29 @@ def visit_to_dict(v: HomeVisit, patient: Patient | None = None) -> dict:
         "can_cancel": v.status in (VisitStatus.requested, VisitStatus.accepted),
         "notes": visit_notes.summary(v) if v.status == VisitStatus.completed else None,
         "bill": perks.bill_dict(v),
+        "sos": bool(v.sos),
+        "patient": {"id": v.patient_id, "name": v.patient.name if v.patient else None},
     }
 
 
 def list_for_patient(db: Session, user: User) -> list[dict]:
-    patient = db.get(Patient, user.patient_id)
-    rows = db.scalars(select(HomeVisit).where(HomeVisit.patient_id == patient.id)
+    """The account holder's visits, plus those of the family members they manage."""
+    from . import family
+    ids = [user.patient_id, *family.managed_patient_ids(db, user)]
+    rows = db.scalars(select(HomeVisit).where(HomeVisit.patient_id.in_(ids))
                       .order_by(HomeVisit.scheduled_for.desc())).all()
-    return [visit_to_dict(v, patient) for v in rows]
+    out = []
+    for v in rows:
+        d = visit_to_dict(v, v.patient)
+        d["patient"]["self"] = v.patient_id == user.patient_id
+        d["patient"]["relation"] = None if d["patient"]["self"] else family.relation_for(db, user, v.patient_id)
+        out.append(d)
+    return out
 
 
 def cancel(db: Session, user: User, visit_id: int) -> HomeVisit:
-    v = db.get(HomeVisit, visit_id)
-    if v is None or v.patient_id != user.patient_id:
-        raise NotFound("not_found", "Visit not found.")
+    from . import family
+    v = family.visit_or_404(db, user, visit_id)
     if v.status not in (VisitStatus.requested, VisitStatus.accepted):
         raise Conflict("bad_visit_state", "This visit can no longer be cancelled.")
     v.status = VisitStatus.cancelled

@@ -156,7 +156,8 @@ def save(db: Session, user: User, visit_id: int, data: dict, complete: bool = Fa
 
 def get_for_patient(db: Session, user: User, visit_id: int) -> dict | None:
     visit = get_or_404(db, HomeVisit, visit_id, "Visit")
-    if visit.patient_id != user.patient_id:
+    from .family import can_view_patient  # family managers see a parent's or child's notes too
+    if not can_view_patient(db, user, visit.patient_id):
         raise Forbidden("not_your_visit", "This is not your visit.")
     n = _note_for(db, visit_id)
     if n is None or visit.status != VisitStatus.completed:
