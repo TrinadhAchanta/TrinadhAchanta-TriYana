@@ -129,20 +129,29 @@ def countries() -> list[dict]:
     return sorted(out, key=lambda c: c["name"])
 
 
-def _phone_taken(db: Session, phone: str, except_user: int | None = None) -> bool:
+def _app_of(role) -> str:
+    return "provider" if role in PROVIDER_ROLES else "patient"
+
+
+def _phone_taken(db: Session, phone: str, except_user: int | None = None, app: str | None = None) -> bool:
+    """A mobile number can hold one Triyana (patient) account and one Triyana Partner account,
+    so a doctor can also be a patient. Phones are never a sign-in credential."""
     q = select(User).where(User.phone == phone, User.phone_verified_at.isnot(None))
     if except_user:
         q = q.where(User.id != except_user)
-    return db.scalars(q).first() is not None
+    return any(app is None or _app_of(u.role) == app for u in db.scalars(q).all())
 
 
 def _code_hash(phone: str, code: str) -> str:
     return hashlib.sha256(f"{phone}:{code}:{os.environ.get('TRIYANA_SECRET', 'triyana-demo-secret-change-me')}".encode()).hexdigest()
 
 
-def send_phone_otp(db: Session, phone: str, *, country: str | None = None, for_user: User | None = None) -> dict:
+def send_phone_otp(db: Session, phone: str, *, country: str | None = None, for_user: User | None = None,
+                   app: str | None = None) -> dict:
     phone = normalize_phone(phone, country)
-    if _phone_taken(db, phone, for_user.id if for_user else None):
+    if for_user:
+        app = _app_of(for_user.role)
+    if _phone_taken(db, phone, for_user.id if for_user else None, app):
         raise Conflict("phone_taken", "This mobile number is already linked to another Triyana account.")
     now = utcnow()
     recent = db.scalars(select(PhoneOtp).where(PhoneOtp.phone == phone, PhoneOtp.created_at > now - timedelta(hours=1))
@@ -188,7 +197,7 @@ def check_phone_otp(db: Session, phone: str, code: str) -> str:
 
 def change_phone(db: Session, user: User, phone: str, code: str) -> None:
     phone = check_phone_otp(db, phone, code)
-    if _phone_taken(db, phone, user.id):
+    if _phone_taken(db, phone, user.id, _app_of(user.role)):
         raise Conflict("phone_taken", "This mobile number is already linked to another Triyana account.")
     user.phone, user.phone_verified_at = phone, utcnow()
     db.commit()
@@ -251,9 +260,13 @@ def close_session(db: Session, token: str) -> None:
 
 def check_app(user: User, app: str) -> None:
     if app == "provider" and user.role not in PROVIDER_ROLES:
-        raise Forbidden("wrong_app", "This email is a patient account. Patients sign in to the Triyana app.")
+        raise Forbidden("wrong_app", "This email is a patient account, so it can't sign in here. To work as a doctor "
+                        "or partner, tap Create account and use a different email. "
+                        "You can keep the same mobile number.")
     if app == "patient" and user.role in PROVIDER_ROLES:
-        raise Forbidden("wrong_app", "This email is a Triyana Partner account. Sign in to Triyana Partner instead.")
+        raise Forbidden("wrong_app", "This email is a Triyana Partner account, so it can't sign in here. To book care "
+                        "as a patient, tap Create account and use a different email. "
+                        "You can keep the same mobile number.")
 
 
 # ---------------------------------------------------------------- register
@@ -273,7 +286,7 @@ def register(db: Session, body: dict) -> tuple[User, str]:
     if not body.get("phone") or not body.get("otp"):
         raise Unprocessable("phone_required", "Verify your mobile number with the code we send you.")
     phone = check_phone_otp(db, body["phone"], body["otp"])
-    if _phone_taken(db, phone):
+    if _phone_taken(db, phone, app=app):
         raise Conflict("phone_taken", "This mobile number is already linked to another Triyana account.")
     lat, lng = body.get("lat"), body.get("lng")
     if lat is None or lng is None:
