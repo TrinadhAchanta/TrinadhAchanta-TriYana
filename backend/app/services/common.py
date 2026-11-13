@@ -76,6 +76,17 @@ def users_for_patient(db: Session, patient_id: int) -> list[User]:
     return own + [u for u in family if u not in own]
 
 
+def is_real_patient(db: Session, patient_id: int) -> bool:
+    """True when the patient (or a family account managing them) signed up with an email, not a demo persona."""
+    return any(u.email for u in users_for_patient(db, patient_id))
+
+
+def demo_doctor_ids(db: Session) -> set[int]:
+    """Doctors that are seeded demo personas. Real patients are matched with real doctors first, so a person
+    testing with their own patient and doctor accounts sees their own doctor get the request."""
+    return set(db.scalars(select(User.doctor_id).where(User.doctor_id.isnot(None), User.email.is_(None))))
+
+
 def users_for_doctor(db: Session, doctor_id: int) -> list[User]:
     return list(db.scalars(select(User).where(User.doctor_id == doctor_id)))
 
