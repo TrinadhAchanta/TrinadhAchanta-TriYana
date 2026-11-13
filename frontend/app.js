@@ -214,7 +214,7 @@ function visitCard(v) {
       <div class="meta">${v.doctor ? `<span>${ic("stethoscope")} ${esc(v.doctor.specialty)}</span>` : `<span>${ic("bolt")} Doctor now</span>`}<span>${ic("clock")} ${when(v.scheduled_for)}</span>${v.follow_up_of ? `<span class="badge premium">${ic("later")} Follow-up</span>` : ""}</div></div></div>
       <span class="badge ${cls}">${ic(icon)} ${label}</span></div>
     <div class="instructions"><b>Reason:</b> ${esc(v.reason)}</div>
-    <div class="row between small" style="margin-top:10px"><span class="muted">${ic("pin")} ${esc(v.address)}</span><span><b>${money(v.fee)}</b> <span class="muted">pay after the visit</span></span></div>
+    <div class="row between small" style="margin-top:10px"><span class="muted">${ic("pin")} ${esc(v.address)}</span>${billLine(v)}</div>
     <div class="actions-bar">${v.status === "requested" && v.on_demand || v.status === "accepted" ? `<button class="btn primary sm" data-live-visit="${v.id}">${ic("pin")} ${v.on_demand ? "Track live" : "Live map"}</button>` : ""}
     ${v.can_cancel ? `<button class="btn ghost sm danger" data-cancel="${v.id}">${ic("x")} Cancel booking</button>` : ""}</div></article>`;
 }
@@ -256,6 +256,7 @@ SCREENS.home = async () => {
     </section>
     <div id="liveSlot"></div>
     ${servicesHTML()}
+    <div id="perkSlot"></div>
     ${upcoming.length ? `<div class="section-title">Your upcoming visit${upcoming.length > 1 ? "s" : ""}</div>${upcoming.map(visitCard).join("")}` : ""}
     ${past.length ? `<div class="section-title">Visit history</div>${past.slice(0, 5).map(pastVisitCard).join("")}` : ""}
     <div class="section-title">Notifications</div>
@@ -295,7 +296,7 @@ SCREENS.book = async () => {
   const [near, visits, fu] = await Promise.all([api("/api/doctors"), api("/api/patient/visits"), api("/api/patient/follow-up")]);
   const docs = near.doctors;
   // mode: "asap" = whoever is free soonest, "any" = nearest doctor free at my time, "doctor" = a specific doctor's slot
-  const b = { reason: preset ? FOLLOW_UP : "", details: "", mode: "any", doctor: null, day: null, slot: null, address: near.address };
+  const b = { reason: preset ? FOLLOW_UP : "", details: "", mode: "any", doctor: null, day: null, slot: null, address: near.address, cashless: false };
   let slots = [];
   const loadSlots = async () => {
     slots = await api(`/api/visit-slots${b.mode === "doctor" ? `?doctor_id=${b.doctor}` : ""}`);
@@ -387,8 +388,9 @@ SCREENS.book = async () => {
           <tr><td>Doctor</td><td>${b.mode === "asap" ? `Soonest available${doc ? `<div class="tiny muted">${esc(doc.name)}</div>` : ""}` : doc ? esc(doc.name) : "Nearest available"}</td></tr>
           <tr><td>Time</td><td>${b.mode === "asap" ? (soon ? `${dayLabel(soon.slot)}, ${time(soon.slot)}` : "—") : b.slot ? `${dayLabel(b.slot)}, ${time(b.slot)}` : "—"}</td></tr>
           ${isFollowUp() ? `<tr><td>Follow-up of</td><td>${esc(fu.previous_visit.booking_ref || "last visit")}</td></tr>` : ""}
-          <tr class="total"><td>Visit fee</td><td>${doc ? money(doc.visit_fee) : `from ${money(minFee)}`}</td></tr></table>
-        <div class="notice info small">${ic("shield")}<span><b>Nothing to pay now.</b> You pay the doctor after the visit. Every doctor's licence is verified.</span></div>
+          </table>
+        <div id="perkQuote"></div>
+        <div class="notice info small">${ic("shield")}<span><b>Nothing to pay now.</b> You pay after the visit${doc ? "" : ` (fees from ${money(minFee)})`}. Every doctor's licence is verified.</span></div>
         <button class="btn primary block" id="bookBtn" ${ok ? "" : "disabled"}>${ic("check")} Confirm booking</button>
         <p class="tiny muted" style="text-align:center;margin:10px 0 0">${ok ? "The doctor will confirm your request." : !b.reason ? "Choose a reason to continue" : "Pick a time to continue"}</p>
       </div></aside></div>
@@ -405,10 +407,11 @@ SCREENS.book = async () => {
     $$("[data-slot]").forEach((x) => (x.onclick = () => { b.slot = x.dataset.slot; render(); }));
     wireCancel(() => SCREENS.book());
     wireServices();
+    perkQuote($("#perkQuote"), doc ? doc.visit_fee : minFee, b);
     $("#bookBtn").onclick = () => guard(async () => {
       const v = await post("/api/patient/visits", {
         doctor_id: b.mode === "doctor" ? b.doctor : null, scheduled_for: b.mode === "asap" ? "" : b.slot, asap: b.mode === "asap",
-        reason: reasonText, address: b.address, follow_up_of: isFollowUp() ? fu.previous_visit.id : null,
+        reason: reasonText, address: b.address, follow_up_of: isFollowUp() ? fu.previous_visit.id : null, cashless: b.cashless,
       });
       bookedScreen(v);
     });

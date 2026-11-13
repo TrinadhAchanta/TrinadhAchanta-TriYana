@@ -28,6 +28,9 @@
     .log { width: 100%; border-collapse: collapse; font-size: 13px; }
     .log th, .log td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
     .log-wrap { overflow-x: auto; }
+    .prov-actions label.meta { display: inline-flex; gap: 6px; align-items: center; flex: none; margin: 0; }
+    .prov-actions label.meta input { flex: none; min-width: 0; }
+    .prov-actions label.meta input[type=checkbox] { width: 18px; height: 18px; }
   </style>
 </head>
 <body>
@@ -41,7 +44,7 @@
     <p class="tiny muted" id="keyHint" style="margin:8px 0 0">Use the TRIYANA_ADMIN_KEY set on the server. On the demo site, before a key is set, use <b>demo-admin</b>.</p>
   </div>
   <div id="main" hidden>
-    <div class="areas"><button class="btn sm on" data-area="providers">Providers</button><button class="btn sm" data-area="identity">Identity &amp; security <span class="badge bad" id="caseCount" hidden></span></button><button class="btn sm" data-area="log">Face check log</button></div>
+    <div class="areas"><button class="btn sm on" data-area="providers">Providers</button><button class="btn sm" data-area="identity">Identity &amp; security <span class="badge bad" id="caseCount" hidden></span></button><button class="btn sm" data-area="log">Face check log</button><button class="btn sm" data-area="partners">Partners</button></div>
     <div id="idTabs" class="ops-tabs" hidden><button class="btn sm on" data-c="open">Open cases</button><button class="btn sm" data-c="resolved">Resolved</button></div>
     <div class="ops-tabs" id="provTabs"><button class="btn sm on" data-s="pending">Waiting</button><button class="btn sm" data-s="rejected">Rejected</button><button class="btn sm" data-s="verified">Approved</button><span class="grow"></span><button class="btn sm" id="lock">Lock</button></div>
     <div id="list"></div>
@@ -115,13 +118,44 @@ async function loadLog() {
     return `<tr><td>${esc(at(k.at))}</td><td>${esc(k.provider || k.user_id)}</td><td>${k.purpose === "enroll" ? "Enrolment" : `Visit #${k.visit_id}`}${k.method === "manual" ? " (manual)" : ""}</td><td><span class="badge ${cls}">${w}</span></td><td>${k.liveness != null ? `L ${k.liveness}` : ""}${k.match != null ? ` · M ${k.match}` : ""}</td><td>${esc(k.reason)}${k.approved_by ? ` · ${esc(k.approved_by)}` : ""}</td></tr>`; }).join("") || `<tr><td colspan="6">No face checks yet.</td></tr>`}</tbody></table>
     <p class="tiny muted" style="margin:10px 0 0">No images are stored from these checks. Every row is also in the tamper-evident audit log.</p></div>`;
 }
+const KINDS = { society: "Housing society", office: "Office", old_age_home: "Old-age home" };
+async function loadPartners() {
+  const rows = await call("/api/admin/partners");
+  const kindSel = (v) => `<select name="kind">${Object.entries(KINDS).map(([k, l]) => `<option value="${k}" ${k === v ? "selected" : ""}>${l}</option>`).join("")}</select>`;
+  $("#list").innerHTML = `<form class="card prov" id="newPartner"><h3 style="margin:0">Add a partner</h3>
+      <div class="prov-actions"><input name="name" placeholder="Name, e.g. Lakeview Towers" required maxlength="120">${kindSel("society")}</div>
+      <div class="prov-actions"><input name="area" placeholder="Area" maxlength="120"><input name="contact" placeholder="Contact person / phone" maxlength="120"></div>
+      <div class="prov-actions"><input name="join_code" placeholder="Join code (blank = make one)" maxlength="20" style="text-transform:uppercase">
+        <label class="meta">Discount % <input name="discount_pct" type="number" min="0" max="100" value="10" style="width:80px;min-width:0"></label>
+        <label class="meta"><input name="priority" type="checkbox" checked> Priority for doctors</label>
+        <button class="btn primary sm">Add partner</button></div>
+      <p class="tiny muted" style="margin:0">Members join in the patient app (Offers &amp; rewards) with the join code. The discount is Triyana's cost: doctors are paid their full fee.</p></form>
+    ${rows.map((o) => `<div class="card prov" data-org="${o.id}"><div class="prov-head"><div class="grow"><h3 style="margin:0">${esc(o.name)}</h3>
+        <div class="meta">${esc(KINDS[o.kind] || o.kind)}${o.area ? ` · ${esc(o.area)}` : ""}${o.contact ? ` · ${esc(o.contact)}` : ""}</div>
+        <div class="meta">Join code <b>${esc(o.join_code)}</b> · ${o.discount_pct}% off · ${o.priority ? "priority" : "no priority"} · ${o.members} member${o.members === 1 ? "" : "s"}</div></div>
+        <span class="badge ${o.active ? "good" : ""}">${o.active ? "Active" : "Paused"}</span></div>
+      <div class="prov-actions"><label class="meta">Discount % <input class="pct" type="number" min="0" max="100" value="${o.discount_pct}" style="width:80px;min-width:0"></label>
+        <label class="meta"><input class="prio" type="checkbox" ${o.priority ? "checked" : ""}> Priority</label>
+        <button class="btn sm" data-p="save">Save</button><button class="btn sm" data-p="toggle">${o.active ? "Pause" : "Reactivate"}</button></div></div>`).join("")}`;
+  $("#newPartner").onsubmit = async (e) => {
+    e.preventDefault(); const f = e.target.elements;
+    try { await call("/api/admin/partners", { name: f.name.value, kind: f.kind.value, area: f.area.value, contact: f.contact.value, join_code: f.join_code.value || null, discount_pct: +f.discount_pct.value, priority: f.priority.checked }); toast("Partner added."); load(); }
+    catch (err) { toast(err.message); }
+  };
+  document.querySelectorAll("[data-org] [data-p]").forEach((b) => b.onclick = async () => {
+    const c = b.closest("[data-org]"), o = rows.find((x) => x.id === +c.dataset.org);
+    const body = b.dataset.p === "toggle" ? { active: !o.active } : { discount_pct: +c.querySelector(".pct").value, priority: c.querySelector(".prio").checked };
+    try { await call(`/api/admin/partners/${o.id}`, body); toast("Saved."); load(); } catch (err) { toast(err.message); }
+  });
+}
 async function load() {
   try {
-    const head = { providers: ["Provider verification", "Partner checks come in automatically. You give the final approval."], identity: ["Identity & security", "Face-check alerts, lockouts and recovery. Only Triyana's security team should act here."], log: ["Face check log", "Every live face check: outcome, scores and time."] }[area];
+    const head = { providers: ["Provider verification", "Partner checks come in automatically. You give the final approval."], identity: ["Identity & security", "Face-check alerts, lockouts and recovery. Only Triyana's security team should act here."], log: ["Face check log", "Every live face check: outcome, scores and time."], partners: ["Partner organisations", "Housing societies, offices and old-age homes whose members get discounts and priority."] }[area];
     $("#pageTitle").textContent = head[0]; $("#pageSub").textContent = head[1];
     $("#provTabs").hidden = area !== "providers"; $("#idTabs").hidden = area !== "identity";
     if (area === "identity") { await loadIdentity(); $("#keyCard").hidden = true; $("#main").hidden = false; return; }
     if (area === "log") { await loadLog(); $("#keyCard").hidden = true; $("#main").hidden = false; return; }
+    if (area === "partners") { await loadPartners(); $("#keyCard").hidden = true; $("#main").hidden = false; return; }
     const rows = await call(`/api/admin/providers/pending?status=${tab}`);
     $("#keyCard").hidden = true; $("#main").hidden = false;
     $("#list").innerHTML = rows.length ? rows.map(card).join("") : `<div class="card empty"><h3>Nothing here</h3><p class="small">No providers in this list.</p></div>`;

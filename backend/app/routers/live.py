@@ -47,13 +47,14 @@ class BookNowIn(BaseModel):
     reason: str = Field(min_length=2, max_length=300)
     address: str = Field(default="", max_length=300)
     accept_longer: bool = False  # go ahead when no doctor can make it inside the 10-minute promise
+    cashless: bool = False       # bill the visit to the patient's health insurer
 
 
 # ------------------------------------------------------------------ patient
 @router.post("/api/patient/visits/now", status_code=201)
 def book_doctor_now(body: BookNowIn, user: User = Depends(require(Role.patient)), db: Session = Depends(get_db)):
     privacy_svc.require_care(db, user)
-    v = visit_svc.book_now(db, user, body.reason, body.address, body.accept_longer)
+    v = visit_svc.book_now(db, user, body.reason, body.address, body.accept_longer, body.cashless)
     return visit_svc.visit_to_dict(v, db.get(Patient, user.patient_id))
 
 

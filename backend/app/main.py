@@ -25,6 +25,7 @@ from .routers.visit_notes import router as visit_notes_router
 from .routers.shop import router as shop_router
 from .routers.physio import router as physio_router
 from .routers.face import router as face_router
+from .routers.perks import router as perks_router
 from .errors import DomainError, Forbidden, NotFound
 from .models import (
     AuditLog,
@@ -338,6 +339,7 @@ class BookingIn(BaseModel):
     address: str = Field(default="", max_length=300)
     asap: bool = False  # whoever is available soonest
     follow_up_of: int | None = None  # the completed visit this one follows up
+    cashless: bool = False  # bill the visit to the patient's health insurer
 
 
 class AvailabilityIn(BaseModel):
@@ -371,7 +373,7 @@ def patient_visits(user: User = Depends(require(Role.patient)), db: Session = De
 def book_visit(body: BookingIn, user: User = Depends(require(Role.patient)), db: Session = Depends(get_db)):
     privacy_svc.require_care(db, user)
     v = visit_svc.book(db, user, body.doctor_id, body.scheduled_for, body.reason, body.address,
-                       asap=body.asap, follow_up_of=body.follow_up_of)
+                       asap=body.asap, follow_up_of=body.follow_up_of, cashless=body.cashless)
     return visit_svc.visit_to_dict(v, db.get(Patient, user.patient_id))
 
 
@@ -771,6 +773,7 @@ app.include_router(labs_router)
 app.include_router(shop_router)
 app.include_router(physio_router)
 app.include_router(face_router)
+app.include_router(perks_router)
 
 # --------------------------------------------------------------- frontend
 FRONTEND = Path(__file__).resolve().parents[2] / "frontend"
