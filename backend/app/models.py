@@ -294,6 +294,8 @@ class HomeVisit(Base):
     arrival_code: Mapped[str | None] = mapped_column(EncryptedText)
     arrival_code_attempts: Mapped[int | None] = mapped_column(Integer, default=0)
     arrival_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    # "Doctor in 10 minutes": the minutes promised at booking (None when the patient chose a farther doctor).
+    promise_min: Mapped[int | None] = mapped_column(Integer)
 
     doctor = relationship("Doctor")
     patient = relationship("Patient")

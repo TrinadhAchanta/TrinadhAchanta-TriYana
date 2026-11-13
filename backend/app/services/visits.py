@@ -272,22 +272,34 @@ def set_availability(db: Session, user: User, day: str, hours: list[int]) -> dic
     return _day_dict(days[day], hours, booked, now)
 
 
-def book_now(db: Session, user: User, reason: str, address: str) -> HomeVisit:
-    """"Doctor now": offered to the nearest online doctor, who has a short time to accept (DoorDash style)."""
+def book_now(db: Session, user: User, reason: str, address: str, accept_longer: bool = False) -> HomeVisit:
+    """"Doctor now": a doctor at the door in 10 minutes.
+
+    Offered to the nearest online doctor, who has a short time to accept (DoorDash style). When no doctor
+    can make it inside the 10-minute promise, the patient is told the real wait and must choose to go ahead.
+    """
     patient = db.get(Patient, user.patient_id)
-    probe = HomeVisit(id=0, patient_id=patient.id)
-    if not dispatch.candidates(db, "visit", probe):
+    quote = dispatch.doctor_quote(db, patient)
+    if not quote["available"]:
         raise Conflict("no_doctor_online", "No doctors are online near you right now. Please book a time instead.")
+    if not quote["within_promise"] and not accept_longer:
+        raise Conflict("outside_promise",
+                       f"No doctor can reach you within {quote['promise_min']} minutes right now. "
+                       f"The nearest is about {quote['nearest_min']} minutes away.",
+                       nearest_min=quote["nearest_min"], promise_min=quote["promise_min"])
     fees = [d.visit_fee for d, _ in _nearby_doctors(db, patient)]
     visit = HomeVisit(doctor_id=None, patient_id=patient.id, status=VisitStatus.requested, on_demand=True,
                       reason=reason.strip(), scheduled_for=utcnow().replace(second=0, microsecond=0),
                       booking_ref=new_ref("BK"), address=(address.strip() or patient.address),
-                      fee=max(fees) if fees else 800)
+                      fee=max(fees) if fees else 800,
+                      promise_min=quote["promise_min"] if quote["within_promise"] else None)
     db.add(visit)
     db.flush()
     dispatch.offer_on_demand_visit(db, visit)
     notify(db, users_for_patient(db, patient.id), "Finding your doctor",
-           "We're asking the nearest available doctor. You'll see them on the map as soon as they accept.", f"visit:{visit.id}")
+           "We're asking the nearest available doctor. You'll see them on the map as soon as they accept."
+           + (f" Our promise: a doctor at your door within {visit.promise_min} minutes." if visit.promise_min else ""),
+           f"visit:{visit.id}")
     audit.record(db, user, "visit.book_now", "home_visit", visit.id)
     db.commit()
     return visit

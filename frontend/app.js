@@ -240,11 +240,13 @@ SCREENS.home = async () => {
         <div class="actions"><button class="btn primary" id="openCart">${ic("cart")} Review my medicines</button><button class="btn" id="openRx">${ic("rx")} View prescription</button></div>`;
   else if (active) hero = `<h1>${esc(active.status_label)}</h1><p>Order ${esc(active.order_no)} from ${esc(shortName(active.pharmacy.name))}.</p>
         <div class="actions"><button class="btn primary" data-go="orders">${ic("truck")} Track my order</button>${bookBtn("")}</div>`;
+  else if (upcoming.length && !upcoming[0].doctor) hero = `<h1>Finding your doctor</h1><p>We're asking the nearest verified doctor. Watch them on the live map as soon as they accept.</p>
+        <div class="actions"><button class="btn primary" id="openLiveVisit">${ic("pin")} Live map</button></div>`;
   else if (upcoming.length) hero = `<h1>${upcoming[0].status === "requested" ? "Your visit request is with the doctor" : upcoming[0].status === "accepted" ? "Your doctor is confirmed" : "Your doctor is with you"}</h1>
         <p>${esc(upcoming[0].doctor.name)} · ${when(upcoming[0].scheduled_for)}. After the visit, your prescription and medicine cart appear here automatically.</p>
         <div class="actions">${bookBtn("")}</div>`;
-  else hero = `<h1>Need a doctor at home?</h1><p>Book a verified doctor near you in under a minute. They visit you at home, prescribe, and your medicines are delivered to your door.</p>
-        <div class="actions">${bookBtn()}<button class="btn" data-go="meds">${ic("pills")} My Medicines</button></div>`;
+  else hero = `<h1>Need a doctor? One at your door in 10 minutes.</h1><p>A verified doctor comes to your home, checks you, and prescribes. Your medicines are delivered to your door.</p>
+        <div class="actions"><button class="btn primary" data-svc="now">${ic("bolt")} Doctor in 10 min</button>${bookBtn("")}</div>`;
   const showCta = ready || active;
   view().innerHTML = `
     <section class="hero home-hero"><div class="eyebrow">${GREETING()}, ${esc(first)}</div>${hero}
@@ -266,6 +268,7 @@ SCREENS.home = async () => {
   wireCancel(() => SCREENS.home());
   $$("[data-vnotes]").forEach((b) => (b.onclick = () => guard(() => patientNotesScreen(+b.dataset.vnotes))));
   patientLiveBanner(visits, dash.active_orders);
+  const ol = $("#openLiveVisit"); if (ol) ol.onclick = () => liveScreen("visit", upcoming[0].id);
   if (ready) {
     const markRead = () => post(`/api/notifications/${ready.id}/read`).catch(() => {});
     $("#openCart").onclick = () => { markRead(); state.unread = Math.max(0, state.unread - 1); go("cart", { cartId: +ready.link.split(":")[1] }); };

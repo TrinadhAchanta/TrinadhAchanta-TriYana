@@ -1,7 +1,7 @@
 {
   "name": "Triyana",
   "short_name": "Triyana",
-  "description": "Doctors at home, prescriptions and medicine delivery.",
+  "description": "A doctor at your door in 10 minutes. Plus prescriptions, medicines and lab tests at home.",
   "id": "/",
   "start_url": "/",
   "scope": "/",

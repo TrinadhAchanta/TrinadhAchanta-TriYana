@@ -241,3 +241,44 @@ def test_decline_is_safe_to_tap_twice_or_after_the_timer_runs_out(env, as_):
     assert not any(o["id"] == ro["id"] for o in _status(rohan)["offers"])
     # Someone else's request is still off limits.
     assert rohan.post(f"/api/provider/offers/{mine['id']}/decline").status_code == 404
+
+
+def test_ten_minute_promise_quote_countdown_and_arrival_time(env, as_):
+    patient, carter = as_("patient"), as_("doctor")
+    q = patient.get("/api/patient/online-nearby").json()["quote"]
+    # Demo doctors sit close to Meera, so "Doctor now" can promise 10 minutes.
+    assert q["promise_min"] == 10 and q["within_promise"] and q["in_promise"] >= 2 and q["nearest_min"] <= 10
+    v = patient.post("/api/patient/visits/now", {"reason": "Fever"}).json()
+    live = patient.get(f"/api/patient/visits/{v['id']}/live").json()
+    assert live["promise"]["minutes"] == 10 and 590 <= live["promise"]["seconds_left"] <= 600
+    offer = next(o for o in _status(carter)["offers"] if o["on_demand"])
+    assert any(n["title"] == "10-minute visit near you" for n in carter.get("/api/notifications").json())
+    carter.post(f"/api/provider/offers/{offer['id']}/accept")
+    face_pass(carter, v["id"])
+    t = carter.post(f"/api/provider/visits/{v['id']}/depart").json()
+    _age_trip(env, t["id"], 10_000)
+    live = patient.get(f"/api/patient/visits/{v['id']}/live").json()
+    assert live["phase"] == "arrived" and live["arrived_in_s"] is not None and live["arrived_in_s"] >= 0
+
+
+def test_no_doctor_inside_ten_minutes_asks_the_patient_first(as_):
+    arjun = as_("patient2")  # the nearest online doctor is a little too far for the promise
+    q = arjun.get("/api/patient/online-nearby").json()["quote"]
+    assert q["available"] and not q["within_promise"] and q["nearest_min"] > 10
+    r = arjun.post("/api/patient/visits/now", {"reason": "Cough"})
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "outside_promise"
+    assert r.json()["detail"]["nearest_min"] == q["nearest_min"]
+    v = arjun.post("/api/patient/visits/now", {"reason": "Cough", "accept_longer": True})
+    assert v.status_code == 201, v.text
+    assert arjun.get(f"/api/patient/visits/{v.json()['id']}/live").json()["promise"] is None
+
+
+def test_patient_is_told_when_the_ten_minute_zone_runs_out(as_):
+    patient, carter, rohan = as_("patient"), as_("doctor"), as_("doctor_rohan")
+    patient.post("/api/patient/visits/now", {"reason": "Fever"})
+    carter.post(f"/api/provider/offers/{next(o for o in _status(carter)['offers'] if o['on_demand'])['id']}/decline")
+    titles = [n["title"] for n in patient.get("/api/notifications").json()]
+    assert "Your doctor may take a little longer" not in titles  # Dr. Rohan is still inside 10 minutes
+    rohan.post(f"/api/provider/offers/{next(o for o in _status(rohan)['offers'] if o['on_demand'])['id']}/decline")
+    titles = [n["title"] for n in patient.get("/api/notifications").json()]
+    assert "Your doctor may take a little longer" in titles  # it went on to Dr. Vikram, farther away
