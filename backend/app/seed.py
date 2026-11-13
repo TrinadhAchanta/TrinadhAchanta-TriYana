@@ -405,7 +405,7 @@ def seed_labs(db: Session, users: dict, meera: Patient) -> dict:
                               fasting_hours=max(s.fasting_hours for s in subs),
                               turnaround_hours=max(s.turnaround_hours for s in subs), price=price, mrp=mrp, popular=pop)
     db.add_all(tests.values())
-    # Sample collectors (phlebotomists) for the Partner app. Priya and Suresh start online.
+    # Sample collectors (phlebotomists) for Nabzo. Priya and Suresh start online.
     for key, name, lat, lng, online in (("phlebotomist", "Priya (Phlebotomist)", 17.4415, 78.3525, True),
                                         ("phlebotomist2", "Suresh (Phlebotomist)", 17.4560, 78.3740, True),
                                         ("phlebotomist3", "Fatima (Phlebotomist)", 17.4700, 78.3900, False)):

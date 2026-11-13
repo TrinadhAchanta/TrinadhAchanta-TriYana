@@ -796,7 +796,7 @@ if FRONTEND.exists():
 
     @app.get("/provider")
     def provider_app():
-        """Triyana Partner: the app for doctors, couriers and pharmacists."""
+        """Nabzo: the app for doctors, couriers and pharmacists."""
         return FileResponse(FRONTEND / "provider.html")
 
     @app.get("/admin")

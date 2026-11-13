@@ -1,6 +1,6 @@
 """Provider verification: partner checks first, then a Triyana ops final review.
 
-Flow for a provider who signs up in Triyana Partner:
+Flow for a provider who signs up in Nabzo:
 
 1. Doctors and physios: the council registration is looked up on the registry
    (ABDM HPR) straight after sign-up.
@@ -82,7 +82,7 @@ def run_registry_check(db: Session, user: User) -> VerificationCheck | None:
 
 def submit_identity(db: Session, user: User, body: dict) -> dict:
     if user.role not in (Role.doctor, Role.physio, Role.courier, Role.phlebotomist, Role.pharmacist):
-        raise Unprocessable("not_provider", "Only Triyana Partner accounts need ID checks.")
+        raise Unprocessable("not_provider", "Only Nabzo accounts need ID checks.")
     if (user.verification_status or "verified") == "verified":
         raise Conflict("already_verified", "Your account is already verified.")
     if not body.get("consent"):

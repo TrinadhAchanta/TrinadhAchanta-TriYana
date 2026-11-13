@@ -120,7 +120,7 @@ def test_booked_time_waits_for_answer_and_session_notes_reach_patient(env, as_):
     n = b["sessions"][0]["notes"]
     assert n["pain_before"] == 6 and n["exercises"] == ["Quad sets", "Step-ups"] and n["home_plan"]
     assert any(x["title"] == "Session 1 notes are ready" for x in patient.get("/api/notifications").json())
-    # Ananya is paid for the session in the Partner app, the same amount the request card showed.
+    # Ananya is paid for the session in Nabzo, the same amount the request card showed.
     earn = priya.get("/api/provider/earnings").json()
     job = next(j for j in earn["jobs"] if j["kind"] == "physio" and "1/1" in j["title"])
     assert job["total"] == offer["earning"] and earn["balance"] >= job["total"]
@@ -159,7 +159,7 @@ def test_privacy_and_roles(env, as_):
     # Another physiotherapist can't act on Ananya's session.
     assert arun.post(f"/api/physio/sessions/{sid}/depart").status_code == 404
     assert not any(b["ref"] == "PT-DEMO0001" for b in arun.get("/api/physio/bookings").json())
-    # Unverified physios can't go online; physios sign in to the Partner app only.
+    # Unverified physios can't go online; physios sign in to Nabzo only.
     assert as_("physio_unverified").post("/api/provider/duty", {"online": True}).status_code == 403
     tokens = env["ids"]["tokens"]
     r = env["client"].get("/api/me", headers={"Authorization": f"Bearer {tokens['physio']}", "X-Triyana-App": "patient"})

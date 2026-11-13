@@ -88,7 +88,7 @@ def collectors_nearby(user: User = Depends(patient_only), db: Session = Depends(
     return {"collectors": dispatch.online_count(db, "lab", p.lat, p.lng)}
 
 
-# ------------------------------------------------------------------ phlebotomist (Triyana Partner)
+# ------------------------------------------------------------------ phlebotomist (Nabzo)
 @router.post("/api/provider/labs/{booking_id}/depart")
 def lab_depart(booking_id: int, user: User = Depends(collector), db: Session = Depends(get_db)):
     return dispatch.trip_to_dict(db, labs.depart(db, user, booking_id))

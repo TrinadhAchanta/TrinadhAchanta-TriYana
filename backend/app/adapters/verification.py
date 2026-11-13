@@ -1,4 +1,4 @@
-"""Verification partners for providers who sign up in Triyana Partner.
+"""Verification partners for providers who sign up in Nabzo.
 
 Two independent checks, each with its own partner, picked by environment variables:
 

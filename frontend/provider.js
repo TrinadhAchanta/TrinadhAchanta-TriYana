@@ -1,4 +1,4 @@
-/* Triyana Partner — the provider app: go online, accept nearby requests, navigate turn by turn. */
+/* Nabzo — the provider app: go online, accept nearby requests, navigate turn by turn. */
 "use strict";
 
 Object.assign(P, {

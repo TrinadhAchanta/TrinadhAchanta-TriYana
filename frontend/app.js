@@ -1,7 +1,7 @@
 /* Triyana Home — premium client for the Prescription → Delivery journey (no build step). */
 "use strict";
 
-const APP = document.body.dataset.app || "patient"; // "patient" = Triyana, "provider" = Triyana Partner
+const APP = document.body.dataset.app || "patient"; // "patient" = Triyana, "provider" = Nabzo
 const state = { token: null, role: null, name: "", unread: 0, tab: null, ctx: {}, accounts: [], currency: "INR", timers: [], cleanups: [] };
 const TOKEN_KEY = `triyana.${APP}.token`;
 const $ = (s, el = document) => el.querySelector(s);
@@ -132,7 +132,7 @@ function stopLive() {
   state.cleanups.forEach((f) => { try { f(); } catch {} }); state.cleanups = [];
 }
 
-/* Each app has its own sign-in: patients use Triyana, providers use Triyana Partner.
+/* Each app has its own sign-in: patients use Triyana, providers use Nabzo.
    The screen itself (email sign-in, sign-up and demo accounts) lives in accounts.js. */
 function loginScreen(mode) {
   stopLive();
@@ -436,7 +436,7 @@ function bookedScreen(v) {
     <div class="section-title">What happens next</div>
     <div class="how">${[["Doctor confirms", "You get a notification when your request is accepted."], ["Doctor visits you", "They examine you at home and e-sign your prescription."], ["Your cart is ready", "Medicines appear in your cart. Choose a pharmacy and pay."], ["Delivered home", "Track the courier and share your code at the door."]]
       .map(([t, s], i) => `<div class="step"><div class="n">${i + 1}</div><b>${t}</b><span>${s}</span></div>`).join("")}</div>
-    <div class="notice info" style="margin-top:16px">${ic("info")}<span>${isDemoDoctor ? `Demo tip: open <a href="/provider" target="_blank">Triyana Partner</a> and sign in as <b>${esc(v.doctor.name)}</b> to see this request arrive and accept it.` : ""}</span></div>`;
+    <div class="notice info" style="margin-top:16px">${ic("info")}<span>${isDemoDoctor ? `Demo tip: open <a href="/provider" target="_blank">Nabzo</a> and sign in as <b>${esc(v.doctor.name)}</b> to see this request arrive and accept it.` : ""}</span></div>`;
   $$("[data-go]").forEach((x) => (x.onclick = () => go(x.dataset.go)));
   wireCancel(() => go("home"));
 }

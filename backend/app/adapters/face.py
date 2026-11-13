@@ -1,4 +1,4 @@
-"""Face liveness + face match partner for the Triyana Partner app.
+"""Face liveness + face match partner for the Nabzo app.
 
 Picked by ``TRIYANA_FACE_PROVIDER``:
 

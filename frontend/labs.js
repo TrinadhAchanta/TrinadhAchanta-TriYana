@@ -1,5 +1,5 @@
 /* Triyana — Lab tests at home. Patient: choose tests, book a slot or "collect now", track the
-   sample collector live, read reports. Partner app: phlebotomists collect at the door and drop at the lab. */
+   sample collector live, read reports. Nabzo: phlebotomists collect at the door and drop at the lab. */
 "use strict";
 
 Object.assign(P, {
@@ -319,7 +319,7 @@ if (APP === "patient") {
   };
 }
 
-/* ------------------------------------------------------------------ Partner app: phlebotomist */
+/* ------------------------------------------------------------------ Nabzo: phlebotomist */
 const LAB_JOB_LABEL = { assigned: ["To collect", "brand"], collected: ["Drop at lab", "info"], at_lab: ["At lab", "good"], report_ready: ["Report ready", "good"], cancelled: ["Cancelled", ""] };
 
 function labJobCard(j) {

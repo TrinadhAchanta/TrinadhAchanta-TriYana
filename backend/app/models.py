@@ -687,7 +687,7 @@ class Trip(Base):
 
 
 class Earning(Base):
-    """What a provider earned for one completed job (Partner app earnings)."""
+    """What a provider earned for one completed job (Nabzo earnings)."""
     __tablename__ = "earnings"
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
