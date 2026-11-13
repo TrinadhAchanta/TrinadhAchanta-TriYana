@@ -147,3 +147,24 @@ def test_names_match():
     assert partners.names_match("Dr. Neha Rao", "NEHA RAO")
     assert partners.names_match("Dr. N Rao", "Neha Rao")
     assert not partners.names_match("Neha Rao", "Someone Else")
+
+
+def test_newly_approved_doctor_gets_doctor_now_and_booked_requests(env):
+    """A doctor who signs up, is approved and goes online receives patients' requests."""
+    from tests.test_accounts import _patient
+    c = env["client"]
+    r = _doctor(c)
+    h = H(r.json()["token"], "provider")
+    _id(c, h)
+    enrol(c, h)
+    uid = r.json()["account"]["id"]
+    assert c.post(f"/api/admin/providers/{uid}/verification", headers=ADMIN, json={"status": "verified"}).status_code == 200
+    assert c.post("/api/provider/duty", headers=h, json={"online": True}).json()["online"] is True
+    ph = H(_patient(c, email="new.patient@example.com").json()["token"], "patient")
+    c.post("/api/consents", headers=ph, json={"purpose": "care", "granted": True})
+    me = next(d for d in c.get("/api/doctors", headers=ph).json()["doctors"] if d["name"] == "Dr. Neha Rao")
+    slot = c.get(f"/api/visit-slots?doctor_id={me['id']}", headers=ph).json()[0]
+    v = c.post("/api/patient/visits", headers=ph, json={"doctor_id": me["id"], "scheduled_for": slot, "reason": "Fever"})
+    assert v.status_code == 201, v.text
+    offers = c.get("/api/provider/status", headers=h).json()["offers"]
+    assert [o["visit_id"] for o in offers] == [v.json()["id"]]
