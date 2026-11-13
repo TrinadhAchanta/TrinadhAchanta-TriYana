@@ -368,9 +368,15 @@ def login(db: Session, email: str, password: str, app: str) -> tuple[User, str]:
     email = (email or "").strip().lower()
     _check_rate(email)
     user = db.scalars(select(User).where(func.lower(User.email) == email)).first() if email else None
-    if not user or not check_password(password, user.password_hash):
+    if not user:
         _fail(email)
-        raise DomainError("bad_credentials", "That email and password don't match.")
+        # Sign-up already says when an email is taken, so naming a missing one leaks nothing new.
+        raise DomainError("no_account", "There's no account with this email. Check the spelling, or tap "
+                                        "Create account to sign up.")
+    if not check_password(password, user.password_hash):
+        _fail(email)
+        raise DomainError("bad_credentials", "That password isn't right for this email. Tap the eye to "
+                                             "check what you typed.")
     check_app(user, app)
     _failures.pop(email, None)
     return user, open_session(db, user, app)
