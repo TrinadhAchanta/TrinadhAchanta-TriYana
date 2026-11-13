@@ -54,3 +54,30 @@ def send_otp(phone: str, code: str) -> None:
     except (KeyError, httpx.HTTPError) as e:
         log.error("SMS send failed via %s: %s", name, e)
         raise SmsError("Could not send the SMS") from e
+
+
+def send_text(phone: str, text: str) -> str:
+    """A plain alert SMS (e.g. SOS to family). Returns how it went: "sent", "sandbox" or "failed".
+
+    MSG91 in India needs a DLT-approved template per message type, so free text is only sent through
+    Twilio here; with MSG91 the alert is logged until an SOS template is registered (see docs/FAMILY_AND_SOS.md).
+    Never raises: an SOS must go ahead even when an SMS can't.
+    """
+    name = provider_name()
+    masked = phone[:-4] + "****"
+    if name == "sandbox":
+        log.warning("SANDBOX SMS to %s: %s", masked, text)
+        return "sandbox"
+    try:
+        if name == "twilio":
+            sid = os.environ["TWILIO_ACCOUNT_SID"]
+            r = httpx.post(f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json", timeout=10,
+                           auth=(sid, os.environ["TWILIO_AUTH_TOKEN"]),
+                           data={"To": phone, "From": os.environ["TWILIO_FROM"], "Body": text})
+            r.raise_for_status()
+            return "sent"
+        log.error("SMS provider %s has no free-text alert template yet; alert to %s not sent", name, masked)
+        return "failed"
+    except (KeyError, httpx.HTTPError) as e:
+        log.error("Alert SMS failed via %s: %s", name, e)
+        return "failed"

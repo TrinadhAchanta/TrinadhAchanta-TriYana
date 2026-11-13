@@ -137,7 +137,9 @@ function sheet(html) {
 }
 
 async function doctorNowSheet() {
-  const [near, online] = await Promise.all([api("/api/doctors"), api("/api/patient/online-nearby")]);
+  if (typeof famLoad === "function") await famLoad();
+  const fq = typeof famQ === "function" ? famQ() : "";
+  const [near, online] = await Promise.all([api(`/api/doctors${fq}`), api(`/api/patient/online-nearby${fq}`)]);
   const q = online.quote || { promise_min: 10, available: online.doctors, in_promise: online.doctors, within_promise: !!online.doctors, nearest_min: 10 };
   const P = q.promise_min;
   const b = { reason: "", details: "", address: near.address, cashless: false };
@@ -153,6 +155,7 @@ async function doctorNowSheet() {
          : `<b>No doctors are online near you right now.</b> Book a time and a doctor will come then.`}</span></div>`;
   const s = sheet(`<div class="sheet-head"><div>${head}</div>
       <button class="x" aria-label="Close">${ic("x")}</button></div>
+    ${typeof whoPickerHTML === "function" ? whoPickerHTML() : ""}
     <div class="choice-grid">${REASONS.map(([r, i]) => `<button class="choice" data-r="${esc(r)}"><span class="ico">${ic(i)}</span><div><b>${r}</b></div></button>`).join("")}</div>
     <label class="field" style="margin-top:12px">Tell the doctor more (optional)<textarea id="nowDetails" rows="2" placeholder="For example: fever since last night, 102°F"></textarea></label>
     <label class="field" style="margin-top:10px">Visit address<input id="nowAddr" value="${esc(b.address)}"></label>
@@ -163,6 +166,7 @@ async function doctorNowSheet() {
     ${q.within_promise ? "" : `<button class="btn block" id="nowBook" style="margin-top:8px">${ic("calendar")} Book a time instead</button>`}`);
   $(".x", s.el).onclick = s.close;
   perkQuote($("#nowPerk", s.el), nowFee, b);
+  if (typeof wireWho === "function") wireWho(s.el, () => { s.close(); guard(doctorNowSheet); });
   const bookBtn = $("#nowBook"); if (bookBtn) bookBtn.onclick = () => { s.close(); go("book"); };
   $$("[data-r]", s.el).forEach((x) => (x.onclick = () => { b.reason = x.dataset.r; $$("[data-r]", s.el).forEach((y) => y.classList.toggle("on", y === x)); const g = $("#nowGo"); if (g) g.disabled = false; }));
   const goBtn = $("#nowGo");
@@ -170,7 +174,7 @@ async function doctorNowSheet() {
     const reason = [b.reason, $("#nowDetails").value.trim()].filter(Boolean).join(" · ");
     goBtn.disabled = true;
     try {
-      const v = await post("/api/patient/visits/now", { reason, address: $("#nowAddr").value, accept_longer: !q.within_promise, cashless: b.cashless });
+      const v = await post("/api/patient/visits/now", { reason, address: $("#nowAddr").value, accept_longer: !q.within_promise, cashless: b.cashless, member_id: typeof FAM !== "undefined" ? FAM.member : null });
       s.close(); liveScreen("visit", v.id);
     } catch (e) {
       goBtn.disabled = false;
@@ -312,16 +316,17 @@ async function liveScreen(kind, id) {
     $("#liveSheet").innerHTML = `
       <div class="grab"></div>
       <div class="row between" style="align-items:flex-start;flex-wrap:nowrap">
-        <div><div class="eyebrow-sm">${kind === "visit" ? `${d.on_demand ? "Doctor now" : "Home visit"} · ${esc(d.booking_ref || "")}` : kind === "physio" ? `Physio · session ${d.number} of ${d.sessions_total} · ${esc(d.booking_ref)}` : `Order ${esc(d.order_no)}`}</div>
+        <div><div class="eyebrow-sm">${kind === "visit" ? `${d.sos ? "SOS" : d.on_demand ? "Doctor now" : "Home visit"}${d.for ? ` for ${esc(d.for.name.split(" ")[0])}${d.for.relation ? ` (${esc(d.for.relation)})` : ""}` : ""} · ${esc(d.booking_ref || "")}` : kind === "physio" ? `Physio · session ${d.number} of ${d.sessions_total} · ${esc(d.booking_ref)}` : `Order ${esc(d.order_no)}`}</div>
           <h2>${esc(liveHeadline(d))}</h2><p class="small muted" style="margin:2px 0 0">${t2 && !t2.arrived ? `${km(t2.remaining_m)} away · arriving around <b>${clock(t2.eta_min)}</b>` : esc(liveSub(d))}</p></div>
         ${t2 && !t2.arrived ? `<div class="eta"><b>${t2.eta_min}</b><span>min</span></div>` : d.phase === "arrived" ? `<div class="eta good">${ic("check", "lg")}</div>` : ""}
       </div>
       ${d.phase === "searching" ? `<div class="search-bar"><i></i></div>` : t2 ? `<div class="trip-bar"><i style="width:${pct}%"></i></div>` : ""}
       ${promiseHTML(d)}
-      ${p ? `<div class="prov-card">${idProf?.photo ? `<img class="prov-photo" src="${esc(idProf.photo)}" alt="Verified photo of ${esc(p.name)}">` : `<div class="avatar lg">${esc(initials(p.name))}</div>`}<div class="grow"><b>${esc(p.name)}</b> ${p.license_no ? `<span class="verified" title="Verified licence">${ic("badge")}</span>` : ""}${d.identity?.verified ? ` <span class="id-verified">${ic("shield")} Identity verified</span>` : ""}
+      ${kind === "visit" && typeof sosPanelHTML === "function" ? sosPanelHTML(d) : ""}
+      ${kind === "visit" && d.doctor_card && typeof doctorCardHTML === "function" ? doctorCardHTML(d.doctor_card, idProf) : p ? `<div class="prov-card">${idProf?.photo ? `<img class="prov-photo" src="${esc(idProf.photo)}" alt="Verified photo of ${esc(p.name)}">` : `<div class="avatar lg">${esc(initials(p.name))}</div>`}<div class="grow"><b>${esc(p.name)}</b> ${p.license_no ? `<span class="verified" title="Verified licence">${ic("badge")}</span>` : ""}${d.identity?.verified ? ` <span class="id-verified">${ic("shield")} Identity verified</span>` : ""}
           <div class="tiny muted">${p.specialty ? `${esc(p.specialty)} · ` : ""}${p.rating ? `<span class="stars">★ ${p.rating.toFixed(1)}</span> · ` : ""}${esc(p.vehicle || (p.role === "courier" ? "Courier" : ""))}${p.license_no ? ` · Reg. ${esc(p.license_no)}` : ""}</div></div>
           <button class="btn sm" id="callProv" title="Calls are masked to protect both numbers">${ic("phoneCall")} Call</button></div>` : ""}
-      ${idProf?.verified ? `<div class="id-card"><div class="small"><b>Verified ${esc(time(idProf.verified_at))}</b> by ${esc(idProf.method.toLowerCase())}. ${idProf.photo ? "Compare the person at your door with this photo and name." : "Check their name and registration at the door and ask them to enter your arrival code."}</div>
+      ${idProf?.verified && !d.doctor_card ? `<div class="id-card"><div class="small"><b>Verified ${esc(time(idProf.verified_at))}</b> by ${esc(idProf.method.toLowerCase())}. ${idProf.photo ? "Compare the person at your door with this photo and name." : "Check their name and registration at the door and ask them to enter your arrival code."}</div>
           <div class="tiny">${esc([idProf.qualification, idProf.specialty, `Reg. No. ${idProf.license_no}`, idProf.medical_council].filter(Boolean).join(" · "))}</div></div>` : ""}
       ${d.identity?.arrival_code ? `<div class="code-inline"><span class="tiny">Arrival code</span><b>${esc(d.identity.arrival_code)}</b><span class="tiny muted">Your doctor types this into their app at your door. Never share it by phone or message.</span></div>` : ""}
       ${d.identity?.arrival_confirmed && d.phase !== "done" ? `<div class="arrival-ok">${ic("check")} Your doctor confirmed your arrival code</div>` : ""}
@@ -332,12 +337,14 @@ async function liveScreen(kind, id) {
         .map(([l, on]) => `<span class="${on ? "on" : ""}"><i></i>${l}</span>`).join("")}</div>
       <div class="row between" style="margin-top:10px">
         <span class="tiny muted">${ic("info")} Demo: GPS is simulated${t2 ? ` and runs ${t2.speedup}× faster` : ""}.</span>
+        ${kind === "visit" && !["done", "cancelled"].includes(d.phase) ? `<button class="btn sm" id="liveShare">${ic("share")} Share live</button>` : ""}
         ${kind !== "delivery" && ["searching", "waiting", "verifying", "confirmed"].includes(d.phase) ? `<button class="btn ghost sm danger" id="liveCancel">${ic("x")} Cancel</button>` : ""}
         ${["done", "with_you"].includes(d.phase) ? `<button class="btn sm" id="liveHome">${ic(kind === "physio" ? "file" : "home")} ${kind === "physio" ? "Session notes" : "Home"}</button>` : ""}</div>`;
     const c = $("#liveCancel"); if (c) c.onclick = () => guard(async () => { if (!confirm("Cancel this request?")) return; await post(kind === "physio" ? `/api/patient/physio/bookings/${d.booking_id}/cancel` : `/api/patient/visits/${id}/cancel`); toast("Request cancelled"); d = await api(url); draw(); });
     const h = $("#liveHome"); if (h) h.onclick = () => (kind === "physio" ? physioBookingScreen(d.booking_id) : go("home"));
     const cp = $("#callProv"); if (cp) cp.onclick = () => toast("Masked calling connects you in the live app (demo)", "phone");
     tickPromise(deadline);
+    if (kind === "visit" && typeof wireFamilyLive === "function") wireFamilyLive(d, id, async () => { d = await api(url); draw(); });
   };
   draw();
   loadId();

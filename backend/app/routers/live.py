@@ -48,14 +48,16 @@ class BookNowIn(BaseModel):
     address: str = Field(default="", max_length=300)
     accept_longer: bool = False  # go ahead when no doctor can make it inside the 10-minute promise
     cashless: bool = False       # bill the visit to the patient's health insurer
+    member_id: int | None = None  # family booking: send the doctor to this family member's home
 
 
 # ------------------------------------------------------------------ patient
 @router.post("/api/patient/visits/now", status_code=201)
 def book_doctor_now(body: BookNowIn, user: User = Depends(require(Role.patient)), db: Session = Depends(get_db)):
     privacy_svc.require_care(db, user)
-    v = visit_svc.book_now(db, user, body.reason, body.address, body.accept_longer, body.cashless)
-    return visit_svc.visit_to_dict(v, db.get(Patient, user.patient_id))
+    v = visit_svc.book_now(db, user, body.reason, body.address, body.accept_longer, body.cashless,
+                           member_id=body.member_id)
+    return visit_svc.visit_to_dict(v, v.patient)
 
 
 @router.get("/api/patient/visits/{visit_id}/live")
@@ -69,8 +71,9 @@ def order_live(order_id: int, user: User = Depends(require(Role.patient)), db: S
 
 
 @router.get("/api/patient/online-nearby")
-def online_nearby(user: User = Depends(require(Role.patient)), db: Session = Depends(get_db)):
-    p = db.get(Patient, user.patient_id)
+def online_nearby(member: int | None = None, user: User = Depends(require(Role.patient)), db: Session = Depends(get_db)):
+    from ..services.family import patient_for
+    p = patient_for(db, user, member)
     return {"doctors": dispatch.online_count(db, "visit", p.lat, p.lng), "home": [p.lat, p.lng],
             "quote": dispatch.doctor_quote(db, p)}
 

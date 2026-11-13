@@ -300,6 +300,8 @@ def seed(db: Session) -> dict:
                 for v, km in ((visit, 0.8), (visit2, 2.6))])
     from .services.face_verification import seed_demo_enrollments
     seed_demo_enrollments(db)
+    from .services.family import seed_demo as seed_family
+    family_ids = seed_family(db, users["patient"], meera)
     labs = seed_labs(db, users, meera)
     physio_ids = seed_physio(db, meera, arjun)
     from .services.perks import seed_perks
@@ -315,6 +317,7 @@ def seed(db: Session) -> dict:
         "visits": {"meera": visit.id, "arjun": visit2.id, "unverified_doctor": visit3.id,
                    "meera_past": past_meera.id, "arjun_past": past_arjun.id},
         "tokens": DEMO_TOKENS,
+        "family": family_ids,
         "lab_tests": labs["tests"],
         "lab_bookings": labs["bookings"],
         **physio_ids,

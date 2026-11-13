@@ -1,0 +1,66 @@
+/* Family care, SOS and the verified doctor card */
+:root { --sos: #d92d20; --sos-2: #ff5a4a; --sos-soft: #fdecea; }
+@media (prefers-color-scheme: dark) { :root { --sos: #ff6b5e; --sos-2: #ff8b80; --sos-soft: #3a1714; } }
+
+.sos-fab {
+  position: fixed; right: 22px; bottom: 88px; z-index: 31; width: 58px; height: 58px; border-radius: 50%; border: 3px solid #fff;
+  background: radial-gradient(circle at 35% 30%, var(--sos-2), var(--sos) 70%); color: #fff; cursor: pointer;
+  box-shadow: 0 8px 24px rgba(217, 45, 32, .45); display: grid; place-items: center; animation: sosPulse 2.4s ease-in-out infinite;
+}
+.sos-fab b { font-size: 15px; letter-spacing: .06em; }
+.sos-fab:focus-visible { outline: 3px solid var(--sos); outline-offset: 3px; }
+@keyframes sosPulse { 0%, 100% { box-shadow: 0 8px 24px rgba(217, 45, 32, .45), 0 0 0 0 rgba(217, 45, 32, .35); } 50% { box-shadow: 0 8px 24px rgba(217, 45, 32, .45), 0 0 0 10px rgba(217, 45, 32, 0); } }
+body.live-mode .sos-fab { display: none; }
+@media (max-width: 780px) { .sos-fab { right: 16px; bottom: 142px; width: 54px; height: 54px; } }
+@media (prefers-reduced-motion: reduce) { .sos-fab { animation: none; } }
+
+.sos-eyebrow { color: var(--sos); }
+.live-dot.sos { background: var(--sos); box-shadow: 0 0 0 0 rgba(217, 45, 32, .5); }
+.sos-go {
+  width: 100%; display: flex; align-items: center; gap: 14px; text-align: left; border: 0; cursor: pointer; margin: 4px 0 10px;
+  padding: 18px; border-radius: 20px; color: #fff; background: linear-gradient(135deg, var(--sos) 0%, var(--sos-2) 100%);
+  box-shadow: 0 10px 28px rgba(217, 45, 32, .35);
+}
+.sos-go b { display: block; font-size: 20px; }
+.sos-go small { display: block; opacity: .9; font-size: 12.5px; }
+.sos-go:disabled { opacity: .6; cursor: progress; }
+.sos-call { border-color: var(--sos) !important; color: var(--sos) !important; font-weight: 700; }
+.sym-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+.sym { border: 1px solid var(--line-strong); background: var(--surface); padding: 8px 12px; border-radius: 99px; font-size: 13px; cursor: pointer; color: var(--text-2); }
+.sym.red { border-color: color-mix(in srgb, var(--sos) 45%, transparent); }
+.sym.on { background: var(--brand-soft); border-color: var(--brand); color: var(--text); font-weight: 600; }
+.sym.red.on { background: var(--sos-soft); border-color: var(--sos); }
+.link-btn { border: 0; background: none; padding: 0; color: var(--brand); font-weight: 700; cursor: pointer; text-decoration: underline; }
+
+.sos-panel { margin: 10px 0; padding: 12px 14px; border-radius: 16px; background: var(--sos-soft); border: 1px solid color-mix(in srgb, var(--sos) 30%, transparent); }
+.sos-panel > .row b { color: var(--sos); display: inline-flex; align-items: center; gap: 6px; }
+.sos-panel.serious { border-width: 2px; }
+.sos-banner { display: flex; gap: 14px; align-items: center; width: 100%; text-align: left; cursor: pointer; border: 1px solid color-mix(in srgb, var(--sos) 35%, transparent); background: var(--sos-soft); color: var(--text); }
+.sos-dot { flex: none; width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-weight: 800; background: radial-gradient(circle at 35% 30%, var(--sos-2), var(--sos) 70%); }
+
+/* who is this for */
+.who { margin: 4px 0 12px; }
+.who-card { padding-top: 14px; padding-bottom: 6px; }
+.who-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.who-chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line-strong); background: var(--surface); padding: 7px 12px; border-radius: 99px; cursor: pointer; font-weight: 600; font-size: 13.5px; }
+.who-chip .tiny { color: var(--muted); font-weight: 500; }
+.who-chip.on { background: var(--brand); border-color: var(--brand); color: var(--brand-ink); }
+.who-chip.on .tiny { color: inherit; opacity: .85; }
+.who-chip.add { border-style: dashed; color: var(--muted); }
+
+/* verified doctor card */
+.doc-card { margin: 12px 0; padding: 14px; border-radius: 18px; background: var(--surface-2); border: 1px solid var(--line); }
+.doc-checks { list-style: none; margin: 12px 0 8px; padding: 0; display: grid; gap: 8px; }
+.doc-checks li { display: flex; gap: 10px; align-items: flex-start; }
+.doc-checks li > svg { margin-top: 2px; padding: 3px; width: 22px; height: 22px; border-radius: 50%; }
+.doc-checks li.ok > svg { color: var(--good); background: var(--good-soft); }
+.doc-checks li.wait > svg { color: var(--warn); background: var(--warn-soft); }
+.doc-checks b { display: block; font-size: 13.5px; }
+.doc-checks .tiny { display: block; }
+
+/* family screen */
+.fam-card .actions-bar { margin-top: 12px; }
+.fam-map { height: 220px; border-radius: 14px; overflow: hidden; border: 1px solid var(--line); isolation: isolate; }
+.share-url { display: flex; gap: 8px; margin-top: 12px; }
+.share-url input { flex: 1; min-width: 0; padding: 9px 12px; border-radius: 12px; border: 1px solid var(--line-strong); background: var(--surface-2); font-size: 13px; }
+.sos-call { text-decoration: none; }
