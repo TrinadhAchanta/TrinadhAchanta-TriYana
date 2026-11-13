@@ -168,3 +168,55 @@ def test_newly_approved_doctor_gets_doctor_now_and_booked_requests(env):
     assert v.status_code == 201, v.text
     offers = c.get("/api/provider/status", headers=h).json()["offers"]
     assert [o["visit_id"] for o in offers] == [v.json()["id"]]
+
+
+def test_end_to_end_own_patient_and_own_doctor(env):
+    """Tri's flow on the demo: sign up a patient and a doctor, approve the doctor, go online, then book.
+    The request must reach that doctor even though seeded demo doctors are online and nearer."""
+    from tests.test_accounts import _patient
+    c = env["client"]
+    # The patient signs up first and books Doctor now before any real doctor is online: demo doctors cover.
+    ph = H(_patient(c, email="tri.patient@example.com").json()["token"], "patient")
+    c.post("/api/consents", headers=ph, json={"purpose": "care", "granted": True})
+
+    # Doctor signs up ~3 km away (demo Dr. Carter is 0.5 km from the patient).
+    phone = _phone()
+    r = c.post("/api/auth/register", json={
+        "app": "provider", "role": "doctor", "name": "Tri Doctor", "email": "tri.doctor@example.com",
+        "password": "Secret123", "phone": phone, "otp": otp(c, phone), "lat": 17.47, "lng": 78.36,
+        "doctor": {"license_no": "TSMC-55501", "medical_council": "Telangana State Medical Council"}})
+    assert r.status_code == 201, r.text
+    h, uid = H(r.json()["token"], "provider"), r.json()["account"]["id"]
+
+    # Not approved yet: going online says why.
+    off = c.post("/api/provider/duty", headers=h, json={"online": True})
+    assert off.status_code == 403 and off.json()["detail"]["code"] == "not_verified"
+    # Ops can't approve before the face is enrolled, and the message says so.
+    no_face = c.post(f"/api/admin/providers/{uid}/verification", headers=ADMIN,
+                     json={"status": "verified", "override": True, "note": "Checked by hand"})
+    assert no_face.status_code == 409 and no_face.json()["detail"]["code"] == "face_enrollment_required"
+
+    _id(c, h)
+    enrol(c, h)
+    assert c.post(f"/api/admin/providers/{uid}/verification", headers=ADMIN, json={"status": "verified"}).status_code == 200
+    assert c.post("/api/provider/duty", headers=h, json={"online": True}).json()["online"] is True
+
+    # The patient's doctor list puts the real doctor first.
+    docs = c.get("/api/doctors", headers=ph).json()["doctors"]
+    assert docs[0]["name"] == "Dr. Tri Doctor"
+
+    # Doctor now reaches Tri's doctor, not the nearer demo doctor.
+    now = c.post("/api/patient/visits/now", headers=ph, json={"reason": "Fever", "accept_longer": True})
+    assert now.status_code == 201, now.text
+    offers = c.get("/api/provider/status", headers=h).json()["offers"]
+    assert [o["visit_id"] for o in offers] == [now.json()["id"]] and offers[0]["on_demand"]
+    acc = c.post(f"/api/provider/offers/{offers[0]['id']}/accept", headers=h)
+    assert acc.status_code == 200, acc.text
+    live = c.get(f"/api/patient/visits/{now.json()['id']}/live", headers=ph).json()
+    assert "Tri Doctor" in str(live)
+
+    # A booked time with the same doctor also reaches them.
+    slot = c.get(f"/api/visit-slots?doctor_id={docs[0]['id']}", headers=ph).json()[2]
+    b = c.post("/api/patient/visits", headers=ph, json={"doctor_id": docs[0]["id"], "scheduled_for": slot, "reason": "Check-up"})
+    assert b.status_code == 201, b.text
+    assert b.json()["id"] in [o["visit_id"] for o in c.get("/api/provider/status", headers=h).json()["offers"]]

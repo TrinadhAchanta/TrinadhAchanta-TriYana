@@ -491,7 +491,8 @@ def on_account_approved(db: Session, user: User) -> None:
     enr = current_enrollment(db, user)
     if enr is None:
         raise Conflict("face_enrollment_required",
-                       "This doctor hasn't enrolled their face yet. They do it in the Partner app.")
+                       "The doctor must enrol their face first. In the Partner app, open Home and tap "
+                       "Enrol my face, then approve again.")
     enr.status, enr.activated_at = "active", utcnow()
     _revoke_others(db, user, enr)
     audit.record(db, None, "face.enroll.active", "face_enrollment", enr.id)

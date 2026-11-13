@@ -38,7 +38,7 @@ from ..models import (
     utcnow,
 )
 from . import face_verification as face
-from .common import notify, users_for_patient
+from .common import is_real_patient, notify, users_for_patient
 
 OFFER_SECONDS = int(os.environ.get("TRIYANA_OFFER_SECONDS", "45"))
 SIM_SPEEDUP = float(os.environ.get("TRIYANA_SIM_SPEEDUP", "8"))  # demo time runs this many times faster
@@ -194,7 +194,11 @@ def candidates(db: Session, kind: str, target, *, online_only: bool = True,
         km = round(haversine_km(lat, lng, plat, plng), 1)
         if km <= radius:
             out.append((u, km))
-    return sorted(out, key=lambda r: r[1])
+    out.sort(key=lambda r: r[1])
+    if kind == "visit" and is_real_patient(db, target.patient_id):
+        # Real patients go to real doctors first; the seeded demo doctors only cover when none can come.
+        out = [r for r in out if r[0].email] + [r for r in out if not r[0].email]
+    return out
 
 
 def online_count(db: Session, kind: str, lat: float, lng: float) -> int:

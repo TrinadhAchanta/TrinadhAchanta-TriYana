@@ -11,7 +11,7 @@ from ..adapters.geo import haversine_km
 from ..errors import Conflict, NotFound, Unprocessable
 from ..models import Doctor, DoctorAvailability, HomeVisit, Patient, User, VisitStatus, utcnow
 from . import dispatch, perks, visit_notes
-from .common import new_ref, notify, users_for_doctor, users_for_patient
+from .common import demo_doctor_ids, is_real_patient, new_ref, notify, users_for_doctor, users_for_patient
 
 SERVICE_RADIUS_KM = 15.0
 LOCAL_TZ = timezone(timedelta(hours=5, minutes=30))  # demo jurisdiction (DEMO-IN) runs on IST
@@ -32,7 +32,9 @@ def _nearby_doctors(db: Session, patient: Patient) -> list[tuple[Doctor, float]]
     docs = db.scalars(select(Doctor).where(Doctor.license_verified.is_(True))).all()
     rows = [(d, _distance(d, patient)) for d in docs]
     rows = [r for r in rows if r[1] <= SERVICE_RADIUS_KM and r[0].jurisdiction == patient.jurisdiction]
-    return sorted(rows, key=lambda r: (r[1], -r[0].rating))
+    demo = demo_doctor_ids(db) if patient.id and is_real_patient(db, patient.id) else set()
+    # Real patients see real doctors first (demo doctors still cover when none are near).
+    return sorted(rows, key=lambda r: (r[0].id in demo, r[1], -r[0].rating))
 
 
 def _local_days(now: datetime) -> list[date]:
