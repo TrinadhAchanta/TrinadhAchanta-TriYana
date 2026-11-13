@@ -1,6 +1,7 @@
 """Triyana API: Digital Prescription -> Suggested Cart -> Pharmacy -> Delivery."""
 from __future__ import annotations
 
+import mimetypes
 import os
 from datetime import datetime
 from pathlib import Path
@@ -57,6 +58,12 @@ from .services.common import ensure_order_access, ensure_prescription_access, ge
 from .services.dispensing_rules import policy_for
 from .services.india import schedule_info
 from .services.matching import SORTS, match_pharmacies, match_to_dict
+
+# Windows can map .js to text/plain in its registry; with nosniff the browser would then refuse
+# to run the app's scripts and both apps would show a blank or dead page.
+for _ext, _type in ((".js", "text/javascript"), (".css", "text/css"), (".svg", "image/svg+xml"),
+                    (".webmanifest", "application/manifest+json")):
+    mimetypes.add_type(_type, _ext)
 
 app = FastAPI(title="Triyana Home — Prescriptions to Delivery", version="1.0.0")
 

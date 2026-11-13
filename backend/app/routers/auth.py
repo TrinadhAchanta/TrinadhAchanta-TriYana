@@ -58,6 +58,7 @@ class PasswordIn(BaseModel):
 class OtpIn(BaseModel):
     phone: str = Field(max_length=30)
     country: str | None = Field(None, min_length=2, max_length=2)  # ISO code from the country picker
+    app: Literal["patient", "provider"] | None = None  # which app the sign-up is for
 
 
 class PhoneIn(BaseModel):
@@ -103,7 +104,7 @@ def register(body: RegisterIn, db: Session = Depends(get_db)):
 @router.post("/auth/otp")
 def send_otp(body: OtpIn, db: Session = Depends(get_db)):
     """Send a 6-digit code to verify a mobile number before sign-up."""
-    return accounts.send_phone_otp(db, body.phone, country=body.country)
+    return accounts.send_phone_otp(db, body.phone, country=body.country, app=body.app)
 
 
 @router.get("/countries")

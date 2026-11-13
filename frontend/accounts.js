@@ -130,7 +130,7 @@ function renderAuth(mode) {
     keep(); $("#authErr").hidden = true;
     const btn = $("#sendOtp"); btn.disabled = true; btn.textContent = "Sending…";
     try {
-      const res = await fetch("/api/auth/otp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phone: d.phone || "", country: d.phoneCountry }) });
+      const res = await fetch("/api/auth/otp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phone: d.phone || "", country: d.phoneCountry, app: APP }) });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error((data.detail && data.detail.message) || "Could not send the code.");
       auth.otp = { ...data, typed: d.phone, country: d.phoneCountry }; d.otp = "";

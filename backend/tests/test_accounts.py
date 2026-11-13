@@ -240,3 +240,27 @@ def test_other_country_numbers():
     assert accounts.normalize_phone("050 123 4567", "AE") == "+971501234567"
     assert accounts.normalize_phone("2015550123", "US") == "+12015550123"
     assert accounts.normalize_phone("+14155550100", "IN") == "+14155550100"  # an explicit + wins
+
+
+def test_same_person_can_be_a_patient_and_a_doctor(env, monkeypatch):
+    """A doctor who also books care for themselves keeps one mobile number for both apps."""
+    monkeypatch.setattr(accounts, "OTP_RESEND_S", 0)
+    c = env["client"]
+    phone = _phone()
+    assert _patient(c, email="tri.patient@example.com", phone=phone).status_code == 201
+    # Signing in to the Partner app with the patient email explains what to do instead.
+    r = c.post("/api/auth/login", json={"app": "provider", "email": "tri.patient@example.com", "password": "Secret123"})
+    assert r.status_code == 403 and "different email" in r.json()["detail"]["message"]
+    # The number is taken for another patient account, but free for a Partner account.
+    r = c.post("/api/auth/otp", json={"phone": phone, "app": "patient"})
+    assert r.json()["detail"]["code"] == "phone_taken"
+    code = c.post("/api/auth/otp", json={"phone": phone, "app": "provider"}).json()["demo_code"]
+    r = c.post("/api/auth/register", json={
+        "app": "provider", "role": "doctor", "name": "Tri Doctor", "email": "tri.doctor@example.com",
+        "password": "Secret123", "phone": phone, "otp": code,
+        "doctor": {"license_no": "TSMC-77001", "medical_council": "Telangana State Medical Council"}})
+    assert r.status_code == 201, r.text
+    # Now both sides hold the number.
+    assert c.post("/api/auth/otp", json={"phone": phone, "app": "provider"}).json()["detail"]["code"] == "phone_taken"
+    r = c.post("/api/auth/login", json={"app": "provider", "email": "tri.doctor@example.com", "password": "Secret123"})
+    assert r.status_code == 200
