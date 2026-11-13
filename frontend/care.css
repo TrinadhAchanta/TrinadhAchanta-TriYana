@@ -1,0 +1,52 @@
+/* Care plans, follow-up calls, health records, voice booking and the language picker. */
+.plan-card { display: flex; flex-direction: column; margin: 0; }
+.plan-card .plan-price { margin: 12px 0 4px; }
+.plan-card .plan-price b { font-size: 22px; letter-spacing: -.02em; }
+.plan-card .checks.plain { margin-top: 6px; gap: 6px; flex: 1; }
+.choice-grid.plans { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+
+.timeline.records li { padding-bottom: 14px; }
+.rec-item { all: unset; display: block; width: 100%; cursor: pointer; border-radius: 10px; padding: 0 4px 2px; box-sizing: border-box; }
+.rec-item:hover b { color: var(--brand); }
+.rec-item:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.vitals-row { display: flex; gap: 22px; flex-wrap: wrap; }
+.vitals-row .stat b { display: block; font-size: 20px; letter-spacing: -.02em; }
+.vitals-row .stat span { font-size: 12px; color: var(--muted); }
+.bp-chart { width: 100%; height: 140px; margin: 10px 0 6px; overflow: visible; }
+.bp-chart path { fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+.bp-chart path.sys, .bp-chart circle.sys { stroke: var(--bad); }
+.bp-chart path.dia, .bp-chart circle.dia { stroke: var(--info); }
+.bp-chart circle { fill: var(--surface); stroke-width: 2.5; }
+.bp-chart .band { fill: var(--good-soft); }
+.key { display: inline-block; width: 10px; height: 10px; border-radius: 3px; vertical-align: -1px; margin-right: 4px; }
+.key.sys { background: var(--bad); } .key.dia { background: var(--info); } .key.band { background: var(--good-soft); border: 1px solid var(--good); }
+
+.voice-box { display: grid; justify-items: center; gap: 8px; padding: 14px 0 6px; text-align: center; }
+.mic-btn { width: 88px; height: 88px; border-radius: 50%; border: 0; cursor: pointer; display: grid; place-items: center;
+  background: var(--brand-grad); color: #fff; box-shadow: var(--sh-2); transition: transform .15s; }
+.mic-btn svg { width: 38px; height: 38px; }
+.mic-btn:active { transform: scale(.96); }
+.mic-btn.on { animation: micpulse 1.4s infinite; }
+@keyframes micpulse { 0% { box-shadow: 0 0 0 0 rgba(18, 165, 148, .45); } 100% { box-shadow: 0 0 0 26px rgba(18, 165, 148, 0); } }
+.voice-heard { min-height: 24px; font-size: 18px; font-weight: 600; max-width: 100%; overflow-wrap: anywhere; }
+.voice-intent { margin: 12px 0 10px; }
+.btn.big { padding: 14px 18px; font-size: 16px; }
+
+.lang-wrap { display: inline-flex; align-items: center; gap: 4px; color: var(--text-2); }
+.lang-wrap .i { width: 16px; height: 16px; }
+.lang-pick { border: 1px solid var(--line); background: var(--surface); color: var(--text); border-radius: 10px; padding: 5px 6px; font: inherit; font-size: 13px; }
+.lang-wrap.side { display: flex; margin-bottom: 10px; }
+.lang-wrap.side .lang-pick { flex: 1; }
+.lang-wrap.login-lang { display: none; }
+body.signed-out .lang-wrap.login-lang { display: inline-flex; position: fixed; top: 12px; right: 12px; z-index: 60;
+  background: var(--surface); border-radius: 12px; padding: 4px 4px 4px 8px; box-shadow: var(--sh-1); }
+.lang-wrap.top .i { display: none; }
+.lang-wrap.top .lang-pick { padding: 5px 2px; }
+/* Indian scripts: fonts that have the glyphs, and no tight Latin letter-spacing (it breaks joined letters). */
+body[data-lang="hi"], body[data-lang="te"], body[data-lang="ta"] {
+  --font: "Plus Jakarta Sans", "Noto Sans Devanagari", "Noto Sans Telugu", "Noto Sans Tamil", system-ui, sans-serif; }
+body[data-lang="hi"] *, body[data-lang="te"] *, body[data-lang="ta"] * { letter-spacing: normal !important; }
+@media print { .lang-wrap, .call-card { display: none !important; } }
+.topbar .lang-wrap.top { flex: none; }
+.topbar .lang-wrap.top .lang-pick { max-width: none; margin-left: 0; width: auto; }
+@media (max-width: 780px) { .topbar #accountMobile { max-width: 34%; min-width: 0; } }

@@ -26,6 +26,7 @@ from .routers.shop import router as shop_router
 from .routers.physio import router as physio_router
 from .routers.face import router as face_router
 from .routers.perks import router as perks_router
+from .routers.care import router as care_router
 from .errors import DomainError, Forbidden, NotFound
 from .models import (
     AuditLog,
@@ -774,6 +775,7 @@ app.include_router(shop_router)
 app.include_router(physio_router)
 app.include_router(face_router)
 app.include_router(perks_router)
+app.include_router(care_router)
 
 # --------------------------------------------------------------- frontend
 FRONTEND = Path(__file__).resolve().parents[2] / "frontend"

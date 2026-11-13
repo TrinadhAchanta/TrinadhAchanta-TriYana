@@ -1000,3 +1000,48 @@ class PhysioSession(Base):
     next_focus: Mapped[str] = mapped_column(EncryptedText, default="")
 
     booking = relationship("PhysioBooking", back_populates="sessions")
+
+
+# ------------------------------------------------------- care that keeps patients coming back
+class CarePlan(Base):
+    """A monthly home-care plan (diabetes, BP, bedridden, senior wellness) with regular doctor check-ups.
+
+    `schedule` lists the check-ups for the current month: [{"due": "YYYY-MM-DD", "visit_id": int | None}].
+    A check-up is booked as an ordinary home visit once its day comes inside the 7-day booking window.
+    """
+    __tablename__ = "care_plans"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    ref: Mapped[str] = mapped_column(String(24))
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(20))  # diabetes | bp | bedridden | elderly
+    status: Mapped[str] = mapped_column(String(16), default="active")  # active | cancelled
+    doctor_id: Mapped[int | None] = mapped_column(ForeignKey("doctors.id"))  # the regular doctor, once known
+    preferred_hour: Mapped[int] = mapped_column(Integer, default=10)  # local (IST) hour for check-ups
+    monthly_fee: Mapped[float] = mapped_column(Float, default=0)
+    visits_per_month: Mapped[int] = mapped_column(Integer, default=1)
+    schedule: Mapped[list] = mapped_column(JSON, default=list)
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    renews_on: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    doctor = relationship("Doctor")
+
+
+class FollowUpCall(Base):
+    """The free doctor call within 48 hours of every completed home visit."""
+    __tablename__ = "follow_up_calls"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    visit_id: Mapped[int] = mapped_column(ForeignKey("home_visits.id"), unique=True, index=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    doctor_id: Mapped[int] = mapped_column(ForeignKey("doctors.id"), index=True)
+    scheduled_for: Mapped[datetime] = mapped_column(DateTime)
+    due_by: Mapped[datetime] = mapped_column(DateTime)  # visit completed + 48 hours
+    status: Mapped[str] = mapped_column(String(16), default="scheduled")  # scheduled | done
+    feeling: Mapped[str | None] = mapped_column(String(10))  # better | same | worse (told by the patient)
+    patient_note: Mapped[str] = mapped_column(EncryptedText, default="")
+    doctor_note: Mapped[str] = mapped_column(EncryptedText, default="")
+    done_at: Mapped[datetime | None] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    visit = relationship("HomeVisit")
+    doctor = relationship("Doctor")

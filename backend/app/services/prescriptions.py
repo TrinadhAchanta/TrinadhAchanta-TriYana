@@ -56,6 +56,8 @@ def advance_visit(db: Session, user: User, visit_id: int, action: str, arrival_c
         from .perks import on_complete
         record_visit(db, visit)
         on_complete(db, visit)
+        from .care import on_visit_completed
+        on_visit_completed(db, visit)  # free follow-up call within 48 hours
     from . import dispatch
     if action == "accept":
         dispatch.close_offers_for_visit(db, visit, accepted_by=user)
