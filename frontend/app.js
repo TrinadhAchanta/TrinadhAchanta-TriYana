@@ -75,6 +75,7 @@ async function api(path, opts = {}) {
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
   const data = await res.json().catch(() => ({}));
+  if (res.status === 401 && state.token && path !== "/api/me") sessionEnded();
   if (!res.ok) {
     const d = data.detail || {};
     const msg = typeof d === "string" ? d : d.message || (Array.isArray(d) ? "Please check the form and try again." : "Something went wrong.");
@@ -137,6 +138,14 @@ function loginScreen(mode) {
   stopLive();
   document.body.classList.add("signed-out");
   renderAuth(mode);
+}
+
+/* The server no longer knows this session (signed out elsewhere, or the demo server restarted and lost
+   its accounts). Go back to sign-in instead of leaving a screen where nothing reaches the server. */
+function sessionEnded() {
+  if (!state.token) return;
+  signOut();
+  setTimeout(() => toast("You were signed out. Please sign in again.", "alert"), 50);
 }
 
 function signOut() {
