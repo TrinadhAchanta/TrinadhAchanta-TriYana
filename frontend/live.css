@@ -401,3 +401,24 @@ body.face-open { overflow: hidden; }
 .id-card { margin-top: 12px; padding: 12px; border-radius: 16px; border: 1px solid var(--line); display: grid; gap: 6px; }
 .id-card .tiny { color: var(--muted); }
 .arrival-ok { display: flex; gap: 8px; align-items: center; margin-top: 12px; padding: 10px 12px; border-radius: 14px; background: var(--good-soft); color: var(--good); font-weight: 700; }
+
+/* "A doctor at your door in 10 minutes" */
+.svc-hero > span.ten-badge {
+  position: absolute; top: 18px; right: 18px; width: 74px; height: 74px; border-radius: 50%;
+  display: grid; place-content: center; text-align: center; line-height: 1;
+  background: #fff; color: #063a33; box-shadow: 0 10px 26px rgba(0, 0, 0, .18), 0 0 0 6px rgba(255, 255, 255, .18);
+}
+.svc-hero .ten-badge b { font-size: 30px; font-weight: 800; letter-spacing: -.04em; }
+.svc-hero .ten-badge small { font-size: 10px; font-weight: 800; letter-spacing: .14em; }
+.svc-hero > b, .svc-hero > span:nth-of-type(4) { padding-right: 84px; }
+.promise-card { display: flex; gap: 12px; align-items: center; margin-top: 10px; padding: 12px 14px; border-radius: 16px; background: var(--brand-soft); color: var(--brand); }
+.promise-card b { display: block; font-size: 16px; }
+.promise-card .small { color: var(--ink-2, inherit); opacity: .85; }
+.promise { display: flex; gap: 8px; align-items: center; margin-top: 12px; padding: 10px 12px; border-radius: 14px; background: var(--brand-soft); color: var(--brand); font-weight: 600; font-variant-numeric: tabular-nums; }
+.promise.kept { background: var(--good-soft); color: var(--good); }
+.promise.late { background: var(--warn-soft); color: var(--warn); }
+@media (max-width: 760px) {
+  .svc-hero > span.ten-badge { width: 60px; height: 60px; top: 14px; right: 14px; }
+  .svc-hero .ten-badge b { font-size: 24px; }
+  .svc-hero > b, .svc-hero > span:nth-of-type(4) { padding-right: 66px; }
+}

@@ -1,4 +1,6 @@
-# Triyana Home — From Doctor Visit to Medicine Delivery
+# Triyana Home — A doctor at your door in 10 minutes
+
+**Triyana's promise: tap once and a verified doctor is at your home in 10 minutes**, the way quick-commerce apps made 10-minute delivery normal. Then prescriptions, medicines and lab tests follow, all in one app.
 
 Digital Prescription → Suggested Medicine Cart → Patient Selection → Licensed Pharmacy Approval → One-Tap Payment → Home Delivery.
 
@@ -38,6 +40,8 @@ The web app has a demo account switcher (patient, doctor, pharmacist, courier, h
 For physiotherapy at home, open **Physio at home** as Meera, pick what hurts and a single session or a 5/10-session package, and choose "As soon as possible". In `/provider` sign in as **Ananya** (nearest online physio), accept, and follow the live map; on arrival start the session and write notes (pain before/after, exercises, home plan). Meera sees the notes under her booking. Arjun's knee package shows two finished sessions with notes.
 
 For drones, sign in as **Nisha (Lotus Hospital)**: open **Coverage** to see which hospitals a drone can reach and why not, then **Send or request** to book a drone from GreenLeaf Pharmacy and follow it on the tracking map.
+
+**The 10-minute doctor**, `services/dispatch.py` (`doctor_quote`, `PROMISE_MIN`): before booking, the app works out how long the nearest online doctor needs to reach the patient (about 2 minutes to accept and pass the face check, plus the drive). If a doctor can make it inside 10 minutes (`TRIYANA_PROMISE_MIN`), the patient sees "Doctor in 10 minutes, at your door by 4:52 PM", and the live map shows a countdown and, on arrival, "Arrived in 7 min 12 s". If nobody can make it in 10 minutes, the app says so and shows the real wait; the patient can still send the nearest doctor or book a time. If every doctor inside 10 minutes declines, the request moves on to the next nearest and the patient is told it may take longer. Demo: Meera has Dr. Carter and Dr. Rohan inside her 10-minute zone; Arjun's nearest doctor is a little farther, so he sees the honest fallback. See `docs/TEN_MINUTE_DOCTOR.md` for what it takes to keep the promise in a real city.
 
 ## How it works
 

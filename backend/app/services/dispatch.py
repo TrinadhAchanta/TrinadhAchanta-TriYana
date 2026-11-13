@@ -49,6 +49,20 @@ ROLE_FOR = {"visit": Role.doctor, "delivery": Role.courier, "lab": Role.phleboto
 RADIUS_FOR = {"visit": DOCTOR_RADIUS_KM, "delivery": COURIER_RADIUS_KM, "lab": LAB_RADIUS_KM}
 CITY_KMH = 22.0  # average city speed used for ETAs on synthetic routes
 GPS_FRESH = timedelta(seconds=30)
+# Triyana's promise: a doctor at your door in 10 minutes. A doctor counts as "in the 10-minute zone" when
+# the time to accept and pass the live face check plus the drive fits inside the promise.
+PROMISE_MIN = int(os.environ.get("TRIYANA_PROMISE_MIN", "10"))
+HANDOFF_MIN = 2  # accept the request + live face check before setting off
+
+
+def drive_minutes(km: float) -> int:
+    """Rough city drive time for a straight-line distance (roads are ~1.3x longer)."""
+    return math.ceil(km * 1.3 / CITY_KMH * 60 + 1)
+
+
+def doorstep_minutes(km: float) -> int:
+    """From tapping "Doctor now" to the doctor at the door."""
+    return drive_minutes(km) + HANDOFF_MIN
 
 
 # ------------------------------------------------------------------ geometry
@@ -195,6 +209,16 @@ def online_count(db: Session, kind: str, lat: float, lng: float) -> int:
     return n
 
 
+def doctor_quote(db: Session, patient: Patient) -> dict:
+    """What "Doctor now" can promise this patient right now."""
+    cands = candidates(db, "visit", HomeVisit(id=0, patient_id=patient.id))
+    etas = [doorstep_minutes(km) for _, km in cands]
+    in_zone = sum(1 for e in etas if e <= PROMISE_MIN)
+    return {"promise_min": PROMISE_MIN, "available": len(cands), "in_promise": in_zone,
+            "within_promise": in_zone > 0, "nearest_min": etas[0] if etas else None,
+            "nearest_km": cands[0][1] if cands else None}
+
+
 # ------------------------------------------------------------------ offers
 def _make_offer(db: Session, kind: str, target, user: User, km: float, timed: bool) -> DispatchOffer:
     offer = DispatchOffer(kind=kind, user_id=user.id, distance_km=km,
@@ -206,6 +230,9 @@ def _make_offer(db: Session, kind: str, target, user: User, km: float, timed: bo
     if kind == "visit":
         title = "New visit request near you" if target.on_demand else "New home visit booking"
         body = f"{km} km away · {target.reason}"
+        if target.on_demand and target.promise_min:
+            title = f"{target.promise_min}-minute visit near you"
+            body = f"Patient promised a doctor in {target.promise_min} min · {body}"
     else:
         title = "New delivery near you"
         body = f"Pickup {km} km away at {target.pharmacy.name}"
@@ -248,10 +275,17 @@ def _redispatch(db: Session, offer: DispatchOffer) -> None:
         if v.status != VisitStatus.requested:
             return
         if v.on_demand:
-            if offer_on_demand_visit(db, v) is None:
+            nxt = offer_on_demand_visit(db, v)
+            if nxt is None:
                 v.status = VisitStatus.cancelled
                 notify(db, users_for_patient(db, v.patient_id), "No doctor available right now",
                        "All nearby doctors are busy. Please try again in a few minutes or book a time.", f"visit:{v.id}")
+            elif (v.promise_min and doorstep_minutes(offer.distance_km) <= v.promise_min
+                  < doorstep_minutes(nxt.distance_km)):
+                # The 10-minute zone ran out. Keep the patient's care going, and say so honestly.
+                notify(db, users_for_patient(db, v.patient_id), "Your doctor may take a little longer",
+                       f"No doctor within {v.promise_min} minutes could come, so we've asked the next nearest, "
+                       f"about {doorstep_minutes(nxt.distance_km)} minutes away.", f"visit:{v.id}")
             return
         # Booked time: the next nearest verified doctor who is free at that time.
         from .visits import free_slots  # local import avoids a cycle
@@ -585,7 +619,7 @@ def offer_to_dict(db: Session, o: DispatchOffer) -> dict:
                      "patient": p.name, "reason": v.reason, "scheduled_for": v.scheduled_for.isoformat(),
                      "address": v.address or p.address, "earning": v.fee,
                      "dropoff": {"lat": p.lat, "lng": p.lng, "label": p.name},
-                     "drive_min": math.ceil(o.distance_km * 1.3 / CITY_KMH * 60 + 1)})
+                     "drive_min": drive_minutes(o.distance_km)})
     elif o.kind == "lab":
         from . import labs
         base.update(labs.offer_fields(db, o))
@@ -658,7 +692,13 @@ def visit_live(db: Session, patient_user: User, visit_id: int) -> dict:
     if t and t["arrived"]:
         phase = "arrived"
     identity = face.patient_view(db, v, doc_user) if doc_user else None
-    return {"kind": "visit", "id": v.id, "booking_ref": v.booking_ref, "status": v.status.value, "phase": phase,
+    promise = None
+    if v.on_demand and v.promise_min:
+        left = (v.created_at + timedelta(minutes=v.promise_min) - utcnow()).total_seconds()
+        promise = {"minutes": v.promise_min, "seconds_left": round(left)}
+    arrived_in_s = (round((trip.arrived_at - v.created_at).total_seconds())
+                    if v.on_demand and trip and trip.arrived_at else None)
+    return {"kind": "visit", "promise": promise, "arrived_in_s": arrived_in_s, "id": v.id, "booking_ref": v.booking_ref, "status": v.status.value, "phase": phase,
             "on_demand": v.on_demand, "reason": v.reason, "scheduled_for": v.scheduled_for.isoformat(),
             "home": {"lat": p.lat, "lng": p.lng, "label": "Home", "address": v.address or p.address},
             "provider": _provider_card(db, doc_user), "trip": t, "providers_asked": asked, "identity": identity,

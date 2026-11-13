@@ -85,11 +85,12 @@ function servicesHTML() {
     <div class="services">
       <button class="svc-hero" data-svc="now">
         <span class="svc-glow"></span>
-        <span class="row" style="gap:8px"><span class="live-dot"></span><span class="tiny strong" style="letter-spacing:.1em">ON DEMAND</span></span>
-        <b>Doctor now</b>
-        <span>The nearest available doctor accepts in seconds and comes to your door. Watch them arrive on the map.</span>
-        <span class="row svc-meta"><span class="chip-glass">${ic("stethoscope")} <span id="onlineDocs">Doctors online nearby</span></span><span class="chip-glass">${ic("clock")} Arrives in ~15–30 min</span></span>
-        <span class="svc-cta">Get a doctor now ${ic("arrow")}</span>
+        <span class="ten-badge" aria-hidden="true"><b>10</b><small>MIN</small></span>
+        <span class="row" style="gap:8px"><span class="live-dot"></span><span class="tiny strong" style="letter-spacing:.1em">10-MINUTE DOCTOR</span></span>
+        <b>A doctor at your door in 10 minutes</b>
+        <span>One tap. The nearest verified doctor accepts, passes a live face check and comes to your home. Watch them arrive on the map.</span>
+        <span class="row svc-meta"><span class="chip-glass">${ic("clock")} <span id="promiseChip">Checking doctors near you</span></span><span class="chip-glass">${ic("stethoscope")} <span id="onlineDocs">Doctors online nearby</span></span></span>
+        <span class="svc-cta">${ic("bolt")} Get a doctor in 10 min</span>
       </button>
       <button class="card now-banner physio-banner" data-svc="physio" data-svc-go="physio"><div class="row" style="flex-wrap:nowrap"><div class="ico">${ic("heart", "lg")}</div>
         <div><h3 style="margin:0">Physiotherapy at home</h3><span class="small muted">Back, knee, post-surgery and stroke rehab. Book a session or a package; a verified physio comes to you.</span></div></div>
@@ -102,8 +103,8 @@ function servicesHTML() {
 
 function doctorNowBanner() {
   return `<div class="card now-banner"><div class="row" style="flex-wrap:nowrap"><div class="ico">${ic("bolt", "lg")}</div>
-      <div><h3 style="margin:0">Need a doctor right now?</h3><span class="small muted">We send the nearest available doctor. Track them live as they come to you.</span></div></div>
-      <button class="btn primary" data-svc="now">${ic("bolt")} Doctor now</button></div>`;
+      <div><h3 style="margin:0">Need a doctor right now?</h3><span class="small muted">A verified doctor at your door in 10 minutes. Track them live as they come to you.</span></div></div>
+      <button class="btn primary" data-svc="now">${ic("bolt")} Doctor in 10 min</button></div>`;
 }
 
 function wireServices() {
@@ -115,7 +116,12 @@ function wireServices() {
     toast("Coming soon to Triyana", "info");
   }));
   const el = $("#onlineDocs");
-  if (el) api("/api/patient/online-nearby").then((r) => { el.textContent = r.doctors ? `${r.doctors} doctor${r.doctors > 1 ? "s" : ""} online nearby` : "No doctors online right now"; }).catch(() => {});
+  if (el) api("/api/patient/online-nearby").then((r) => {
+    el.textContent = r.doctors ? `${r.doctors} doctor${r.doctors > 1 ? "s" : ""} online nearby` : "No doctors online right now";
+    const pc = $("#promiseChip"), q = r.quote; if (!pc || !q) return;
+    pc.textContent = q.within_promise ? `Nearest doctor ${q.nearest_min} min away`
+      : q.available ? `Nearest doctor ~${q.nearest_min} min away right now` : "Book a time instead";
+  }).catch(() => {});
 }
 
 function sheet(html) {
@@ -132,26 +138,62 @@ function sheet(html) {
 
 async function doctorNowSheet() {
   const [near, online] = await Promise.all([api("/api/doctors"), api("/api/patient/online-nearby")]);
+  const q = online.quote || { promise_min: 10, available: online.doctors, in_promise: online.doctors, within_promise: !!online.doctors, nearest_min: 10 };
+  const P = q.promise_min;
   const b = { reason: "", details: "", address: near.address };
-  const s = sheet(`<div class="sheet-head"><div><div class="eyebrow-sm"><span class="live-dot"></span> ${online.doctors} doctor${online.doctors === 1 ? "" : "s"} online near you</div>
-      <h2>Doctor now</h2><p class="small muted">The nearest available verified doctor gets your request first. If they can't come, it goes to the next nearest.</p></div>
+  const head = q.within_promise
+    ? `<div class="eyebrow-sm"><span class="live-dot"></span> ${q.in_promise} doctor${q.in_promise === 1 ? "" : "s"} within ${P} minutes of you</div>
+       <h2>Doctor in ${P} minutes</h2>
+       <div class="promise-card">${ic("bolt", "lg")}<div><b>At your door by ${clock(q.nearest_min)}</b><span class="small">The nearest doctor is about ${q.nearest_min} min away. If they can't come, we ask the next nearest straight away.</span></div></div>`
+    : `<div class="eyebrow-sm"><span class="live-dot ${q.available ? "" : "off"}"></span> ${q.available ? `${q.available} doctor${q.available === 1 ? "" : "s"} online near you` : "No doctors online near you"}</div>
+       <h2>Doctor now</h2>
+       <div class="notice warn small">${ic("clock")}<span>${q.available
+         ? `<b>No doctor can reach you within ${P} minutes right now.</b> The nearest is about ${q.nearest_min} minutes away, arriving around ${clock(q.nearest_min)}. You can still send them, or book a time.`
+         : `<b>No doctors are online near you right now.</b> Book a time and a doctor will come then.`}</span></div>`;
+  const s = sheet(`<div class="sheet-head"><div>${head}</div>
       <button class="x" aria-label="Close">${ic("x")}</button></div>
     <div class="choice-grid">${REASONS.map(([r, i]) => `<button class="choice" data-r="${esc(r)}"><span class="ico">${ic(i)}</span><div><b>${r}</b></div></button>`).join("")}</div>
     <label class="field" style="margin-top:12px">Tell the doctor more (optional)<textarea id="nowDetails" rows="2" placeholder="For example: fever since last night, 102°F"></textarea></label>
     <label class="field" style="margin-top:10px">Visit address<input id="nowAddr" value="${esc(b.address)}"></label>
-    <div class="notice info small">${ic("shield")}<span><b>Nothing to pay now.</b> Licence-verified doctors only. Visit fee from ${money(Math.min(...near.doctors.map((d) => d.visit_fee)))}, paid after the visit.</span></div>
+    <div class="notice info small">${ic("shield")}<span><b>Nothing to pay now.</b> Licence-verified doctors only, face-checked before every visit. Visit fee from ${money(Math.min(...near.doctors.map((d) => d.visit_fee)))}, paid after the visit.</span></div>
     <div class="notice warn small">${ic("alert")}<span>For chest pain, breathing trouble or other emergencies, call <b>112</b> now.</span></div>
-    <button class="btn primary block" id="nowGo" disabled>${ic("bolt")} Find a doctor now</button>`);
+    ${q.available ? `<button class="btn primary block" id="nowGo" disabled>${ic("bolt")} ${q.within_promise ? `Get a doctor in ${P} min` : `Send the nearest doctor (about ${q.nearest_min} min)`}</button>` : ""}
+    ${q.within_promise ? "" : `<button class="btn block" id="nowBook" style="margin-top:8px">${ic("calendar")} Book a time instead</button>`}`);
   $(".x", s.el).onclick = s.close;
-  $$("[data-r]", s.el).forEach((x) => (x.onclick = () => { b.reason = x.dataset.r; $$("[data-r]", s.el).forEach((y) => y.classList.toggle("on", y === x)); $("#nowGo").disabled = false; }));
-  $("#nowGo").onclick = () => guard(async () => {
+  const bookBtn = $("#nowBook"); if (bookBtn) bookBtn.onclick = () => { s.close(); go("book"); };
+  $$("[data-r]", s.el).forEach((x) => (x.onclick = () => { b.reason = x.dataset.r; $$("[data-r]", s.el).forEach((y) => y.classList.toggle("on", y === x)); const g = $("#nowGo"); if (g) g.disabled = false; }));
+  const goBtn = $("#nowGo");
+  if (goBtn) goBtn.onclick = () => guard(async () => {
     const reason = [b.reason, $("#nowDetails").value.trim()].filter(Boolean).join(" · ");
-    $("#nowGo").disabled = true;
+    goBtn.disabled = true;
     try {
-      const v = await post("/api/patient/visits/now", { reason, address: $("#nowAddr").value });
+      const v = await post("/api/patient/visits/now", { reason, address: $("#nowAddr").value, accept_longer: !q.within_promise });
       s.close(); liveScreen("visit", v.id);
-    } catch (e) { $("#nowGo").disabled = false; throw e; }
+    } catch (e) {
+      goBtn.disabled = false;
+      if (e.detail?.code === "outside_promise") { s.close(); toast(e.message, "clock"); return doctorNowSheet(); } // things changed: show the real wait
+      throw e;
+    }
   });
+}
+
+/* "Doctor in 10 minutes": a live countdown from the moment the patient asked. */
+const mmss = (sec) => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, "0")}`;
+function promiseHTML(d) {
+  if (d.kind !== "visit" || !d.on_demand) return "";
+  if (d.arrived_in_s != null) {
+    const ok = !d.promise || d.arrived_in_s <= d.promise.minutes * 60;
+    const m = Math.floor(d.arrived_in_s / 60), sec = d.arrived_in_s % 60;
+    return `<div class="promise ${ok ? "kept" : "late"}">${ic(ok ? "check" : "clock")}<span><b>Arrived in ${m} min ${sec} s</b>${d.promise ? (ok ? ` · ${d.promise.minutes}-minute promise kept` : ` · we missed our ${d.promise.minutes}-minute promise, sorry`) : ""}</span></div>`;
+  }
+  if (!d.promise || ["done", "cancelled"].includes(d.phase)) return "";
+  return `<div class="promise" id="promiseBar">${ic("bolt")}<span><b>${d.promise.minutes}-minute doctor</b> · <span id="promiseLeft"></span></span></div>`;
+}
+function tickPromise(deadline) {
+  const el = $("#promiseLeft"); if (!el || deadline == null) return;
+  const left = Math.round((deadline - Date.now()) / 1000);
+  el.textContent = left >= 0 ? `${mmss(left)} left` : `running ${Math.ceil(-left / 60)} min late, your doctor is still coming`;
+  $("#promiseBar")?.classList.toggle("late", left < 0);
 }
 
 async function patientLiveBanner(visits, orders) {
@@ -230,7 +272,9 @@ async function liveScreen(kind, id) {
     L_.home = L.marker([d.home.lat, d.home.lng], { icon: markerIcon("home", ic("home2")), zIndexOffset: 100 }).addTo(map);
     if (d.pharmacy) L_.pharmacy = L.marker([d.pharmacy.lat, d.pharmacy.lng], { icon: markerIcon("pharmacy", ic("store")) }).addTo(map);
   }
-  let routeKey = "", fitted = false;
+  let routeKey = "", fitted = false, deadline = null;
+  const setDeadline = () => { deadline = d.promise ? Date.now() + d.promise.seconds_left * 1000 : null; };
+  setDeadline();
   const draw = () => {
     const t = d.trip;
     $("#liveChip").innerHTML = `<span class="live-dot ${["done", "cancelled"].includes(d.phase) ? "off" : ""}"></span>${t && !t.arrived ? `${t.eta_min} min` : d.phase === "searching" ? "Searching" : "Live"}`;
@@ -270,6 +314,7 @@ async function liveScreen(kind, id) {
         ${t2 && !t2.arrived ? `<div class="eta"><b>${t2.eta_min}</b><span>min</span></div>` : d.phase === "arrived" ? `<div class="eta good">${ic("check", "lg")}</div>` : ""}
       </div>
       ${d.phase === "searching" ? `<div class="search-bar"><i></i></div>` : t2 ? `<div class="trip-bar"><i style="width:${pct}%"></i></div>` : ""}
+      ${promiseHTML(d)}
       ${p ? `<div class="prov-card">${idProf?.photo ? `<img class="prov-photo" src="${esc(idProf.photo)}" alt="Verified photo of ${esc(p.name)}">` : `<div class="avatar lg">${esc(initials(p.name))}</div>`}<div class="grow"><b>${esc(p.name)}</b> ${p.license_no ? `<span class="verified" title="Verified licence">${ic("badge")}</span>` : ""}${d.identity?.verified ? ` <span class="id-verified">${ic("shield")} Identity verified</span>` : ""}
           <div class="tiny muted">${p.specialty ? `${esc(p.specialty)} · ` : ""}${p.rating ? `<span class="stars">★ ${p.rating.toFixed(1)}</span> · ` : ""}${esc(p.vehicle || (p.role === "courier" ? "Courier" : ""))}${p.license_no ? ` · Reg. ${esc(p.license_no)}` : ""}</div></div>
           <button class="btn sm" id="callProv" title="Calls are masked to protect both numbers">${ic("phoneCall")} Call</button></div>` : ""}
@@ -289,10 +334,12 @@ async function liveScreen(kind, id) {
     const c = $("#liveCancel"); if (c) c.onclick = () => guard(async () => { if (!confirm("Cancel this request?")) return; await post(kind === "physio" ? `/api/patient/physio/bookings/${d.booking_id}/cancel` : `/api/patient/visits/${id}/cancel`); toast("Request cancelled"); d = await api(url); draw(); });
     const h = $("#liveHome"); if (h) h.onclick = () => (kind === "physio" ? physioBookingScreen(d.booking_id) : go("home"));
     const cp = $("#callProv"); if (cp) cp.onclick = () => toast("Masked calling connects you in the live app (demo)", "phone");
+    tickPromise(deadline);
   };
   draw();
   loadId();
-  every(2000, async () => { d = await api(url); draw(); loadId(); });
+  every(2000, async () => { d = await api(url); setDeadline(); draw(); loadId(); });
+  every(1000, async () => tickPromise(deadline));
 }
 
 /* Start the app once every screen is registered. */
