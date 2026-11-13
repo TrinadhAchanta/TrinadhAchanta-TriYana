@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex">
+  <title>Triyana live visit</title>
+  <link rel="icon" href="/static/icons/patient.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root { --bg: #f4f6f5; --surface: #fff; --surface-2: #f2f5f4; --text: #0c1a16; --muted: #6b7a74; --line: #e3e9e6;
+      --brand: #0b7a6c; --brand-soft: #e1f4f0; --good: #137a3a; --good-soft: #e3f5e9; --warn: #9a5b00; --warn-soft: #fff4de;
+      --sos: #d92d20; --sos-soft: #fdecea; --hero: linear-gradient(135deg, #062e29 0%, #0b5a50 45%, #0f8a7a 100%); }
+    @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #07100e; --surface: #0f1916; --surface-2: #14201d; --text: #eaf2ef;
+      --muted: #8b9c96; --line: #1f2d29; --brand: #2fd1b5; --brand-soft: #0f302a; --good: #7be3a0; --good-soft: #12301e;
+      --warn: #f3b955; --warn-soft: #33270f; --sos: #ff6b5e; --sos-soft: #3a1714; } }
+    :root[data-theme="dark"] { --bg: #07100e; --surface: #0f1916; --surface-2: #14201d; --text: #eaf2ef; --muted: #8b9c96; --line: #1f2d29;
+      --brand: #2fd1b5; --brand-soft: #0f302a; --good: #7be3a0; --good-soft: #12301e; --warn: #f3b955; --warn-soft: #33270f; --sos: #ff6b5e; --sos-soft: #3a1714; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body { background: var(--bg); color: var(--text); font: 15px/1.5 "Plus Jakarta Sans", system-ui, sans-serif; display: flex; flex-direction: column; }
+    header { background: var(--hero); color: #fff; padding: 14px 16px; display: flex; align-items: center; gap: 10px; }
+    header b { font-size: 17px; } header span { font-size: 12px; opacity: .85; display: block; }
+    #map { flex: 1 1 auto; min-height: 46vh; isolation: isolate; }
+    .sheet { background: var(--surface); border-top: 1px solid var(--line); padding: 16px; max-width: 720px; width: 100%; margin: 0 auto; }
+    h1 { font-size: 20px; margin: 0; } .muted { color: var(--muted); } .small { font-size: 13px; } .tiny { font-size: 12px; }
+    .row { display: flex; gap: 10px; align-items: center; justify-content: space-between; }
+    .eta { text-align: center; background: var(--brand-soft); color: var(--brand); border-radius: 14px; padding: 6px 12px; }
+    .eta b { display: block; font-size: 24px; line-height: 1; } .eta span { font-size: 11px; font-weight: 700; }
+    .card { margin-top: 12px; padding: 12px; border-radius: 14px; background: var(--surface-2); border: 1px solid var(--line); }
+    .badge { display: inline-block; font-size: 11.5px; font-weight: 700; padding: 2px 8px; border-radius: 99px; background: var(--good-soft); color: var(--good); }
+    .badge.wait { background: var(--warn-soft); color: var(--warn); }
+    .sos { background: var(--sos-soft); border-color: var(--sos); color: var(--text); } .sos b { color: var(--sos); }
+    .bar { height: 6px; border-radius: 6px; background: var(--line); overflow: hidden; margin-top: 10px; } .bar i { display: block; height: 100%; background: var(--brand); }
+    .mk { width: 100%; height: 100%; border-radius: 50%; display: grid; place-items: center; color: #fff; font-weight: 800; font-size: 13px; border: 3px solid #fff; box-shadow: 0 4px 12px rgba(0,0,0,.3); }
+    .mk-home { background: #2c5fd6; } .mk-doc { background: #0b7a6c; }
+    footer { text-align: center; font-size: 12px; color: var(--muted); padding: 10px 16px 18px; }
+    a { color: var(--brand); }
+  </style>
+</head>
+<body>
+  <header><div><b>Triyana</b><span>A doctor at your door in 10 minutes · live visit</span></div></header>
+  <div id="map" role="img" aria-label="Map showing the doctor on the way"></div>
+  <div class="sheet" id="sheet"><p class="muted">Loading the live visit…</p></div>
+  <footer>Shared by your family on Triyana. This link shows where the doctor is, never health details. <a href="/">Get the app</a></footer>
+  <script src="/static/vendor/leaflet/leaflet.js"></script>
+  <script>
+  "use strict";
+  const token = location.pathname.split("/").pop();
+  const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const clock = (m) => new Date(Date.now() + m * 60000).toLocaleTimeString(undefined, { timeStyle: "short", timeZone: "Asia/Kolkata" });
+  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+  let map = null, home = null, doc = null, line = null, fitted = false, timer = null;
+  const icon = (cls, txt) => L.divIcon({ className: "", iconSize: [38, 38], iconAnchor: [19, 19], html: `<div class="mk ${cls}">${txt}</div>` });
+  const PHASE = { searching: "Finding the nearest doctor", waiting: "Waiting for the doctor to confirm", confirmed: "Doctor confirmed",
+    verifying: "Doctor accepted, doing their live ID check", on_the_way: "Doctor is on the way", arrived: "Doctor has arrived",
+    with_you: "Doctor is with them now", done: "Visit finished", cancelled: "This visit was cancelled" };
+  async function load() {
+    const r = await fetch(`/api/track/${encodeURIComponent(token)}`, { cache: "no-store" });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { document.getElementById("sheet").innerHTML = `<h1>Link not available</h1><p class="muted">${esc(d.detail?.message || "This tracking link has expired or was turned off.")}</p>`; clearInterval(timer); return; }
+    draw(d);
+    if (["done", "cancelled"].includes(d.phase)) clearInterval(timer);
+  }
+  function draw(d) {
+    if (!map && window.L) {
+      map = L.map("map", { zoomControl: false }).setView([d.home.lat, d.home.lng], 15);
+      L.tileLayer(`https://{s}.basemaps.cartocdn.com/${dark ? "dark_all" : "rastertiles/voyager"}/{z}/{x}/{y}{r}.png`, { maxZoom: 19, subdomains: "abcd",
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>' }).addTo(map);
+      home = L.marker([d.home.lat, d.home.lng], { icon: icon("mk-home", "⌂") }).addTo(map);
+    }
+    const t = d.trip, who = esc(d.patient_first_name);
+    if (map) {
+      if (d.provider_location) { doc ? doc.setLatLng(d.provider_location) : (doc = L.marker(d.provider_location, { icon: icon("mk-doc", "Dr"), zIndexOffset: 500 }).addTo(map)); }
+      if (t && t.route && !line) line = L.polyline(t.route, { color: dark ? "#2fd1b5" : "#0b7a6c", weight: 5, opacity: .9 }).addTo(map);
+      if (!fitted && d.provider_location) { map.fitBounds([[d.home.lat, d.home.lng], d.provider_location], { padding: [50, 50], maxZoom: 16 }); fitted = true; }
+    }
+    const c = d.doctor;
+    document.getElementById("sheet").innerHTML = `
+      ${d.sos ? `<div class="card sos"><b>SOS</b> · ${who} asked for urgent help. ${d.ambulance?.status === "requested" ? `An ambulance has been requested (ref ${esc(d.ambulance.ref)}).` : d.ambulance?.status === "called" ? "The family has called 108." : ""}</div>` : ""}
+      <div class="row" style="margin-top:${d.sos ? 12 : 0}px"><div><div class="tiny muted">Visit for ${who}</div><h1>${esc(PHASE[d.phase] || "Live visit")}</h1>
+        <div class="small muted">${t && !t.arrived ? `About ${t.eta_min} min away · arriving around <b>${clock(t.eta_min)}</b>` : d.phase === "arrived" ? "At the door now." : ""}</div></div>
+        ${t && !t.arrived ? `<div class="eta"><b>${t.eta_min}</b><span>MIN</span></div>` : ""}</div>
+      ${t ? `<div class="bar"><i style="width:${Math.round((t.fraction || 0) * 100)}%"></i></div>` : ""}
+      ${c ? `<div class="card"><div class="row"><div><b>${esc(c.name)}</b> ${c.verified ? `<span class="badge">Verified doctor</span>` : ""}
+          <div class="tiny muted">${esc([c.specialty, c.qualification, c.experience_years ? `${c.experience_years} yrs` : ""].filter(Boolean).join(" · "))}</div>
+          <div class="tiny muted">Reg. No. ${esc(c.license_no)}${c.medical_council ? ` · ${esc(c.medical_council)}` : ""}</div></div>
+          ${c.rating ? `<div class="small"><b>★ ${c.rating.toFixed(1)}</b><div class="tiny muted">${c.rating_count} ratings</div></div>` : ""}</div>
+        <div class="tiny" style="margin-top:8px">${c.face_verified ? `<span class="badge">Live face check passed</span>` : `<span class="badge wait">Live face check before leaving</span>`}</div></div>` : ""}
+      ${t ? `<p class="tiny muted" style="margin:10px 0 0">Demo: GPS is simulated${t.speedup ? ` and runs ${t.speedup}× faster` : ""}.</p>` : ""}`;
+  }
+  load(); timer = setInterval(load, 3000);
+  </script>
+</body>
+</html>
