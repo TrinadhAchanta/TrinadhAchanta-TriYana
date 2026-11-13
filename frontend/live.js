@@ -140,7 +140,8 @@ async function doctorNowSheet() {
   const [near, online] = await Promise.all([api("/api/doctors"), api("/api/patient/online-nearby")]);
   const q = online.quote || { promise_min: 10, available: online.doctors, in_promise: online.doctors, within_promise: !!online.doctors, nearest_min: 10 };
   const P = q.promise_min;
-  const b = { reason: "", details: "", address: near.address };
+  const b = { reason: "", details: "", address: near.address, cashless: false };
+  const nowFee = near.doctors.length ? Math.max(...near.doctors.map((d) => d.visit_fee)) : 800;
   const head = q.within_promise
     ? `<div class="eyebrow-sm"><span class="live-dot"></span> ${q.in_promise} doctor${q.in_promise === 1 ? "" : "s"} within ${P} minutes of you</div>
        <h2>Doctor in ${P} minutes</h2>
@@ -155,11 +156,13 @@ async function doctorNowSheet() {
     <div class="choice-grid">${REASONS.map(([r, i]) => `<button class="choice" data-r="${esc(r)}"><span class="ico">${ic(i)}</span><div><b>${r}</b></div></button>`).join("")}</div>
     <label class="field" style="margin-top:12px">Tell the doctor more (optional)<textarea id="nowDetails" rows="2" placeholder="For example: fever since last night, 102°F"></textarea></label>
     <label class="field" style="margin-top:10px">Visit address<input id="nowAddr" value="${esc(b.address)}"></label>
-    <div class="notice info small">${ic("shield")}<span><b>Nothing to pay now.</b> Licence-verified doctors only, face-checked before every visit. Visit fee from ${money(Math.min(...near.doctors.map((d) => d.visit_fee)))}, paid after the visit.</span></div>
+    <div id="nowPerk"></div>
+    <div class="notice info small">${ic("shield")}<span><b>Nothing to pay now.</b> Licence-verified doctors only, face-checked before every visit. You pay after the visit.${q.within_promise ? ` If the doctor is late, the visit is free.` : ""}</span></div>
     <div class="notice warn small">${ic("alert")}<span>For chest pain, breathing trouble or other emergencies, call <b>112</b> now.</span></div>
     ${q.available ? `<button class="btn primary block" id="nowGo" disabled>${ic("bolt")} ${q.within_promise ? `Get a doctor in ${P} min` : `Send the nearest doctor (about ${q.nearest_min} min)`}</button>` : ""}
     ${q.within_promise ? "" : `<button class="btn block" id="nowBook" style="margin-top:8px">${ic("calendar")} Book a time instead</button>`}`);
   $(".x", s.el).onclick = s.close;
+  perkQuote($("#nowPerk", s.el), nowFee, b);
   const bookBtn = $("#nowBook"); if (bookBtn) bookBtn.onclick = () => { s.close(); go("book"); };
   $$("[data-r]", s.el).forEach((x) => (x.onclick = () => { b.reason = x.dataset.r; $$("[data-r]", s.el).forEach((y) => y.classList.toggle("on", y === x)); const g = $("#nowGo"); if (g) g.disabled = false; }));
   const goBtn = $("#nowGo");
@@ -167,7 +170,7 @@ async function doctorNowSheet() {
     const reason = [b.reason, $("#nowDetails").value.trim()].filter(Boolean).join(" · ");
     goBtn.disabled = true;
     try {
-      const v = await post("/api/patient/visits/now", { reason, address: $("#nowAddr").value, accept_longer: !q.within_promise });
+      const v = await post("/api/patient/visits/now", { reason, address: $("#nowAddr").value, accept_longer: !q.within_promise, cashless: b.cashless });
       s.close(); liveScreen("visit", v.id);
     } catch (e) {
       goBtn.disabled = false;
@@ -184,7 +187,7 @@ function promiseHTML(d) {
   if (d.arrived_in_s != null) {
     const ok = !d.promise || d.arrived_in_s <= d.promise.minutes * 60;
     const m = Math.floor(d.arrived_in_s / 60), sec = d.arrived_in_s % 60;
-    return `<div class="promise ${ok ? "kept" : "late"}">${ic(ok ? "check" : "clock")}<span><b>Arrived in ${m} min ${sec} s</b>${d.promise ? (ok ? ` · ${d.promise.minutes}-minute promise kept` : ` · we missed our ${d.promise.minutes}-minute promise, sorry`) : ""}</span></div>`;
+    return `<div class="promise ${ok ? "kept" : "late"}">${ic(ok ? "check" : "clock")}<span><b>Arrived in ${m} min ${sec} s</b>${d.promise ? (ok ? ` · ${d.promise.minutes}-minute promise kept` : ` · we missed our ${d.promise.minutes}-minute promise, so this visit is free`) : ""}</span></div>`;
   }
   if (!d.promise || ["done", "cancelled"].includes(d.phase)) return "";
   return `<div class="promise" id="promiseBar">${ic("bolt")}<span><b>${d.promise.minutes}-minute doctor</b> · <span id="promiseLeft"></span></span></div>`;

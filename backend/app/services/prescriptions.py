@@ -53,7 +53,9 @@ def advance_visit(db: Session, user: User, visit_id: int, action: str, arrival_c
     if to == VisitStatus.completed:
         visit.completed_at = utcnow()
         from .earnings import record_visit
+        from .perks import on_complete
         record_visit(db, visit)
+        on_complete(db, visit)
     from . import dispatch
     if action == "accept":
         dispatch.close_offers_for_visit(db, visit, accepted_by=user)

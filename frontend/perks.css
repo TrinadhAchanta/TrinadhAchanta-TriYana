@@ -1,0 +1,30 @@
+/* Offers & rewards */
+.perk-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+.perk-grid .card { margin: 0; display: grid; gap: 10px; align-content: start; }
+.perk-head { display: flex; gap: 12px; align-items: center; }
+.perk-head > div { flex: 1; min-width: 0; }
+.perk-head h3 { margin: 0; }
+.perk-head .ico, .perk-policy .ico, .perk-banner .ico { flex: none; width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center; background: var(--brand-soft); color: var(--brand); }
+.perk p { margin: 0; }
+.perk-list { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.perk-code { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.perk-code code { font-size: 18px; font-weight: 800; letter-spacing: .08em; padding: 6px 12px; border-radius: 10px; border: 1px dashed var(--brand); color: var(--brand); background: var(--brand-soft); }
+.perk-form { gap: 8px; flex-wrap: nowrap; }
+.perk-form input { flex: 1; min-width: 0; text-transform: uppercase; }
+.perk-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; margin-top: 10px; align-items: end; }
+.perk-form-grid .field { margin: 0; min-width: 0; }
+.perk-form-grid input, .perk-form-grid select { width: 100%; min-width: 0; box-sizing: border-box; }
+.perk-form-grid button { grid-column: 1 / -1; justify-self: start; }
+@media (max-width: 520px) { .perk-form-grid { grid-template-columns: 1fr; } }
+.perk-policy { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 10px; border-radius: 12px; background: var(--surface-2, rgba(127,127,127,.06)); }
+.perk-policy .grow { flex: 1; min-width: 140px; }
+.perk details summary { cursor: pointer; color: var(--brand); font-weight: 600; }
+.perk-price { margin-top: 8px; }
+.perk-price tr.good-text td { color: var(--good); }
+.perk-toggle { display: flex; gap: 8px; align-items: center; margin: 8px 0 4px; font-size: 14px; cursor: pointer; }
+.perk-toggle input { width: 18px; height: 18px; accent-color: var(--brand); }
+.bill-mini { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.perk-banner { width: 100%; display: flex; gap: 12px; align-items: center; text-align: left; padding: 14px; margin: 14px 0 4px; border-radius: 16px; border: 1px solid var(--brand); background: var(--brand-soft); color: var(--text); cursor: pointer; font: inherit; }
+.perk-banner .grow { flex: 1; display: grid; gap: 2px; min-width: 0; }
+.perk-banner .small { color: var(--text-2); }
+.perk-banner .btn { flex: none; }

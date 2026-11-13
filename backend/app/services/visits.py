@@ -10,7 +10,7 @@ from .. import audit
 from ..adapters.geo import haversine_km
 from ..errors import Conflict, NotFound, Unprocessable
 from ..models import Doctor, DoctorAvailability, HomeVisit, Patient, User, VisitStatus, utcnow
-from . import dispatch, visit_notes
+from . import dispatch, perks, visit_notes
 from .common import new_ref, notify, users_for_doctor, users_for_patient
 
 SERVICE_RADIUS_KM = 15.0
@@ -177,7 +177,7 @@ def follow_up(db: Session, user: User) -> dict:
 
 
 def book(db: Session, user: User, doctor_id: int | None, scheduled_for: str, reason: str, address: str,
-         asap: bool = False, follow_up_of: int | None = None) -> HomeVisit:
+         asap: bool = False, follow_up_of: int | None = None, cashless: bool = False) -> HomeVisit:
     patient = db.get(Patient, user.patient_id)
     prev = None
     if follow_up_of is not None:
@@ -209,6 +209,7 @@ def book(db: Session, user: User, doctor_id: int | None, scheduled_for: str, rea
                       follow_up_of_id=prev.id if prev else None)
     db.add(visit)
     db.flush()
+    perks.bill_visit(db, visit, cashless)
     dispatch.offer_booked_visit(db, visit)
     local = when.replace(tzinfo=timezone.utc).astimezone(LOCAL_TZ).strftime("%a %d %b, %I:%M %p")
     kind = "follow-up visit" if prev else "home visit"
@@ -272,7 +273,8 @@ def set_availability(db: Session, user: User, day: str, hours: list[int]) -> dic
     return _day_dict(days[day], hours, booked, now)
 
 
-def book_now(db: Session, user: User, reason: str, address: str, accept_longer: bool = False) -> HomeVisit:
+def book_now(db: Session, user: User, reason: str, address: str, accept_longer: bool = False,
+             cashless: bool = False) -> HomeVisit:
     """"Doctor now": a doctor at the door in 10 minutes.
 
     Offered to the nearest online doctor, who has a short time to accept (DoorDash style). When no doctor
@@ -295,6 +297,7 @@ def book_now(db: Session, user: User, reason: str, address: str, accept_longer: 
                       promise_min=quote["promise_min"] if quote["within_promise"] else None)
     db.add(visit)
     db.flush()
+    perks.bill_visit(db, visit, cashless)
     dispatch.offer_on_demand_visit(db, visit)
     notify(db, users_for_patient(db, patient.id), "Finding your doctor",
            "We're asking the nearest available doctor. You'll see them on the map as soon as they accept."
@@ -314,6 +317,7 @@ def visit_to_dict(v: HomeVisit, patient: Patient | None = None) -> dict:
         "follow_up_of": follow_up_info(v),
         "can_cancel": v.status in (VisitStatus.requested, VisitStatus.accepted),
         "notes": visit_notes.summary(v) if v.status == VisitStatus.completed else None,
+        "bill": perks.bill_dict(v),
     }
 
 
@@ -331,6 +335,7 @@ def cancel(db: Session, user: User, visit_id: int) -> HomeVisit:
     if v.status not in (VisitStatus.requested, VisitStatus.accepted):
         raise Conflict("bad_visit_state", "This visit can no longer be cancelled.")
     v.status = VisitStatus.cancelled
+    perks.on_cancel(db, v)
     dispatch.close_offers_for_visit(db, v)
     dispatch.end_trips_for(db, visit_id=v.id)
     notify(db, users_for_doctor(db, v.doctor_id) if v.doctor_id else [], "Home visit cancelled",

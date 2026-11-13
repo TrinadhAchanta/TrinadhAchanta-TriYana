@@ -233,6 +233,11 @@ def _make_offer(db: Session, kind: str, target, user: User, km: float, timed: bo
         if target.on_demand and target.promise_min:
             title = f"{target.promise_min}-minute visit near you"
             body = f"Patient promised a doctor in {target.promise_min} min · {body}"
+        from .perks import org_for
+        org = org_for(db, target.patient_id)
+        if org and org.priority:
+            title = f"Priority · {title}"
+            body = f"{org.name} member · {body}"
     else:
         title = "New delivery near you"
         body = f"Pickup {km} km away at {target.pharmacy.name}"
@@ -571,6 +576,8 @@ def tick(db: Session, trip: Trip) -> dict:
             v = db.get(HomeVisit, trip.visit_id)
             notify(db, users_for_patient(db, v.patient_id), "Your doctor has arrived",
                    f"{db.get(Doctor, v.doctor_id).name} is at your door.", f"visit:{v.id}")
+            from .perks import on_arrival
+            on_arrival(db, v, trip.arrived_at)
         elif trip.lab_booking_id:
             from . import labs
             labs.arrival_notice(db, trip)
