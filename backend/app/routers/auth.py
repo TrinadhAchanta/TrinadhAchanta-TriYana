@@ -1,4 +1,4 @@
-"""Sign up, sign in and account endpoints for the Triyana and Triyana Partner apps."""
+"""Sign up, sign in and account endpoints for the Triyana and Nabzo apps."""
 from __future__ import annotations
 
 import hmac

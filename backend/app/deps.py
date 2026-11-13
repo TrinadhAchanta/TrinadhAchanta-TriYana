@@ -21,11 +21,11 @@ def current_user(authorization: str | None = Header(default=None), x_triyana_app
     user = accounts.user_for_token(db, token)
     if not user:
         raise HTTPException(status_code=401, detail={"code": "unauthenticated", "message": "Invalid session."})
-    # Two apps, two logins: patients use Triyana, providers use Triyana Partner.
+    # Two apps, two logins: patients use Triyana, providers use Nabzo.
     if x_triyana_app == "provider" and user.role not in PROVIDER_ROLES:
-        raise HTTPException(status_code=403, detail={"code": "wrong_app", "message": "This is the Triyana Partner app for doctors, physiotherapists, couriers and pharmacists. Patients sign in to the Triyana app."})
+        raise HTTPException(status_code=403, detail={"code": "wrong_app", "message": "This is the Nabzo app for doctors, physiotherapists, couriers and pharmacists. Patients sign in to the Triyana app."})
     if x_triyana_app == "patient" and user.role in PROVIDER_ROLES:
-        raise HTTPException(status_code=403, detail={"code": "wrong_app", "message": "Providers sign in to the Triyana Partner app."})
+        raise HTTPException(status_code=403, detail={"code": "wrong_app", "message": "Providers sign in to the Nabzo app."})
     return user
 
 

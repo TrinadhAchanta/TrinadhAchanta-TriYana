@@ -1,5 +1,5 @@
 /* Triyana — physiotherapy at home. Patient: book a session or package, track the physio live, read session notes.
-   Partner app: physiotherapists get nearby requests, navigate, run the session and write notes. */
+   Nabzo: physiotherapists get nearby requests, navigate, run the session and write notes. */
 "use strict";
 
 TABS.physio = [["dash", "Dashboard", "bolt"], ["earnings", "Earnings", "wallet"], ["sessions", "My patients", "heart"]];
@@ -111,7 +111,7 @@ SCREENS.physio = async () => {
         <div class="notice info small">${ic("shield")}<span><b>Nothing to pay now.</b> Pay after your first session. Every physiotherapist's registration is verified.</span></div>
         <div class="notice warn small">${ic("alert")}<span>For a fall with a suspected fracture, chest pain or sudden weakness, call <b>112</b> now.</span></div>
         <button class="btn primary block" id="pBook" ${ready() ? "" : "disabled"}>${ic(b.when === "now" ? "bolt" : "check")} ${b.when === "now" ? "Find a physiotherapist now" : "Confirm booking"}</button>
-        <p class="tiny muted" style="text-align:center;margin:10px 0 0">${!b.condition ? "Choose what you need help with" : b.when === "later" && !b.slot ? "Pick a time to continue" : "The physiotherapist confirms in the Triyana Partner app."}</p>
+        <p class="tiny muted" style="text-align:center;margin:10px 0 0">${!b.condition ? "Choose what you need help with" : b.when === "later" && !b.slot ? "Pick a time to continue" : "The physiotherapist confirms in the Nabzo app."}</p>
       </div></aside></div>
       ${past.length ? `<div class="section-title">Past physiotherapy</div>${past.map(physioBookingCard).join("")}` : ""}`;
     $$("[data-cond]").forEach((x) => (x.onclick = () => { b.condition = x.dataset.cond; render(); }));

@@ -1,7 +1,7 @@
 """Email + password accounts for both apps (DoorDash-style sign-up and sign-in).
 
 * Patients register in the Triyana app; doctors, couriers and sample collectors
-  register in Triyana Partner. One email = one account = one app.
+  register in Nabzo. One email = one account = one app.
 * Everything a person does (visits, prescriptions, orders, lab tests, earnings)
   hangs off their User / Patient / Doctor row, so it is there every time they sign in.
 * Providers start ``pending`` and cannot go online until Triyana verifies them
@@ -134,7 +134,7 @@ def _app_of(role) -> str:
 
 
 def _phone_taken(db: Session, phone: str, except_user: int | None = None, app: str | None = None) -> bool:
-    """A mobile number can hold one Triyana (patient) account and one Triyana Partner account,
+    """A mobile number can hold one Triyana (patient) account and one Nabzo account,
     so a doctor can also be a patient. Phones are never a sign-in credential."""
     q = select(User).where(User.phone == phone, User.phone_verified_at.isnot(None))
     if except_user:
@@ -264,7 +264,7 @@ def check_app(user: User, app: str) -> None:
                         "or partner, tap Create account and use a different email. "
                         "You can keep the same mobile number.")
     if app == "patient" and user.role in PROVIDER_ROLES:
-        raise Forbidden("wrong_app", "This email is a Triyana Partner account, so it can't sign in here. To book care "
+        raise Forbidden("wrong_app", "This email is a Nabzo account, so it can't sign in here. To book care "
                         "as a patient, tap Create account and use a different email. "
                         "You can keep the same mobile number.")
 

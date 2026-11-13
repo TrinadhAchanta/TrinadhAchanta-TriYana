@@ -8,7 +8,7 @@
 
 A shop order goes to the nearest licensed pharmacy that has the whole basket in stock. The
 pharmacy accepts it straight away (no prescription to check), packs it, and the delivery is
-offered to the nearest online rider in Triyana Partner, with live map tracking for the patient.
+offered to the nearest online rider in Nabzo, with live map tracking for the patient.
 """
 from __future__ import annotations
 
@@ -361,7 +361,7 @@ def list_orders(db: Session, user: User) -> list[PharmacyOrder]:
 def autopack(db: Session) -> None:
     """Stand-in for the pharmacy's own system: start packing shop orders and hand them to riders.
 
-    A pharmacist in Triyana Partner can do the same steps sooner by hand."""
+    A pharmacist in Nabzo can do the same steps sooner by hand."""
     now = utcnow()
     changed = False
     for o in db.scalars(select(PharmacyOrder).where(

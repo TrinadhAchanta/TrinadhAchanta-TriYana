@@ -1,4 +1,4 @@
-/* Triyana Partner: live face verification for doctors.
+/* Nabzo: live face verification for doctors.
    - faceEnroll(): consent + a live capture that becomes the doctor's verified face.
    - faceStartJourney(visitId): the mandatory check before Start journey on EVERY home visit.
    The server decides every outcome and enforces it; this file only runs the camera and shows results. */

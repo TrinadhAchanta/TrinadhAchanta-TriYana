@@ -82,7 +82,7 @@ def test_apps_keep_their_own_accounts(env):
 
 
 def enrol(c, h):
-    """Doctor enrols their face in the Partner app: consent + a live capture."""
+    """Doctor enrols their face in Nabzo: consent + a live capture."""
     from tests.conftest import live_frames
     ch = c.post("/api/provider/face/challenges", headers=h, json={"purpose": "enroll", "consent": True}).json()
     r = c.post(f"/api/provider/face/challenges/{ch['id']}/submit", headers=h,
@@ -250,7 +250,7 @@ def test_same_person_can_be_a_patient_and_a_doctor(env, monkeypatch):
     c = env["client"]
     phone = _phone()
     assert _patient(c, email="tri.patient@example.com", phone=phone).status_code == 201
-    # Signing in to the Partner app with the patient email explains what to do instead.
+    # Signing in to Nabzo with the patient email explains what to do instead.
     r = c.post("/api/auth/login", json={"app": "provider", "email": "tri.patient@example.com", "password": "Secret123"})
     assert r.status_code == 403 and "different email" in r.json()["detail"]["message"]
     # The number is taken for another patient account, but free for a Partner account.
