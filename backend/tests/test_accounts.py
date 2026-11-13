@@ -70,6 +70,8 @@ def test_duplicate_email_wrong_password_and_weak_password(env):
     assert _patient(c, email="new@example.com", password="short").json()["detail"]["code"] == "weak_password"
     bad = c.post("/api/auth/login", json={"app": "patient", "email": "asha.k@example.com", "password": "nope12345"})
     assert bad.status_code == 400 and bad.json()["detail"]["code"] == "bad_credentials"
+    none = c.post("/api/auth/login", json={"app": "patient", "email": "nobody@example.com", "password": "Secret123"})
+    assert none.status_code == 400 and none.json()["detail"]["code"] == "no_account"
 
 
 def test_apps_keep_their_own_accounts(env):

@@ -48,6 +48,7 @@
   </div>
 </main>
 <div class="toast" id="toast"></div>
+<script src="/static/pwtoggle.js"></script>
 <script>
 const $ = (s) => document.querySelector(s);
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
