@@ -546,7 +546,7 @@ RESOLUTIONS = ("allow_retry", "approve_alternative", "require_reenrol", "approve
                "suspend", "dismiss")
 
 
-def resolve_case(db: Session, case_id: int, action: str, note: str) -> dict:
+def resolve_case(db: Session, case_id: int, action: str, note: str, by: str | None = None) -> dict:
     case = db.get(IdentityCase, case_id)
     if case is None:
         raise NotFound("not_found", "Case not found.")
@@ -570,7 +570,7 @@ def resolve_case(db: Session, case_id: int, action: str, note: str) -> dict:
             raise Conflict("no_visit", "An alternative check is approved for one accepted visit. This case has none.")
         chk = FaceCheck(user_id=user.id, visit_id=v.id, purpose="visit", method="manual", status="passed",
                         reason="Identity confirmed by Triyana ops through an approved alternative check.",
-                        partner="ops", approved_by=note[:300], created_at=now, completed_at=now)
+                        partner="ops", approved_by=(f"{by}: {note}" if by else note)[:300], created_at=now, completed_at=now)
         db.add(chk)
         db.flush()
         _on_visit_pass(db, user, v, "manual")
@@ -594,7 +594,8 @@ def resolve_case(db: Session, case_id: int, action: str, note: str) -> dict:
             db.get(Doctor, user.doctor_id).license_verified = False
         audit.record(db, None, "provider.verification.rejected", "user", user.id, note=note)
     case.status, case.resolution, case.resolution_note, case.resolved_at = "resolved", action, note[:300], now
-    audit.record(db, None, f"identity.case.resolved.{action}", "identity_case", case.id, user_id=user.id, note=note)
+    audit.record(db, None, f"identity.case.resolved.{action}", "identity_case", case.id, user_id=user.id, note=note,
+                 **({"by": by} if by else {}))
     db.commit()
     return case_dict(db, case)
 

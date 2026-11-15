@@ -11,7 +11,7 @@ from ..db import get_db
 from ..deps import require
 from ..models import Role, User
 from ..services import face_verification as face
-from .auth import _admin
+from .auth import _admin, _admin_name
 
 router = APIRouter(prefix="/api", tags=["face verification"])
 doctor = require(Role.doctor)
@@ -83,9 +83,9 @@ def cases(status: Literal["open", "resolved"] = "open", db: Session = Depends(ge
     return face.list_cases(db, status)
 
 
-@router.post("/admin/identity/cases/{case_id}/resolve", dependencies=[Depends(_admin)])
-def resolve(case_id: int, body: ResolveIn, db: Session = Depends(get_db)):
-    return face.resolve_case(db, case_id, body.action, body.note)
+@router.post("/admin/identity/cases/{case_id}/resolve")
+def resolve(case_id: int, body: ResolveIn, admin=Depends(_admin), db: Session = Depends(get_db)):
+    return face.resolve_case(db, case_id, body.action, body.note, by=_admin_name(admin))
 
 
 @router.get("/admin/identity/checks", dependencies=[Depends(_admin)])

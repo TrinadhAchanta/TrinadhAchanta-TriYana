@@ -415,7 +415,7 @@ def account_dict(db: Session, user: User) -> dict:
 
 
 def set_verification(db: Session, user_id: int, status: str, note: str = "", actor: User | None = None,
-                     *, override: bool = False, require_checks: bool = False) -> User:
+                     *, override: bool = False, require_checks: bool = False, by: str | None = None) -> User:
     if status not in ("verified", "rejected", "pending"):
         raise Unprocessable("bad_status", "Status must be verified, rejected or pending.")
     user = db.get(User, user_id)
@@ -440,7 +440,8 @@ def set_verification(db: Session, user_id: int, status: str, note: str = "", act
         db.get(Physiotherapist, user.physio_id).verified = status == "verified"
     if status != "verified":
         user.on_duty = False
-    audit.record(db, actor, f"provider.verification.{status}", "user", user.id, note=note)
+    audit.record(db, actor, f"provider.verification.{status}", "user", user.id, note=note,
+                 **({"by": by} if by else {}))
     db.commit()
     return user
 
@@ -458,4 +459,7 @@ def pending_providers(db: Session, status: str = "pending") -> list[dict]:
 
 
 def registered_accounts_exist(db: Session) -> bool:
+    from ..models import AdminAccount  # admins added in /admin would be lost too (env-seeded ones come back)
+    if db.scalars(select(AdminAccount.id).where(AdminAccount.env_fingerprint.is_(None)).limit(1)).first():
+        return True
     return db.scalars(select(User.id).where(User.email.isnot(None)).limit(1)).first() is not None

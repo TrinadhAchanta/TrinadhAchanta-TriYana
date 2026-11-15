@@ -29,14 +29,29 @@ Both partners run in **demo mode** until keys are set. Demo rules, so you can tr
 * A PAN must be an individual's PAN (4th letter `P`, e.g. `ABCPR1234F`).
 * An ID number containing `9999` comes back with a court record to review.
 
-Until `TRIYANA_ADMIN_KEY` is set, the demo site's `/admin` page accepts the key `demo-admin`.
+Each admin signs in to `/admin` with their own email and password (see "Admin logins" below).
 The "Approve me (demo only)" button in the Partner app still works while `TRIYANA_DEMO=1`.
 
 ## Keys you need
 
-### 1. Triyana admin key (do this first, free)
+### 1. Admin logins (do this first, free)
 
-Make a long random string and set `TRIYANA_ADMIN_KEY` on Render. From then on `demo-admin` stops working.
+Every admin has their own login at `/admin`. Set the first admins on Render so they survive restarts, even
+while the site has no database (`TRIYANA_DATABASE_URL` unset wipes everything else on each deploy):
+
+```
+TRIYANA_ADMINS = you@example.com:a-long-password; partner@example.com:another-password
+```
+
+Entries are `email:password`, separated by `;` or new lines. An entry is created at startup if it is missing.
+A password changed in `/admin` is kept, but editing that admin's password in `TRIYANA_ADMINS` resets it (use
+this if someone forgets theirs). More admins can be added and removed in `/admin` → Admins; nobody can remove
+themselves or the last admin, and removing someone signs them out at once. Every approval and case
+resolution records which admin made it in the audit log.
+
+Without `TRIYANA_ADMINS`, `/admin` asks for the shared key once to create the first admin
+(`TRIYANA_ADMIN_KEY`, or `demo-admin` on the demo site while that is unset). As soon as one admin account
+exists, the key stops working.
 
 ### 2. ABDM HPR (free, government)
 
@@ -72,5 +87,5 @@ with the same `verify_id`, `court_record_check` and `poll` functions; nothing el
 ## Before real providers
 
 * Have the consent text in the Partner app reviewed by your lawyer (DPDP Act, and the partner's own terms).
-* Decide who on the team holds the admin key, and switch `TRIYANA_DEMO=0` so "Approve me" disappears.
+* Decide who on the team is an admin, and switch `TRIYANA_DEMO=0` so "Approve me" disappears.
 * Check the name-matching rule in `names_match` against real HPR data; it accepts initials ("N Rao" = "Neha Rao").

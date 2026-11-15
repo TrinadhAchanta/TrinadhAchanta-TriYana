@@ -101,8 +101,7 @@ lighting). These can only make a check fail.
    `verify`), with the same outcomes: `passed`, `failed`, `spoof`, `poor_quality`.
 4. **Selfie-to-ID match at enrolment**, for example against the DigiLocker Aadhaar photo or driving licence
    photo, so the enrolled face is tied to the government ID.
-5. Per-person staff accounts with roles for `/admin` instead of one shared admin key, so only the security team
-   sees faces and resolves cases.
+5. Roles for the per-person `/admin` accounts, so only the security team sees faces and resolves cases.
 6. `TRIYANA_SECURITY_WEBHOOK_URL` pointing at the security team's channel.
 
 ## For legal review (not a compliance claim)
