@@ -284,7 +284,10 @@ SCREENS.home = async () => {
     <div class="card">${notes.slice(0, 8).map((n) => `
       <div class="list-item"><div class="avatar">${ic(n.link.startsWith("order") ? "truck" : n.link.startsWith("cart") ? "rx" : n.link.startsWith("visit") ? "stethoscope" : n.link.startsWith("physio") ? "heart" : "info")}</div>
         <div class="grow"><div class="row between"><b>${esc(n.title)}</b><span class="tiny muted">${when(n.at)}</span></div>
-        <div class="small muted">${esc(n.body)}</div></div></div>`).join("")}</div>` : ""}`;
+        <div class="small muted">${esc(n.body)}</div></div></div>`).join("")}</div>` : ""}
+    <a class="card heros-join" href="/provider"><span class="avatar">${ic("stethoscope")}</span>
+      <span class="grow"><b>${esc(PROVIDER_APP)}</b><span class="small muted">Doctor, physio, rider or sample collector? Join ${esc(PROVIDER_APP)} and earn with Triyana.</span></span>
+      <span class="heros-go">Open →</span></a>`;
   $$("[data-go]").forEach((b) => (b.onclick = () => go(b.dataset.go)));
   wireServices();
   wireCancel(() => SCREENS.home());

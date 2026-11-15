@@ -458,3 +458,8 @@ body.face-open { overflow: hidden; }
 .consent-more p { margin: 8px 0 0; }
 .consent-sheet .check { justify-content: center; text-align: left; margin: 4px 0 6px; }
 .consent-sheet .tiny { margin: 10px 0 0; }
+
+/* ---------------------------------------------------------------- join Triyana Heros (patient home) */
+.heros-join { display: flex; align-items: center; gap: 12px; margin-top: 18px; text-decoration: none; color: inherit; }
+.heros-join .grow { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.heros-go { font-weight: 700; font-size: 13px; color: var(--brand); white-space: nowrap; }
