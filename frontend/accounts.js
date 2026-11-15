@@ -3,6 +3,15 @@
    Everything they do is saved to their account, so it is there whenever they sign in again. */
 "use strict";
 
+/* Kinds of doctor a partner can sign up as: [label, specialty, usual qualification]. Eye, ENT and dental
+   doctors get booked home visits of their kind only; general doctors also take the 10-minute visits. */
+const DOCTOR_KINDS = {
+  general: ["General doctor (MBBS)", "General Medicine", "MBBS"],
+  eye: ["Eye doctor (Ophthalmologist)", "Eye (Ophthalmology)", "MBBS, MS (Ophthalmology)"],
+  ent: ["Ear, nose & throat doctor (ENT)", "Ear, Nose & Throat (ENT)", "MBBS, MS (ENT)"],
+  dental: ["Dentist (BDS / MDS)", "Teeth (Dental Surgery)", "BDS"],
+};
+
 const ACCOUNT_TAB = ["account", "Account", "user", "desktop"];
 const PROVIDER_KINDS = [
   ["doctor", "Doctor", "stethoscope", "Home visits and prescriptions"],
@@ -63,16 +72,20 @@ function renderAuth(mode) {
       <div class="section-title" style="margin-top:2px">I want to sign up as</div>
       <div class="kind-pick">${PROVIDER_KINDS.map(([k, l, i, sub]) => `<button type="button" class="kind ${auth.kind === k ? "on" : ""}" data-kind="${k}">${ic(i)}<b>${l}</b><span class="tiny muted">${sub}</span></button>`).join("")}</div>`;
   const physio = auth.kind === "physio";
-  const councils = physio ? ["Indian Association of Physiotherapists (IAP)", "Telangana State Allied & Healthcare Council", "Karnataka Allied & Healthcare Council", "Maharashtra OT & PT Council", "Delhi Council for Physiotherapy & OT", "Other state council"]
+  const care = DOCTOR_KINDS[d.care] ? d.care : "general";
+  const dental = !physio && care === "dental";
+  const councils = dental ? ["Dental Council of India", "Telangana State Dental Council", "Andhra Pradesh State Dental Council", "Karnataka State Dental Council", "Tamil Nadu State Dental Council", "Maharashtra State Dental Council", "Delhi Dental Council", "Other state dental council"]
+    : physio ? ["Indian Association of Physiotherapists (IAP)", "Telangana State Allied & Healthcare Council", "Karnataka Allied & Healthcare Council", "Maharashtra OT & PT Council", "Delhi Council for Physiotherapy & OT", "Other state council"]
     : ["National Medical Commission", "Telangana State Medical Council", "Andhra Pradesh Medical Council", "Karnataka Medical Council", "Tamil Nadu Medical Council", "Maharashtra Medical Council", "Delhi Medical Council", "Other state medical council"];
   const doctorFields = partner && (auth.kind === "doctor" || physio) ? `
-      <div class="auth-note">${ic("shield")}<span>We check your registration with the ${physio ? "council" : "medical council"} before you can take ${physio ? "sessions" : "visits"}.</span></div>
+      <div class="auth-note">${ic("shield")}<span>We check your registration with the ${physio ? "council" : dental ? "dental council" : "medical council"} before you can take ${physio ? "sessions" : "visits"}.</span></div>
       <div class="form-grid">
-        <label class="wide">${physio ? "Council" : "Medical council"}<select id="council">${councils.map((c) => `<option ${d.council === c ? "selected" : ""}>${c}</option>`).join("")}</select></label>
+        ${physio ? "" : `<label class="wide">What kind of doctor are you?<select id="care">${Object.entries(DOCTOR_KINDS).map(([k, v]) => `<option value="${k}" ${care === k ? "selected" : ""}>${v[0]}</option>`).join("")}</select></label>`}
+        <label class="wide">${physio ? "Council" : dental ? "Dental council" : "Medical council"}<select id="council">${councils.map((c) => `<option ${d.council === c ? "selected" : ""}>${c}</option>`).join("")}</select></label>
         <label>Registration number<input id="licence" value="${esc(d.licence || "")}" placeholder="e.g. 12345" required></label>
         <label>Year registered<input id="regYear" inputmode="numeric" maxlength="4" value="${esc(d.regYear || "")}" placeholder="2015"></label>
-        <label${physio ? ' class="wide"' : ""}>Qualification<input id="qual" value="${esc(d.qual || (physio ? "BPT" : "MBBS"))}"></label>
-        ${physio ? "" : `<label>Specialty<input id="spec" value="${esc(d.spec || "General Medicine")}"></label>`}
+        <label${physio ? ' class="wide"' : ""}>Qualification<input id="qual" value="${esc(d.qual || (physio ? "BPT" : DOCTOR_KINDS[care][2]))}"></label>
+        ${physio ? "" : `<label>Specialty<input id="spec" value="${esc(d.spec || DOCTOR_KINDS[care][1])}"></label>`}
       </div>` : partner ? `
       <label class="field">Vehicle<select id="vehicle">${["Bike", "Scooter", "Bicycle", "Car"].map((v) => `<option ${d.vehicle === v ? "selected" : ""}>${v}</option>`).join("")}</select></label>
       <div class="auth-note">${ic("shield")}<span>We check your ID${auth.kind === "courier" ? " and driving licence" : " and training"} before you can go online.</span></div>` : "";
@@ -124,6 +137,11 @@ function renderAuth(mode) {
   wireCountry("phoneCountry", (c) => { d.phoneCountry = c.iso; const p = $("#phone"); if (p) { p.placeholder = c.example || "Mobile number"; p.focus(); } });
   $$("[data-mode]").forEach((b) => (b.onclick = (e) => { e.preventDefault(); keep(); renderAuth(b.dataset.mode); }));
   $$("[data-kind]").forEach((b) => (b.onclick = () => { keep(); auth.kind = b.dataset.kind; renderAuth(); }));
+  const careSel = $("#care");
+  if (careSel) careSel.onchange = () => {
+    // A new kind of doctor brings its own council list, qualification and specialty.
+    keep(); d.council = ""; d.qual = ""; d.spec = ""; renderAuth();
+  };
   $$("[data-token]").forEach((b) => (b.onclick = () => signIn(b.dataset.token)));
   const det = $(".demo-accounts"); if (det) det.ontoggle = () => (d.demoOpen = det.open);
   $("#authForm").onsubmit = (e) => { e.preventDefault(); keep(); submitAuth(); };
@@ -161,8 +179,10 @@ async function submitAuth() {
       if (auth.kind === "doctor" || auth.kind === "physio") {
         const ph = auth.kind === "physio";
         if (!(d.licence || "").trim()) return showAuthErr("Enter your council registration number.");
-        body.doctor = { license_no: d.licence.trim(), medical_council: d.council || (ph ? "Indian Association of Physiotherapists (IAP)" : "National Medical Commission"),
-                        qualification: (d.qual || (ph ? "BPT" : "MBBS")).trim(), specialty: (d.spec || "General Medicine").trim(),
+        const care = ph || !DOCTOR_KINDS[d.care] ? "general" : d.care;
+        body.doctor = { license_no: d.licence.trim(), medical_council: d.council || (ph ? "Indian Association of Physiotherapists (IAP)" : care === "dental" ? "Dental Council of India" : "National Medical Commission"),
+                        qualification: (d.qual || (ph ? "BPT" : DOCTOR_KINDS[care][2])).trim(), specialty: (d.spec || DOCTOR_KINDS[care][1]).trim(),
+                        care_type: care,
                         registration_year: /^\d{4}$/.test(d.regYear || "") ? +d.regYear : null };
       } else body.vehicle = d.vehicle || "Bike";
     } else {

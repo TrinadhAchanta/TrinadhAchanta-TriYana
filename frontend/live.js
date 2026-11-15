@@ -71,6 +71,9 @@ const km = (m) => (m < 1000 ? `${Math.round(m / 10) * 10} m` : `${(m / 1000).toF
 const SERVICES = [
   { key: "shop", title: "Medicines", icon: "bag", go: "shop", tone: "blue" },
   { key: "lab", title: "Lab tests", icon: "flask", go: "labs", tone: "blue" },
+  { key: "eye", title: "Eye", icon: "eye", go: "book", care: "eye", tone: "blue" },
+  { key: "ent", title: "Ear & nose", icon: "ear", go: "book", care: "ent", tone: "gold" },
+  { key: "dental", title: "Teeth", icon: "tooth", go: "book", care: "dental", tone: "blue" },
   { key: "physio", title: "Physio", icon: "heart", go: "physio", tone: "gold" },
   { key: "rx", title: "Prescriptions", icon: "rx", go: "rx" },
   { key: "yana", title: "Ask Yana", icon: "chat", tone: "gold" },
@@ -81,7 +84,7 @@ const SERVICES = [
 function servicesHTML() {
   return `<div class="section-title">What do you need?</div>
     <div class="services">
-      ${SERVICES.map((s) => `<button class="svc ${s.soon ? "soon" : ""}" data-svc="${s.key}" ${s.go ? `data-svc-go="${s.go}"` : ""}>
+      ${SERVICES.map((s) => `<button class="svc ${s.soon ? "soon" : ""}" data-svc="${s.key}" ${s.go ? `data-svc-go="${s.go}"` : ""} ${s.care ? `data-svc-care="${s.care}"` : ""}>
         <span class="ico ${s.tone || ""}">${ic(s.icon, "lg")}</span><b>${s.title}</b>
         ${s.soon ? `<span class="badge">Coming soon</span>` : ""}</button>`).join("")}
     </div>`;
@@ -98,6 +101,7 @@ function wireServices() {
     const k = b.dataset.svc;
     if (k === "now") return doctorNowSheet();
     if (k === "yana") return openYana();
+    if (b.dataset.svcCare) return go("book", { care: b.dataset.svcCare });
     if (b.dataset.svcGo) return go(b.dataset.svcGo);
     toast("Coming soon to Triyana", "info");
   }));

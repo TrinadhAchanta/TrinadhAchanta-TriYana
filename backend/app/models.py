@@ -286,6 +286,8 @@ class Doctor(Base):
     lat: Mapped[float] = mapped_column(Float, default=0)
     lng: Mapped[float] = mapped_column(Float, default=0)
     area: Mapped[str] = mapped_column(String(80), default="")
+    # general | eye | ent | dental (see services/specialties.py). NULL on older rows means general.
+    care_type: Mapped[str | None] = mapped_column(String(16), default="general")
 
 
 class HomeVisit(Base):
@@ -313,6 +315,8 @@ class HomeVisit(Base):
     booked_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     # SOS: emergency visits jump the queue and alert family.
     sos: Mapped[bool | None] = mapped_column(Boolean, default=False)
+    # Which kind of doctor this visit is for: general | eye | ent | dental. NULL on older rows = general.
+    care_type: Mapped[str | None] = mapped_column(String(16), default="general")
 
     doctor = relationship("Doctor")
     patient = relationship("Patient")

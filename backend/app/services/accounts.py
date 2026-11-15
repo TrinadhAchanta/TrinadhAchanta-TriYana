@@ -328,10 +328,15 @@ def register(db: Session, body: dict) -> tuple[User, str]:
             if db.scalars(select(Doctor).where(Doctor.license_no == licence)).first():
                 raise Conflict("licence_taken", "A doctor with this registration number already has an account.")
             year = d.get("registration_year")
-            doctor = Doctor(name=name if name.lower().startswith("dr") else f"Dr. {name}",
-                            specialty=(d.get("specialty") or "General Medicine").strip()[:80],
+            from .specialties import CARE_TYPES, check as check_care
+            care = check_care(d.get("care_type"))
+            spec = (d.get("specialty") or "").strip()
+            if not spec or (care != "general" and spec == "General Medicine"):
+                spec = CARE_TYPES[care]["specialty"]
+            doctor = Doctor(name=name if name.lower().startswith("dr") else f"Dr. {name}", care_type=care,
+                            specialty=spec[:80],
                             license_no=licence, license_verified=False, medical_council=council[:120],
-                            qualification=(d.get("qualification") or "MBBS").strip()[:120],
+                            qualification=(d.get("qualification") or CARE_TYPES[care]["qualification"]).strip()[:120],
                             registration_year=year, jurisdiction=DEFAULT_JURISDICTION,
                             experience_years=max(0, utcnow().year - year) if year else 0,
                             visit_fee=float(d.get("visit_fee") or 500), languages=d.get("languages") or ["English"],
@@ -459,7 +464,7 @@ def account_dict(db: Session, user: User) -> dict:
                           "lat": p.lat, "lng": p.lng}
     if user.doctor_id:
         d = db.get(Doctor, user.doctor_id)
-        out["doctor"] = {"specialty": d.specialty, "license_no": d.license_no, "medical_council": d.medical_council,
+        out["doctor"] = {"specialty": d.specialty, "care_type": d.care_type or "general", "license_no": d.license_no, "medical_council": d.medical_council,
                          "qualification": d.qualification, "registration_year": d.registration_year,
                          "license_verified": d.license_verified, "visit_fee": d.visit_fee}
     if user.physio_id:
