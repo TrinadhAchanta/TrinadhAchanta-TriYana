@@ -43,6 +43,7 @@ from . import face_verification as face
 from .common import is_real_patient, notify, users_for_patient
 
 OFFER_SECONDS = int(os.environ.get("TRIYANA_OFFER_SECONDS", "45"))
+APP_PRESENCE = timedelta(seconds=90)  # a provider app polls every few seconds while open
 SIM_SPEEDUP = float(os.environ.get("TRIYANA_SIM_SPEEDUP", "8"))  # demo time runs this many times faster
 DOCTOR_RADIUS_KM = 15.0
 COURIER_RADIUS_KM = 12.0
@@ -150,15 +151,38 @@ def active_trip(db: Session, user_id: int) -> Trip | None:
     return db.scalars(select(Trip).where(Trip.user_id == user_id, Trip.ended_at.is_(None)).order_by(Trip.id.desc())).first()
 
 
-def _busy(db: Session, user: User) -> bool:
+def _busy_reason(db: Session, user: User) -> str | None:
+    """Why dispatch is skipping this provider right now, or None when they can take a new request."""
     if active_trip(db, user.id):
-        return True
+        return "trip"
     if user.doctor_id and db.scalars(select(HomeVisit.id).where(  # accepted "Doctor now", still verifying
             HomeVisit.doctor_id == user.doctor_id, HomeVisit.on_demand.is_(True),
             HomeVisit.status == VisitStatus.accepted)).first() is not None:
-        return True
-    return db.scalars(select(DispatchOffer.id).where(DispatchOffer.user_id == user.id, DispatchOffer.status == "offered",
-                                                     DispatchOffer.expires_at.isnot(None))).first() is not None
+        return "verifying"
+    if db.scalars(select(DispatchOffer.id).where(DispatchOffer.user_id == user.id, DispatchOffer.status == "offered",
+                                                 DispatchOffer.expires_at.isnot(None))).first() is not None:
+        return "offer"
+    return None
+
+
+def _busy(db: Session, user: User) -> bool:
+    return _busy_reason(db, user) is not None
+
+
+def in_app(user: User) -> bool:
+    """True when the provider's app is open and checking for requests right now.
+
+    Someone who is online but whose app hasn't checked in for a while (phone locked, tab closed, or a seeded
+    demo doctor nobody is using) is still asked, but after the people who are looking at their screen.
+    """
+    return user.app_seen_at is not None and utcnow() - user.app_seen_at < APP_PRESENCE
+
+
+def mark_seen(db: Session, user: User) -> None:
+    now = utcnow()
+    if user.app_seen_at is None or now - user.app_seen_at > timedelta(seconds=15):  # don't write on every poll
+        user.app_seen_at = now
+        db.commit()
 
 
 # ------------------------------------------------------------------ candidates
@@ -176,6 +200,11 @@ def _already_asked(db: Session, kind: str, target_id: int, *, retry_missed: bool
     if retry_missed:  # providers who let an offer time out may be asked again; decliners are not
         q = q.where(DispatchOffer.status != "expired")
     return set(db.scalars(q))
+
+
+def _times_asked(db: Session, visit_id: int, user_id: int) -> int:
+    return len(db.scalars(select(DispatchOffer.id).where(DispatchOffer.visit_id == visit_id,
+                                                         DispatchOffer.user_id == user_id)).all())
 
 
 def candidates(db: Session, kind: str, target, *, online_only: bool = True,
@@ -202,10 +231,10 @@ def candidates(db: Session, kind: str, target, *, online_only: bool = True,
         km = round(haversine_km(lat, lng, plat, plng), 1)
         if km <= radius:
             out.append((u, km))
-    out.sort(key=lambda r: r[1])
-    if kind == "visit" and is_real_patient(db, target.patient_id):
-        # Real patients go to real doctors first; the seeded demo doctors only cover when none can come.
-        out = [r for r in out if r[0].email] + [r for r in out if not r[0].email]
+    # Real patients go to real doctors first; the seeded demo doctors only cover when none can come.
+    real_first = kind == "visit" and is_real_patient(db, target.patient_id)
+    # Then providers who have the app open now, nearest first; then everyone else online, nearest first.
+    out.sort(key=lambda r: (real_first and not r[0].email, not in_app(r[0]), r[1]))
     return out
 
 
@@ -263,6 +292,11 @@ def _make_offer(db: Session, kind: str, target, user: User, km: float, timed: bo
 def offer_on_demand_visit(db: Session, visit: HomeVisit) -> DispatchOffer | None:
     """Offer an on-demand visit to the nearest online doctor not yet asked. None if nobody is left."""
     cands = candidates(db, "visit", visit)
+    if not cands:
+        # Everyone has been asked. A doctor who has the app open but let the timer run out (e.g. was looking at
+        # another screen) gets one more chance before the patient is told nobody can come. Decliners are not re-asked.
+        cands = [r for r in candidates(db, "visit", visit, retry_missed=True) if in_app(r[0])
+                 and _times_asked(db, visit.id, r[0].id) < 2]
     if not cands:
         return None
     return _make_offer(db, "visit", visit, cands[0][0], cands[0][1], timed=True)
@@ -668,8 +702,16 @@ def offer_to_dict(db: Session, o: DispatchOffer) -> dict:
     return base
 
 
+BUSY_NOTE = {
+    "trip": "You're on a job, so new requests won't come to you until you finish it.",
+    "verifying": "Finish the identity check for the visit you accepted. New requests wait until then.",
+}
+
+
 def provider_status(db: Session, user: User) -> dict:
     sweep(db)
+    if user.role in (Role.doctor, Role.courier, Role.phlebotomist, Role.physio):
+        mark_seen(db, user)
     offers = db.scalars(select(DispatchOffer).where(DispatchOffer.user_id == user.id, DispatchOffer.status == "offered")
                         .order_by(DispatchOffer.id.desc())).all()
     offers = sorted(offers, key=lambda o: not (o.kind == "visit" and o.visit and o.visit.sos))  # SOS first
@@ -680,6 +722,7 @@ def provider_status(db: Session, user: User) -> dict:
             "verification_status": user.verification_status or "verified",
             "offers": [offer_to_dict(db, o) for o in offers],
             "active_trip": trip_to_dict(db, trip, with_route=False) if trip else None,
+            "busy_note": BUSY_NOTE.get(_busy_reason(db, user)) if user.on_duty else None,
             "sim_speedup": SIM_SPEEDUP}
 
 
