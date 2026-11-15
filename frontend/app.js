@@ -244,11 +244,15 @@ SCREENS.home = async () => {
   const past = visits.filter((v) => v.status === "completed");
   const first = state.name.split(" ")[0];
   const activeRx = dash.prescriptions.filter((p) => p.status === "signed");
+  // A signed prescription whose cart still has medicines to buy keeps a way back in, even after the alert was read.
+  const toOrder = !active && activeRx.find((p) => p.cart_id && p.cart_items_to_order > 0);
   const bookBtn = (cls = "primary") => `<button class="btn ${cls}" data-go="book">${ic("stethoscope")} Book a home visit</button>`;
   let hero = "";
   if (ready) hero = `<h1>Your prescription is ready</h1><p>Your doctor has signed it. Review your medicines, choose what you'd like to order, and we'll match you with the best licensed pharmacy nearby.</p>
         <div class="actions"><button class="btn primary" id="openCart">${ic("cart")} Review my medicines</button><button class="btn" id="openRx">${ic("rx")} View prescription</button></div>`;
-  else if (active) hero = `<h1>${esc(active.status_label)}</h1><p>Order ${esc(active.order_no)} from ${esc(shortName(active.pharmacy.name))}.</p>
+  else if (toOrder) hero = `<h1>Your medicines are ready to order</h1><p>${esc(toOrder.doctor)} prescribed ${toOrder.cart_items_to_order === 1 ? "a medicine" : `${toOrder.cart_items_to_order} medicines`} you haven't ordered yet. Pick a pharmacy and we'll deliver them to your door.</p>
+        <div class="actions"><button class="btn primary" id="openToOrder">${ic("cart")} Order my medicines</button><button class="btn" id="openRx">${ic("rx")} View prescription</button></div>`;
+  else if (active) hero = `<h1>${esc(trackTitle(active))}</h1><p>Order ${esc(active.order_no)} from ${esc(shortName(active.pharmacy.name))}.</p>
         <div class="actions"><button class="btn primary" data-go="orders">${ic("truck")} Track my order</button>${bookBtn("")}</div>`;
   else if (upcoming.length && !upcoming[0].doctor) hero = `<h1>Finding your doctor</h1><p>We're asking the nearest verified doctor. Watch them on the live map as soon as they accept.</p>
         <div class="actions"><button class="btn primary" id="openLiveVisit">${ic("pin")} Live map</button></div>`;
@@ -291,6 +295,9 @@ SCREENS.home = async () => {
     const markRead = () => post(`/api/notifications/${ready.id}/read`).catch(() => {});
     $("#openCart").onclick = () => { markRead(); state.unread = Math.max(0, state.unread - 1); go("cart", { cartId: +ready.link.split(":")[1] }); };
     $("#openRx").onclick = () => { markRead(); go("rx"); };
+  } else if (toOrder && $("#openToOrder")) {
+    $("#openToOrder").onclick = () => go("cart", { cartId: toOrder.cart_id });
+    $("#openRx").onclick = () => go("rx");
   }
 };
 
@@ -665,7 +672,7 @@ const r2 = (n) => Math.round(n * 100) / 100;
 async function checkoutScreen(p) {
   const [methods, cfg] = await Promise.all([api("/api/payment-methods"), api("/api/payment-config")]);
   const rzp = cfg.gateway === "razorpay";
-  const opt = { fulfillment: p.delivery_available ? "delivery" : "pickup", delivery_option: p.delivery_options[0]?.code || null, method: methods[0].code, decline: false, promo: null };
+  const opt = { fulfillment: p.delivery_available ? "delivery" : "pickup", delivery_option: p.delivery_options[0]?.code || null, method: methods[0].code, promo: null };
   const key = `chk-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const render = () => {
     const fee = opt.fulfillment === "delivery" ? r2(p.delivery_fee * (MULT[opt.delivery_option] || 1)) : 0;
@@ -680,8 +687,7 @@ async function checkoutScreen(p) {
           ${p.pickup_available ? `<button class="choice ${opt.fulfillment === "pickup" ? "on" : ""}" data-f="pickup"><span class="ico">${ic("bag")}</span><div><b>Pickup</b><span>Bring photo ID</span></div></button>` : ""}</div>
           ${opt.fulfillment === "delivery" ? `<div class="section-title" style="margin-top:18px">Delivery speed</div><div class="choice-grid">${p.delivery_options.map((o) => `<button class="choice ${o.code === opt.delivery_option ? "on" : ""}" data-d="${o.code}"><span class="ico">${ic(DELIV[o.code]?.[0] || "truck")}</span><div><b>${esc(DELIV[o.code]?.[1] || o.label)}</b><span>${money(r2(p.delivery_fee * (MULT[o.code] || 1)))}</span></div></button>`).join("")}</div>
             ${opt.delivery_option === "scheduled" ? `<label class="field" style="margin-top:12px">Deliver at<input type="datetime-local" id="sched"></label>` : ""}` : ""}</div>
-        <div class="card"><h3>Payment method</h3><div class="choice-grid" style="margin-top:12px">${methods.map((m) => `<button class="choice ${m.code === opt.method ? "on" : ""}" data-m="${m.code}"><span class="ico">${ic(PAY_ICON[m.code] || "card")}</span><div><b>${esc(m.label)}</b></div></button>`).join("")}</div>
-          ${rzp ? "" : `<label class="check" style="margin-top:14px"><input type="checkbox" id="decline" ${opt.decline ? "checked" : ""}> <span class="small muted">Sandbox: simulate a declined payment</span></label>`}</div>
+        <div class="card"><h3>Payment method</h3><div class="choice-grid" style="margin-top:12px">${methods.map((m) => `<button class="choice ${m.code === opt.method ? "on" : ""}" data-m="${m.code}"><span class="ico">${ic(PAY_ICON[m.code] || "card")}</span><div><b>${esc(m.label)}</b></div></button>`).join("")}</div></div>
       </div><aside class="sticky"><div class="card featured">
         <h3>Payment summary</h3>
         <table class="price" style="margin-top:8px"><tr><td>Medicine subtotal</td><td>${money(p.subtotal)}</td></tr><tr><td>Delivery fee</td><td>${money(fee)}</td></tr>
@@ -695,7 +701,6 @@ async function checkoutScreen(p) {
     $$("[data-f]").forEach((b) => (b.onclick = () => { opt.fulfillment = b.dataset.f; render(); }));
     $$("[data-d]").forEach((b) => (b.onclick = () => { opt.delivery_option = b.dataset.d; render(); }));
     $$("[data-m]").forEach((b) => (b.onclick = () => { opt.method = b.dataset.m; render(); }));
-    if ($("#decline")) $("#decline").onchange = (e) => (opt.decline = e.target.checked);
     wirePromo($("#promoSlot"), async (code) => {
       const r = await checkMedPromo(code, p.subtotal);
       opt.promo = r.ok ? { code: r.code, applied: true, discount: r.discount } : { code, message: r.message };
@@ -705,7 +710,7 @@ async function checkoutScreen(p) {
       const btn = $("#pay"); btn.disabled = true; btn.textContent = "Authorising…";
       try {
         const sched = $("#sched")?.value;
-        const token = rzp ? await payWithRazorpay(p, opt, total) : opt.decline ? "sandbox-decline" : "sandbox-ok";
+        const token = rzp ? await payWithRazorpay(p, opt, total) : "sandbox-ok";
         btn.textContent = "Placing order…";
         const order = await post(`/api/carts/${state.ctx.cartId}/checkout`, {
           pharmacy_id: p.pharmacy_id, fulfillment: opt.fulfillment, delivery_option: opt.fulfillment === "delivery" ? opt.delivery_option : null,
@@ -723,6 +728,11 @@ async function checkoutScreen(p) {
 const SHOP_STEPS = [["order_accepted", "Order placed"], ["preparing", "Packing your order"], ["ready_for_pickup", "Packed · finding a rider"], ["out_for_delivery", "Rider on the way"], ["delivered", "Delivered"]];
 const STEPS = [["prescription_received", "Prescription received"], ["pharmacist_reviewing", "Pharmacist reviewing"], ["order_accepted", "Order accepted"], ["preparing", "Preparing medicines"], ["ready_for_pickup", "Ready for pickup"], ["out_for_delivery", "Out for delivery"], ["delivered", "Delivered"]];
 
+// For home delivery, "Ready for pickup" reads as if the patient must collect it, so say what the rider is doing.
+const trackTitle = (o) => o.fulfillment === "delivery" && o.status === "ready_for_pickup"
+  ? (o.mission ? "Packed · drone getting ready" : o.delivery?.courier ? `${o.delivery.courier} is collecting your order` : "Packed · finding a rider")
+  : o.status_label;
+
 SCREENS.orders = async () => {
   const dash = await api("/api/patient/medicines");
   const all = [...dash.active_orders, ...dash.purchase_history];
@@ -736,7 +746,7 @@ SCREENS.orders = async () => {
   view().innerHTML = pageHead("Order tracking", `${esc(o.order_no)} · ${esc(shortName(o.pharmacy.name))}`,
     all.length > 1 ? `<select id="pickOrder">${all.map((x) => `<option value="${x.id}" ${x.id === o.id ? "selected" : ""}>${esc(x.order_no)} · ${esc(x.status_label)}</option>`).join("")}</select>` : "") + `
     <section class="hero"><div class="eyebrow">${o.source === "shop" && o.delivery_option === "priority" ? "Express rider delivery" : o.fulfillment === "pickup" ? "Pickup order" : esc(DELIV[o.delivery_option]?.[1] || "") + " delivery"}</div>
-      <h1>${esc(o.status_label)}</h1><p>${esc(last.note)}</p>
+      <h1>${esc(trackTitle(o))}</h1><p>${esc(last.note)}</p>
       ${o.delivery && !["delivered", "cancelled", "rejected"].includes(o.status) ? `<div class="actions"><button class="btn primary" id="liveOrder">${ic("pin")} ${o.delivery.courier ? `Track ${esc(o.delivery.courier)} live` : "Live map"}</button></div>` : ""}
       ${bad ? "" : `<div class="progress"><i style="width:${Math.round((doneCount / steps.length) * 100)}%"></i></div>
       <div class="stats">${o.delivery?.eta && o.status !== "delivered" ? `<div class="stat"><b>${time(o.delivery.eta)}</b><span>Estimated arrival</span></div>` : ""}
@@ -754,7 +764,10 @@ SCREENS.orders = async () => {
         ${o.items.map((i) => `<tr><td><b>${esc(i.medicine)}</b> ${schedBadge(i.india_schedule)}</td><td>${i.approved_quantity} ${esc(i.unit)}</td><td>${money(r2(i.unit_price * i.approved_quantity))}</td></tr>`).join("")}` : `<tr><th>Medicine</th><th>Prescribed</th><th>Requested</th><th>Approved</th></tr>
         ${o.items.map((i) => `<tr><td><b>${esc(i.medicine)}</b> ${schedBadge(i.india_schedule)}</td><td>${i.prescribed_quantity}</td><td>${i.requested_quantity}</td><td>${i.approved_quantity ?? `<span class="badge warn">Pending</span>`}</td></tr>`).join("")}`}</table></div></div>
     </div><aside class="sticky">
-      ${o.delivery && o.status !== "delivered" ? `<div class="code-box"><div class="tiny" style="opacity:.8">${o.mission?.mode === "drone" ? "SHARE THIS CODE WHEN THE DRONE ARRIVES" : "SHARE THIS CODE WITH YOUR COURIER"}</div><div class="code">${esc(o.delivery.handover_code)}</div><div class="tiny" style="opacity:.8">Proof of delivery</div></div>` : ""}
+      ${o.mission?.mode === "drone" && o.status === "out_for_delivery" ? (o.mission.status === "arrived"
+        ? `<div class="card featured"><h3>${ic("drone")} Your drone has landed</h3><p class="small muted">The parcel is at your door. Collect it, then confirm here.</p><button class="btn primary block" id="gotMeds">${ic("check")} I've got my medicines</button></div>`
+        : `<div class="card"><h3>${ic("drone")} Your medicines are in the air</h3><p class="small muted">The drone lowers the parcel at your door. We'll tell you the moment it lands.</p></div>`)
+      : o.delivery && o.status !== "delivered" && o.mission?.mode !== "drone" ? `<div class="code-box"><div class="tiny" style="opacity:.8">SHARE THIS CODE WITH YOUR RIDER</div><div class="code">${esc(o.delivery.handover_code)}</div><div class="tiny" style="opacity:.8">Proof of delivery</div></div>` : ""}
       ${o.delivery ? `<div class="card"><div class="row"><div class="avatar">${o.delivery.courier ? esc(initials(o.delivery.courier)) : ic("truck")}</div><div><b>${esc(o.delivery.courier || "Finding the nearest courier…")}</b><div class="tiny muted">${esc(o.delivery.provider)} · ${esc(o.delivery.tracking_ref)}</div></div></div>
         <div class="row small" style="margin-top:12px">${o.delivery.cold_chain ? `<span class="badge info">${ic("snow")} Temperature controlled</span>` : ""}${o.delivery.id_check_required ? `<span class="badge warn">${ic("id")} Photo ID required</span>` : ""}<span class="badge">${ic("sign")} Signature</span></div>
         ${o.delivery.proof_of_delivery ? `<div class="notice good">${ic("check")}<span>Delivered to ${esc(o.delivery.proof_of_delivery.recipient)}</span></div>` : ""}</div>` : ""}
@@ -763,9 +776,12 @@ SCREENS.orders = async () => {
         <div class="row small" style="margin-top:8px"><span class="badge">${esc(o.payment.method.replace("_", " "))}</span><span class="badge ${o.payment.status === "captured" ? "good" : o.payment.status === "authorized" ? "info" : ""}">${esc(o.payment.status)}</span>${o.payment.refunded ? `<span class="badge good">Refunded ${money(o.payment.refunded)}</span>` : ""}</div>
         ${["prescription_received", "pharmacist_reviewing", "awaiting_clarification", "order_accepted"].includes(o.status) ? `<button class="btn danger block" id="cancel" style="margin-top:14px">Cancel order</button>` : ""}</div>
     </aside></div>`;
-  if (o.mission && ["in_flight", "in_transit"].includes(o.mission.status)) state.poll = setInterval(() => state.tab === "orders" && SCREENS.orders(), 15000);
-  else if (o.source === "shop" && ["order_accepted", "preparing"].includes(o.status)) state.poll = setInterval(() => state.tab === "orders" && SCREENS.orders(), 8000);
+  // Keep the tracker moving on its own while the order is still on its way (one timer at a time).
+  clearInterval(state.poll);
+  const moving = !["delivered", "picked_up", "cancelled", "rejected"].includes(o.status);
+  if (moving) state.poll = setInterval(() => state.tab === "orders" && !document.hidden && SCREENS.orders(), o.mission ? 15000 : 8000);
   const lo = $("#liveOrder"); if (lo) lo.onclick = () => liveScreen("delivery", o.id);
+  const got = $("#gotMeds"); if (got) got.onclick = () => guard(async () => { await post(`/api/orders/${o.id}/received`); toast("Delivered. Take your medicines as your doctor advised."); SCREENS.orders(); });
   const pick = $("#pickOrder"); if (pick) pick.onchange = () => { state.ctx.orderId = +pick.value; SCREENS.orders(); };
   const c = $("#cancel");
   if (c) c.onclick = () => guard(async () => { if (!confirm("Cancel this order? Any payment hold will be released or refunded.")) return; await post(`/api/orders/${o.id}/cancel`, { reason: "Cancelled by patient" }); toast("Order cancelled"); SCREENS.orders(); });
@@ -1129,7 +1145,7 @@ SCREENS.queue = async () => {
     const id = +card.dataset.order; const o = orders.find((x) => x.id === id);
     $$("[data-x]", card).forEach((b) => (b.onclick = () => guard(async () => {
       const x = b.dataset.x;
-      if (["start-review", "prepare", "ready"].includes(x)) await post(`/api/pharmacy/orders/${id}/${x}`);
+      if (["start-review", "prepare", "ready", "dispatch"].includes(x)) await post(`/api/pharmacy/orders/${id}/${x}`);
       else if (x === "approve") {
         const adj = {}; let changed = false;
         $$("[data-adj]", card).forEach((inp) => { const it = o.items.find((i) => i.id === +inp.dataset.adj); adj[inp.dataset.adj] = +inp.value; if (+inp.value !== it.requested_quantity) changed = true; });
@@ -1161,7 +1177,9 @@ function pharmacistActions(o) {
     case "pharmacist_reviewing": return b("approve", "Approve", "primary", "check") + b("clarify", "Ask prescriber", "", "chat") + b("reject", "Reject", "danger");
     case "order_accepted": return b("prepare", "Start preparing", "primary", "pills") + b("cancel", "Cancel & refund", "ghost danger");
     case "preparing": return b("ready", "Dispense & mark ready", "primary", "bag") + b("cancel", "Cancel & refund", "ghost danger");
-    case "ready_for_pickup": return o.fulfillment === "pickup" ? b("pickup", "Hand over", "primary", "id") : `<span class="badge info">${ic("truck")} Awaiting courier</span>`;
+    case "ready_for_pickup": return o.fulfillment === "pickup" ? b("pickup", "Hand over", "primary", "id")
+      : o.mission?.mode === "drone" ? b("dispatch", "Load & launch drone", "primary", "drone")
+      : `<span class="badge info">${ic("truck")} ${o.delivery?.courier ? `${esc(o.delivery.courier)} is coming to collect` : "Finding a rider"}</span>`;
     default: return "";
   }
 }

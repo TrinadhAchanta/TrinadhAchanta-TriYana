@@ -157,7 +157,7 @@ SCREENS.basket = async () => {
   }
   const [methods, cfg] = await Promise.all([api("/api/payment-methods"), api("/api/payment-config")]);
   const rzp = cfg.gateway === "razorpay";
-  const opt = { pharmacy: quote.offers[0]?.pharmacy_id, delivery: quote.offers[0]?.delivery_options[0]?.code, method: methods[0].code, decline: false, more: false, promo: null };
+  const opt = { pharmacy: quote.offers[0]?.pharmacy_id, delivery: quote.offers[0]?.delivery_options[0]?.code, method: methods[0].code, more: false, promo: null };
   const key = `shop-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const render = () => {
     const offer = quote.offers.find((o) => o.pharmacy_id === opt.pharmacy);
@@ -176,8 +176,7 @@ SCREENS.basket = async () => {
           ${opt.more ? `<div class="choice-grid" style="margin:4px 0 12px">${others.map((o) => `<button class="choice" data-ph="${o.pharmacy_id}"><span class="ico">${ic("store")}</span><div><b>${esc(shortName(o.name))}</b><span>${o.distance_km} km · ${money(o.subtotal)}</span></div></button>`).join("")}</div>` : ""}
           <div class="choice-grid" style="margin-top:8px">${offer.delivery_options.map((x) => `<button class="choice ${x.code === opt.delivery ? "on" : ""}" data-d="${x.code}"><span class="ico">${ic(x.code === "priority" ? "scooter" : DELIV[x.code]?.[0] || "truck")}</span><div><b>${x.code === "priority" ? "Express rider" : esc(DELIV[x.code]?.[1] || x.label)}</b><span>~${mins(x.eta_minutes)} · ${money(x.fee)}</span></div></button>`).join("")}</div>
           <div class="notice good small" style="margin-top:12px">${ic("scooter")}<span>The nearest online rider picks it up from the pharmacy. You'll see them on a live map, and share a handover code at the door.</span></div></div>
-        <div class="card"><h3>Payment method</h3><div class="choice-grid" style="margin-top:12px">${methods.map((m) => `<button class="choice ${m.code === opt.method ? "on" : ""}" data-m="${m.code}"><span class="ico">${ic(PAY_ICON[m.code] || "card")}</span><div><b>${esc(m.label)}</b></div></button>`).join("")}</div>
-          ${rzp ? "" : `<label class="check" style="margin-top:14px"><input type="checkbox" id="decline" ${opt.decline ? "checked" : ""}> <span class="small muted">Sandbox: simulate a declined payment</span></label>`}</div>`
+        <div class="card"><h3>Payment method</h3><div class="choice-grid" style="margin-top:12px">${methods.map((m) => `<button class="choice ${m.code === opt.method ? "on" : ""}" data-m="${m.code}"><span class="ico">${ic(PAY_ICON[m.code] || "card")}</span><div><b>${esc(m.label)}</b></div></button>`).join("")}</div></div>`
         : `<div class="notice warn">${ic("alert")}<span>${esc(quote.note)} ${quote.unavailable.map((u) => `${esc(shortName(u.pharmacy))}: missing ${u.missing.map(esc).join(", ")}`).join(" · ")}</span></div>`}
       </div><aside class="sticky">${offer ? `<div class="card featured"><h3>Bill summary</h3>
         <table class="price" style="margin-top:8px"><tr><td>Item total</td><td>${money(offer.subtotal)}</td></tr><tr><td>Delivery fee</td><td>${money(d.fee)}</td></tr>
@@ -198,7 +197,6 @@ SCREENS.basket = async () => {
       else render(); }));
     $$("[data-d]").forEach((b) => (b.onclick = () => { opt.delivery = b.dataset.d; render(); }));
     $$("[data-m]").forEach((b) => (b.onclick = () => { opt.method = b.dataset.m; render(); }));
-    if ($("#decline")) $("#decline").onchange = (e) => (opt.decline = e.target.checked);
     if ($("#promoSlot")) wirePromo($("#promoSlot"), async (code) => {
       const r = await checkMedPromo(code, offer.subtotal);
       opt.promo = r.ok ? { code: r.code, applied: true, discount: r.discount } : { code, message: r.message };
@@ -209,7 +207,7 @@ SCREENS.basket = async () => {
       pay.disabled = true; pay.textContent = "Processing…";
       try {
         const body = { items, pharmacy_id: opt.pharmacy, delivery_option: opt.delivery, promo_code: opt.promo?.applied ? opt.promo.code : null };
-        const token = rzp ? await payShopWithRazorpay(body, total, opt.method) : opt.decline ? "sandbox-decline" : "sandbox-ok";
+        const token = rzp ? await payShopWithRazorpay(body, total, opt.method) : "sandbox-ok";
         pay.textContent = "Placing order…";
         const order = await post("/api/shop/checkout", { ...body, payment_method: opt.method, payment_token: token, idempotency_key: key, expected_total: total });
         saveBasket({});

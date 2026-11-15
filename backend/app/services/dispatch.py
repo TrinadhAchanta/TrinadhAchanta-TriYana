@@ -32,6 +32,7 @@ from ..models import (
     Pharmacy,
     PharmacyOrder,
     Role,
+    TrackingEvent,
     Trip,
     User,
     VisitStatus,
@@ -54,6 +55,9 @@ GPS_FRESH = timedelta(seconds=30)
 # the time to accept and pass the live face check plus the drive fits inside the promise.
 PROMISE_MIN = int(os.environ.get("TRIYANA_PROMISE_MIN", "10"))
 HANDOFF_MIN = 2  # accept the request + live face check before setting off
+
+
+PICKUP_HANDLING_MIN = 2  # rider collects the bag and checks the order at the counter
 
 
 def drive_minutes(km: float) -> int:
@@ -345,6 +349,8 @@ def sweep(db: Session) -> None:
     from .shop import autopack  # shop orders the pharmacy has packed are offered to riders here
     autopack(db)
     _offer_waiting_deliveries(db)
+    from .orders import land_due_drones  # patient drone deliveries that have reached the door
+    land_due_drones(db)
 
 
 def _offer_waiting_deliveries(db: Session) -> None:
@@ -407,10 +413,14 @@ def accept(db: Session, user: User, offer_id: int) -> DispatchOffer:
         if d is None or d.courier_user_id not in (None, user.id):
             raise Conflict("offer_closed", "Another courier already took this delivery.")
         d.courier_user_id, d.courier_name = user.id, user.name.split(" (")[0]
-        start_trip(db, user, order_id=order.id, leg="to_pharmacy", dest=(order.pharmacy.lat, order.pharmacy.lng),
-                   dest_label=order.pharmacy.name)
-        notify(db, users_for_patient(db, order.patient_id), "Courier assigned",
-               f"{d.courier_name} is heading to {order.pharmacy.name} to collect your medicines.", f"order:{order.id}")
+        trip = start_trip(db, user, order_id=order.id, leg="to_pharmacy", dest=(order.pharmacy.lat, order.pharmacy.lng),
+                          dest_label=order.pharmacy.name)
+        patient = db.get(Patient, order.patient_id)
+        onward_min = drive_minutes(haversine_km(order.pharmacy.lat, order.pharmacy.lng, patient.lat, patient.lng))
+        d.eta = utcnow() + timedelta(seconds=trip.duration_s + (PICKUP_HANDLING_MIN + onward_min) * 60)
+        msg = f"{d.courier_name} accepted your delivery and is heading to {order.pharmacy.name} to collect your medicines."
+        db.add(TrackingEvent(order_id=order.id, status=order.status.value, note=msg))  # the patient's tracker moves on
+        notify(db, users_for_patient(db, order.patient_id), "Courier assigned", msg, f"order:{order.id}")
         audit.record(db, user, "delivery.accept", "order", order.id)
     db.commit()
     return o

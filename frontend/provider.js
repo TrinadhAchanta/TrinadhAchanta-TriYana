@@ -311,6 +311,9 @@ async function navScreen() {
     else actions = `<div class="form-grid"><label>Handover code<input id="hoCode" inputmode="numeric" maxlength="4" placeholder="4 digits"></label><label>Received by<input id="hoWho" placeholder="Name"></label></div>
       <label class="check" style="margin:10px 0"><input type="checkbox" id="hoId"><span>Photo ID checked (if required)</span></label>
       <button class="btn primary block" id="navDeliver">${ic("check")} Confirm delivery</button>`;
+    // Keep anything already typed (e.g. the handover code) when the sheet redraws on arrival.
+    const typed = {};
+    $$("#navActions input").forEach((el) => { if (el.id) typed[el.id] = el.type === "checkbox" ? el.checked : el.value; });
     $("#navSheet").innerHTML = `<div class="grab"></div>
       <div class="row between" style="flex-wrap:nowrap">
         <div><div class="eta-big">${t.arrived ? "Arrived" : `${t.eta_min} min`}</div><div class="small muted">${t.arrived ? esc(t.dest_label) : `${km(t.remaining_m)} · arrive ${clock(t.eta_min)}`}</div></div>
@@ -318,6 +321,7 @@ async function navScreen() {
       <div class="trip-bar"><i style="width:${Math.round(t.fraction * 100)}%"></i></div>
       <div class="row small" style="margin:8px 0 12px"><span class="badge">${ic(destIco)} ${esc(t.dest_label)}</span><span class="badge ${t.source === "osrm" ? "good" : ""}">${t.source === "osrm" ? "Road route" : "Approximate route"}</span><span class="badge">Demo GPS ×${t.speedup}</span></div>
       <div id="navActions">${actions}</div>`;
+    Object.entries(typed).forEach(([id, v]) => { const el = document.getElementById(id); if (el) { if (el.type === "checkbox") el.checked = v; else el.value = v; } });
     wireActions();
   };
 
