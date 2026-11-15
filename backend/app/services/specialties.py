@@ -84,7 +84,7 @@ def label(care_type: str | None) -> str:
 DEMO_SPECIALISTS = [
     # (persona key, token, care type, name, licence, council, qualification, years, fee, rating, count,
     #  languages, about, lat, lng, area)
-    ("doctor_kavya", "demo-doctor-kavya", "eye", "Dr. Kavya Iyer", "TSMC-DEMO-70411", "Telangana State Medical Council (demo)",
+    ("doctor_arvind", "demo-doctor-arvind", "eye", "Dr. Arvind Menon", "TSMC-DEMO-70411", "Telangana State Medical Council (demo)",
      "MBBS, MS (Ophthalmology)", 10, 900, 4.9, 214, ["English", "Hindi", "Tamil"],
      "Eye check-ups, red eyes, vision tests and eye care for elders, at home.", 17.4470, 78.3610, "Lotus Lane"),
     ("doctor_farhan", "demo-doctor-farhan", "ent", "Dr. Farhan Ali", "TSMC-DEMO-70522", "Telangana State Medical Council (demo)",
@@ -103,7 +103,12 @@ def seed_demo(db: Session) -> dict[str, str]:
     for (key, token, care, name, lic, council, qual, years, fee, rating, count, langs, about, lat, lng,
          area) in DEMO_SPECIALISTS:
         tokens[key] = token
-        if db.scalars(select(Doctor).where(Doctor.license_no == lic)).first():
+        existing = db.scalars(select(Doctor).where(Doctor.license_no == lic)).first()
+        if existing:
+            if existing.name != name:  # keep a saved database in step when a demo doctor is renamed
+                existing.name = name
+                for u in db.scalars(select(User).where(User.doctor_id == existing.id)):
+                    u.name, u.token = name, token
             continue
         doc = Doctor(name=name, care_type=care, specialty=CARE_TYPES[care]["specialty"], license_no=lic,
                      license_verified=True, medical_council=council, qualification=qual,
