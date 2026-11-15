@@ -93,7 +93,14 @@ def doctor_to_dict(doc: Doctor, km: float | None, slots: list[datetime] | None =
         "about": doc.about, "area": doc.area, "distance_km": km,
         "arrives_in_min": travel_minutes(km) if km is not None else None,
         "next_slot": slots[0].isoformat() if slots else None,
+        "reviews": _review_preview(doc),
     }
+
+
+def _review_preview(doc: Doctor) -> list[dict]:
+    from sqlalchemy.orm import object_session
+    from . import reviews
+    return reviews.preview(object_session(doc), doctor_id=doc.id)
 
 
 def list_doctors(db: Session, patient: Patient, care_type: str = specialties.GENERAL) -> list[dict]:
@@ -345,7 +352,15 @@ def visit_to_dict(v: HomeVisit, patient: Patient | None = None) -> dict:
         "care_type": specialties.of_visit(v), "care_label": specialties.label(v.care_type),
         "patient": {"id": v.patient_id, "name": v.patient.name if v.patient else None},
         "cancelled_by_hero": _hero_cancel(v),
+        "review": _my_review(v),
     }
+
+
+def _my_review(v: HomeVisit) -> dict | None:
+    from sqlalchemy.orm import object_session
+    from . import reviews
+    db = object_session(v)
+    return reviews.mine(db, "visit", v.id) if db and v.status == VisitStatus.completed else None
 
 
 def _hero_cancel(v: HomeVisit) -> dict | None:
