@@ -105,3 +105,5 @@ def notify(db: Session, users: list[User], title: str, body: str, link: str = ""
         if about is not None and u.role == Role.patient and u.patient_id != about.id:
             t = f"{about.name.split(' ')[0]}: {title}"[:120]
         db.add(Notification(user_id=u.id, title=t, body=body, link=link))
+        from .push import queue  # also buzz their phone once this commits
+        queue(db, [u.id], t, body, link)

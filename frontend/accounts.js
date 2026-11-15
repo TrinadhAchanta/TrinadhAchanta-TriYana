@@ -54,6 +54,7 @@ function renderAuth(mode) {
     <form class="auth-form" id="authForm" novalidate>
       ${input("email", "Email", "email", 'autocomplete="email" inputmode="email" required')}
       ${input("password", "Password", "password", 'autocomplete="current-password" required')}
+      <p class="tiny" style="margin:-6px 0 0;text-align:right"><a href="#" id="forgotLink">Forgot password?</a></p>
       <button class="btn primary block" id="authGo">Sign in</button>
       <p class="tiny muted center">New to ${partner ? "Triyana Partner" : "Triyana"}? <a href="#" data-mode="signup">Create an account</a></p>
     </form>`;
@@ -90,7 +91,7 @@ function renderAuth(mode) {
         ${input("address", "Home address", "text", 'autocomplete="street-address" required placeholder="House, street, area"')}
         <div class="form-grid">${input("dob", "Date of birth", "date", 'max="' + new Date().toISOString().slice(0, 10) + '"')}
           <label class="field">Gender<select id="gender">${[["", "Select"], ["female", "Female"], ["male", "Male"], ["other", "Other"], ["prefer_not", "Prefer not to say"]].map(([v, l]) => `<option value="${v}" ${d.gender === v ? "selected" : ""}>${l}</option>`).join("")}</select></label></div>
-        <p class="tiny muted" style="margin:-4px 0 0">This demo serves Demo City, so new accounts are placed there for doctors and riders.</p>`}
+        ${state.accounts.length ? `<p class="tiny muted" style="margin:-4px 0 0">This demo serves Demo City, so new accounts are placed there for doctors and riders.</p>` : ""}`}
       ${doctorFields}
       <button class="btn primary block" id="authGo">Create account</button>
       <p class="tiny muted center">Already have an account? <a href="#" data-mode="signin">Sign in</a></p>
@@ -126,6 +127,7 @@ function renderAuth(mode) {
   $$("[data-token]").forEach((b) => (b.onclick = () => signIn(b.dataset.token)));
   const det = $(".demo-accounts"); if (det) det.ontoggle = () => (d.demoOpen = det.open);
   $("#authForm").onsubmit = (e) => { e.preventDefault(); keep(); submitAuth(); };
+  if ($("#forgotLink")) $("#forgotLink").onclick = (e) => { e.preventDefault(); keep(); forgotScreen(d.email); };
   if ($("#sendOtp")) $("#sendOtp").onclick = async () => {
     keep(); $("#authErr").hidden = true;
     const btn = $("#sendOtp"); btn.disabled = true; btn.textContent = "Sending…";
@@ -288,10 +290,12 @@ SCREENS.account = async () => {
           <label class="field">Current password<input id="pwOld" type="password" autocomplete="current-password"></label>
           <label class="field">New password<input id="pwNew" type="password" autocomplete="new-password" minlength="8"></label>
           <button class="btn">Update password</button></form></div>`}
+      <div class="card" id="pushCard"></div>
       <div class="card"><button class="btn ghost block" id="acctOut">Sign out</button></div>
     </aside></div>`;
   $$("[data-go]").forEach((b) => (b.onclick = () => go(b.dataset.go)));
   if ($("#faceCard")) faceAccountCard();
+  if (window.TriyanaPush) TriyanaPush.accountCard($("#pushCard"));
   $("#acctOut").onclick = signOut;
   if ($("#toSignup")) $("#toSignup").onclick = () => { signOut(); renderAuth("signup"); };
   if ($("#profile")) $("#profile").onsubmit = (e) => { e.preventDefault(); guard(async () => {

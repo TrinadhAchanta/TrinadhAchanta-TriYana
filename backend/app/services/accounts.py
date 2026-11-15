@@ -28,7 +28,7 @@ from datetime import timedelta
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .. import audit
+from .. import audit, config
 from ..errors import Conflict, DomainError, Forbidden, NotFound, Unprocessable
 from ..adapters import sms
 from ..models import AuthSession, Doctor, Patient, PhoneOtp, Physiotherapist, Role, User, utcnow
@@ -143,7 +143,7 @@ def _phone_taken(db: Session, phone: str, except_user: int | None = None, app: s
 
 
 def _code_hash(phone: str, code: str) -> str:
-    return hashlib.sha256(f"{phone}:{code}:{os.environ.get('TRIYANA_SECRET', 'triyana-demo-secret-change-me')}".encode()).hexdigest()
+    return hashlib.sha256(f"{phone}:{code}:{config.secret()}".encode()).hexdigest()
 
 
 def send_phone_otp(db: Session, phone: str, *, country: str | None = None, for_user: User | None = None,
@@ -153,6 +153,11 @@ def send_phone_otp(db: Session, phone: str, *, country: str | None = None, for_u
         app = _app_of(for_user.role)
     if _phone_taken(db, phone, for_user.id if for_user else None, app):
         raise Conflict("phone_taken", "This mobile number is already linked to another Triyana account.")
+    return _issue_otp(db, phone)
+
+
+def _issue_otp(db: Session, phone: str) -> dict:
+    """Rate-limit, store and text a fresh 6-digit code to an E.164 number."""
     now = utcnow()
     recent = db.scalars(select(PhoneOtp).where(PhoneOtp.phone == phone, PhoneOtp.created_at > now - timedelta(hours=1))
                         .order_by(PhoneOtp.id.desc())).all()
@@ -172,7 +177,7 @@ def send_phone_otp(db: Session, phone: str, *, country: str | None = None, for_u
     cc = "+" + str(phonenumbers.parse(phone).country_code)
     out = {"phone": phone, "masked": cc + " " + "•" * (len(phone) - len(cc) - 4) + phone[-4:],
            "expires_in": OTP_MINUTES * 60, "resend_in": OTP_RESEND_S}
-    if sms.is_sandbox() and os.environ.get("TRIYANA_DEMO", "1") == "1":
+    if sms.is_sandbox() and config.is_demo():
         out["demo_code"] = code  # no real SMS in the demo, so show the code in the app
     return out
 
@@ -245,8 +250,8 @@ def user_for_token(db: Session, token: str) -> User | None:
             s.last_seen_at = now
             db.commit()
         return db.get(User, s.user_id)
-    # Built-in demo accounts keep their fixed tokens so testers can switch persona.
-    if token.startswith("demo-"):
+    # Built-in demo accounts keep their fixed tokens so testers can switch persona (demo mode only).
+    if token.startswith("demo-") and config.is_demo():
         return db.scalars(select(User).where(User.token == token)).first()
     return None
 
@@ -390,6 +395,56 @@ def change_password(db: Session, user: User, current: str, new: str) -> None:
     db.commit()
 
 
+# ---------------------------------------------------------- forgot password
+def _reset_target(db: Session, email: str, app: str) -> User:
+    email = (email or "").strip().lower()
+    user = db.scalars(select(User).where(func.lower(User.email) == email)).first() if email else None
+    if not user or not user.password_hash:
+        # Sign-in already says when an email has no account, so saying it here leaks nothing new.
+        raise DomainError("no_account", "There's no account with this email. Check the spelling, or tap "
+                                        "Create account to sign up.")
+    check_app(user, app)
+    if not user.phone or not user.phone_verified_at:
+        raise DomainError("no_phone", "This account has no verified mobile number, so we can't text you a code. "
+                                      "Contact Triyana support to get back in.")
+    return user
+
+
+def start_password_reset(db: Session, email: str, app: str) -> dict:
+    """Text a reset code to the account's verified mobile number (the code proves it's theirs)."""
+    user = _reset_target(db, email, app)
+    sent = _issue_otp(db, user.phone)
+    audit.record(db, user, "account.password_reset_requested", "user", user.id)
+    db.commit()
+    return {k: v for k, v in sent.items() if k != "phone"}
+
+
+def finish_password_reset(db: Session, email: str, app: str, code: str, new_password: str) -> tuple[User, str]:
+    """Check the texted code, set the new password, sign out every device and sign this one in."""
+    key = "reset:" + (email or "").strip().lower()
+    _check_rate(key)
+    validate_password(new_password)
+    user = _reset_target(db, email, app)
+    try:
+        check_phone_otp(db, user.phone, code)
+    except DomainError:
+        _fail(key)
+        raise
+    user.password_hash = hash_password(new_password)
+    for s in db.scalars(select(AuthSession).where(AuthSession.user_id == user.id, AuthSession.revoked.is_(False))):
+        s.revoked = True
+    from .push import forget_user
+    forget_user(db, user.id)
+    from .common import notify
+    notify(db, [user], "Your password was changed",
+           "You reset your password and were signed out on other devices. If this wasn't you, contact Triyana support.")
+    audit.record(db, user, "account.password_reset", "user", user.id)
+    db.commit()
+    _failures.pop(key, None)
+    _failures.pop(user.email.lower(), None)
+    return user, open_session(db, user, app)
+
+
 # ------------------------------------------------------------- verification
 def account_dict(db: Session, user: User) -> dict:
     out = {"id": user.id, "name": user.name, "email": user.email, "phone": user.phone,
@@ -456,6 +511,24 @@ def pending_providers(db: Session, status: str = "pending") -> list[dict]:
         out.append(account_dict(db, u) | {"verification": verification.status(db, u),
                                           "face": enrollment_dict(current_enrollment(db, u), with_photo=True)})
     return out
+
+
+def retire_demo_people(db: Session) -> int:
+    """Live mode: the seeded demo doctors, riders, pharmacists and patients can't sign in (their tokens
+    stop working) and must never be offered real patients, so take them off duty and unverify them.
+    The seeded catalogue (medicines, lab tests, partner pharmacies) stays."""
+    n = 0
+    for u in db.scalars(select(User).where(User.token.like("demo-%"), User.email.is_(None))):
+        u.on_duty = False
+        if u.role in PROVIDER_ROLES:
+            u.verification_status, u.verification_note = "rejected", "Demo account, switched off in live mode"
+        if u.doctor_id:
+            db.get(Doctor, u.doctor_id).license_verified = False
+        if u.physio_id:
+            db.get(Physiotherapist, u.physio_id).verified = False
+        n += 1
+    db.flush()
+    return n
 
 
 def registered_accounts_exist(db: Session) -> bool:

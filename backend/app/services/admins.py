@@ -18,7 +18,7 @@ from datetime import timedelta
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .. import audit
+from .. import audit, config
 from ..errors import Conflict, Forbidden, NotFound
 from ..models import AdminAccount, AdminSession, utcnow
 from .accounts import (_check_rate, _fail, check_password, hash_password, normalize_email,
@@ -34,7 +34,7 @@ def _hash_token(token: str) -> str:
 
 
 def _fingerprint(email: str, password: str) -> str:
-    secret = os.environ.get("TRIYANA_SECRET", "triyana-demo-secret-change-me")
+    secret = config.secret()
     return hashlib.sha256(f"admin-env:{email}:{password}:{secret}".encode()).hexdigest()
 
 

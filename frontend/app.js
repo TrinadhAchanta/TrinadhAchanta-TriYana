@@ -152,7 +152,9 @@ function sessionEnded() {
 }
 
 function signOut() {
-  if (state.token && state.token.startsWith("tys_")) fetch("/api/auth/logout", { method: "POST", headers: { Authorization: `Bearer ${state.token}` } }).catch(() => {});
+  const tok = state.token;  // this phone stops getting alerts first, then the session ends
+  const bye = window.TriyanaPush ? TriyanaPush.signOut(tok) : Promise.resolve();
+  if (tok && tok.startsWith("tys_")) bye.finally(() => fetch("/api/auth/logout", { method: "POST", headers: { Authorization: `Bearer ${tok}` } }).catch(() => {}));
   try { localStorage.removeItem(TOKEN_KEY); } catch {}
   state.token = null;
   $("#yanaPanel").classList.remove("open"); $("#yanaBtn").hidden = true;
@@ -169,6 +171,7 @@ async function signIn(token) {
   Object.assign(state, { role: me.role, name: me.name, unread: me.unread_notifications, ctx: {}, hospitalId: me.hospital_id,
     userId: me.id, email: me.email, demo: me.demo, verification: me.verification_status });
   accountChrome();
+  if (window.TriyanaPush) TriyanaPush.afterSignIn(me);
   $("#yanaBtn").hidden = me.role !== "patient";
   $("#yanaPanel").classList.remove("open");
   // No privacy wall on opening: patients land on Home and are asked for consent in one short step

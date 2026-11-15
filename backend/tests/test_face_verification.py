@@ -94,7 +94,8 @@ def test_no_bypass_without_a_check(env, as_):
 
 def test_production_without_a_real_partner_fails_closed(env, as_, monkeypatch):
     doc, (vid,) = _accepted(env, as_, "meera")
-    monkeypatch.setenv("TRIYANA_DEMO", "0")
+    # Live mode's face partner (demo tokens stop working in live mode, so only the partner is switched).
+    monkeypatch.setattr("app.adapters.face.demo_mode", lambda: False)
     r = face_check(doc, vid)
     assert r.status_code == 409 and _code(r) == "face_partner_unavailable"
     assert _code(doc.post(f"/api/provider/visits/{vid}/depart")) == "face_check_required"

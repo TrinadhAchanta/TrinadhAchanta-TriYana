@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, Header
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from .. import config
 from ..db import get_db
 from ..deps import current_user
 from ..errors import Forbidden, NotFound, Unauthorized
@@ -59,6 +60,16 @@ class OtpIn(BaseModel):
     phone: str = Field(max_length=30)
     country: str | None = Field(None, min_length=2, max_length=2)  # ISO code from the country picker
     app: Literal["patient", "provider"] | None = None  # which app the sign-up is for
+
+
+class ForgotIn(BaseModel):
+    app: Literal["patient", "provider"]
+    email: str = Field(max_length=254)
+
+
+class ResetIn(ForgotIn):
+    otp: str = Field(max_length=10)
+    new_password: str = Field(max_length=200)
 
 
 class PhoneIn(BaseModel):
@@ -119,6 +130,19 @@ def login(body: LoginIn, db: Session = Depends(get_db)):
     return {"token": token, "account": accounts.account_dict(db, user)}
 
 
+@router.post("/auth/password/forgot")
+def forgot_password(body: ForgotIn, db: Session = Depends(get_db)):
+    """Forgot password, step 1: text a code to the account's verified mobile number."""
+    return accounts.start_password_reset(db, body.email, body.app)
+
+
+@router.post("/auth/password/reset")
+def reset_password(body: ResetIn, db: Session = Depends(get_db)):
+    """Forgot password, step 2: the code plus a new password. Signs out every other device."""
+    user, token = accounts.finish_password_reset(db, body.email, body.app, body.otp, body.new_password)
+    return {"token": token, "account": accounts.account_dict(db, user)}
+
+
 @router.post("/auth/logout")
 def logout(authorization: str | None = Header(default=None), db: Session = Depends(get_db)):
     accounts.close_session(db, _bearer(authorization))
@@ -174,7 +198,7 @@ def change_password(body: PasswordIn, user: User = Depends(current_user), db: Se
 @router.post("/account/demo-verify")
 def demo_verify(user: User = Depends(current_user), db: Session = Depends(get_db)):
     """Demo only: lets a tester approve their own new provider account. Off when TRIYANA_DEMO != 1."""
-    if os.environ.get("TRIYANA_DEMO", "1") != "1":
+    if not config.is_demo():
         raise NotFound("not_found", "Not available.")
     accounts.set_verification(db, user.id, "verified", "Approved in demo mode", actor=user)
     return accounts.account_dict(db, user)
@@ -284,6 +308,12 @@ def admin_password(body: PasswordIn, authorization: str | None = Header(default=
     admins.change_password(db, admin, body.current_password, body.new_password,
                            keep_token=authorization.split(" ", 1)[1].strip())
     return {"ok": True}
+
+
+@router.get("/admin/launch-check", dependencies=[Depends(_admin)])
+def launch_check():
+    """What's still needed before real patients: shown on /admin. Never shows any secret values."""
+    return {"mode": "demo" if config.is_demo() else "live", "checks": config.launch_checks()}
 
 
 @router.get("/admin/providers/pending", dependencies=[Depends(_admin)])

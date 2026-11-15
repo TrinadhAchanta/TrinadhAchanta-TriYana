@@ -240,6 +240,19 @@ class AuthSession(Base):
     revoked: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
+class PushSubscription(Base):
+    """A browser/phone that asked for push alerts (Web Push). Belongs to whoever signed in on it."""
+    __tablename__ = "push_subscriptions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    endpoint: Mapped[str] = mapped_column(String(1000), unique=True)
+    p256dh: Mapped[str] = mapped_column(String(200))
+    auth: Mapped[str] = mapped_column(String(64))
+    app: Mapped[str] = mapped_column(String(16), default="patient")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    last_sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class Patient(Base):
     __tablename__ = "patients"
     id: Mapped[int] = mapped_column(primary_key=True)
