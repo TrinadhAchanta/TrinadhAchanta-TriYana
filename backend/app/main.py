@@ -136,6 +136,7 @@ class CheckoutIn(BaseModel):
     payment_token: str = "sandbox-ok"
     idempotency_key: str = Field(min_length=8, max_length=80)
     expected_total: float | None = None
+    promo_code: str | None = Field(None, max_length=24)
 
 
 class ReviewIn(BaseModel):
@@ -271,13 +272,14 @@ class IntentIn(BaseModel):
     pharmacy_id: int
     fulfillment: str
     delivery_option: str | None = None
+    promo_code: str | None = Field(None, max_length=24)
 
 
 @app.post("/api/carts/{cart_id}/payment-intent")
 def payment_intent(cart_id: int, body: IntentIn, user: User = Depends(require(Role.patient)), db: Session = Depends(get_db)):
     privacy_svc.require_care(db, user)
     return order_svc.payment_intent(db, user, cart_id, pharmacy_id=body.pharmacy_id, fulfillment=body.fulfillment,
-                                    delivery_option=body.delivery_option)
+                                    delivery_option=body.delivery_option, promo_code=body.promo_code)
 
 
 # ------------------------------------------------------------------ privacy (DPDP Act 2023)
@@ -343,6 +345,7 @@ class BookingIn(BaseModel):
     follow_up_of: int | None = None  # the completed visit this one follows up
     cashless: bool = False  # bill the visit to the patient's health insurer
     member_id: int | None = None  # family booking: the family member this visit is for
+    promo_code: str | None = Field(None, max_length=24)  # typed at payment
 
 
 class AvailabilityIn(BaseModel):
@@ -380,7 +383,7 @@ def book_visit(body: BookingIn, user: User = Depends(require(Role.patient)), db:
     privacy_svc.require_care(db, user)
     v = visit_svc.book(db, user, body.doctor_id, body.scheduled_for, body.reason, body.address,
                        asap=body.asap, follow_up_of=body.follow_up_of, cashless=body.cashless,
-                       member_id=body.member_id)
+                       member_id=body.member_id, promo_code=body.promo_code)
     return visit_svc.visit_to_dict(v, v.patient)
 
 
@@ -532,7 +535,7 @@ def checkout(cart_id: int, body: CheckoutIn, user: User = Depends(require(Role.p
         db, user, cart_id, pharmacy_id=body.pharmacy_id, fulfillment=body.fulfillment,
         delivery_option=body.delivery_option, scheduled_for=body.scheduled_for,
         payment_method=body.payment_method, payment_token=body.payment_token,
-        idempotency_key=body.idempotency_key, expected_total=body.expected_total,
+        idempotency_key=body.idempotency_key, expected_total=body.expected_total, promo_code=body.promo_code,
     )
     return order_svc.serialize_order(db, order, user)
 

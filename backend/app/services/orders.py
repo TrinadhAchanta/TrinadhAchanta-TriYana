@@ -41,6 +41,7 @@ from ..models import (
 from . import drones as drone_svc
 from .carts import get_cart_for_patient
 from . import dispatch
+from . import promos as promo_svc
 from .common import ensure_order_access, get_or_404, new_ref, notify, users_for_doctor, users_for_patient, users_for_pharmacy
 from .dispensing_rules import achievable_quantities, evaluate_quantity_request, policy_for
 from .matching import match_pharmacies
@@ -126,6 +127,7 @@ def checkout(
     payment_token: str,
     idempotency_key: str,
     expected_total: float | None = None,
+    promo_code: str | None = None,
 ) -> PharmacyOrder:
     existing = db.scalars(select(PharmacyOrder).where(PharmacyOrder.idempotency_key == idempotency_key)).first()
     if existing is not None:
@@ -208,7 +210,16 @@ def checkout(
         lines.append((ci, info.unit_price))
     subtotal = round(subtotal, 2)
     tax = round(subtotal * policy.tax_rate, 2)
-    total = round(subtotal + tax + delivery_fee, 2)
+    promo, discount = None, 0.0
+    if promo_svc.normalize(promo_code):
+        try:
+            promo, discount = promo_svc.check(db, patient.id, promo_code, "medicines", subtotal)
+        except Unprocessable:
+            for med_id, units in reserved:
+                network.release(pharmacy, med_id, units)
+            db.rollback()
+            raise
+    total = round(subtotal + tax + delivery_fee - discount, 2)
     if expected_total is not None and abs(expected_total - total) > 0.009:
         for med_id, units in reserved:
             network.release(pharmacy, med_id, units)
@@ -233,10 +244,12 @@ def checkout(
         order_no=new_ref("ORD"), idempotency_key=idempotency_key, cart_id=cart.id, prescription_id=rx.id,
         patient_id=cart.patient_id, pharmacy_id=pharmacy.id, fulfillment=fulfillment,
         delivery_option=delivery_option, scheduled_for=scheduled_for,
-        subtotal=subtotal, delivery_fee=delivery_fee, tax=tax, discount=0.0, total=total,
+        subtotal=subtotal, delivery_fee=delivery_fee, tax=tax, discount=discount, total=total,
     )
     db.add(order)
     db.flush()
+    if promo:
+        promo_svc.redeem(db, promo, patient.id, "order", order.id, discount)
     for ci, unit_price in lines:
         pi = ci.prescription_item
         db.add(OrderItem(order_id=order.id, cart_item_id=ci.id, prescription_item_id=pi.id,
@@ -275,6 +288,7 @@ def start_review(db: Session, user: User, order_id: int) -> PharmacyOrder:
 
 
 def _release_and_void(db: Session, order: PharmacyOrder, reason: str) -> None:
+    promo_svc.release(db, "order", order.id)  # the promo code can be used again
     network = MockPharmacyNetwork(db)
     for it in order.items:
         network.release(order.pharmacy, it.medication_id, it.requested_quantity)
@@ -369,6 +383,7 @@ def review(db: Session, user: User, order_id: int, decision: str, notes: str,
     policy = policy_for(rx.jurisdiction)
     order.subtotal = round(subtotal, 2)
     order.tax = round(order.subtotal * policy.tax_rate, 2)
+    promo_svc.readjust_order(db, order)
     order.total = round(order.subtotal + order.tax + order.delivery_fee - order.discount, 2)
     pay = order.payment
     capture_amount = min(order.total, pay.amount_authorized)
@@ -705,7 +720,7 @@ def serialize_order(db: Session, order: PharmacyOrder, viewer: User) -> dict:
 
 # ------------------------------------------------------------- payment intent
 def quote(db: Session, user: User, cart_id: int, *, pharmacy_id: int, fulfillment: str,
-          delivery_option: str | None) -> dict:
+          delivery_option: str | None, promo_code: str | None = None) -> dict:
     """Price the cart at a pharmacy without reserving stock (used to open the payment window)."""
     cart = get_cart_for_patient(db, user, cart_id)
     rx = cart.prescription
@@ -729,7 +744,8 @@ def quote(db: Session, user: User, cart_id: int, *, pharmacy_id: int, fulfillmen
     subtotal = round(sum(network.stock(pharmacy, ci.prescription_item.medication_id).unit_price * ci.requested_quantity
                          for ci in items), 2)
     tax = round(subtotal * policy_for(rx.jurisdiction).tax_rate, 2)
-    return {"cart": cart, "patient": patient, "total": round(subtotal + tax + delivery_fee, 2)}
+    discount = promo_svc.check(db, patient.id, promo_code, "medicines", subtotal)[1] if promo_svc.normalize(promo_code) else 0.0
+    return {"cart": cart, "patient": patient, "total": round(subtotal + tax + delivery_fee - discount, 2)}
 
 
 def payment_intent(db: Session, user: User, cart_id: int, **kw) -> dict:

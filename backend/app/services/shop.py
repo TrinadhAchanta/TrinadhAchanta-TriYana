@@ -41,6 +41,7 @@ from ..models import (
     utcnow,
 )
 from . import orders as order_svc
+from . import promos as promo_svc
 from .carts import latest_cart
 from .common import new_ref, notify, users_for_pharmacy
 from .dispensing_rules import policy_for
@@ -256,7 +257,8 @@ def quote(db: Session, user: User, items: list[dict]) -> dict:
     }
 
 
-def _priced(db: Session, user: User, items: list[dict], pharmacy_id: int, delivery_option: str):
+def _priced(db: Session, user: User, items: list[dict], pharmacy_id: int, delivery_option: str,
+            promo_code: str | None = None):
     patient = _patient(db, user)
     lines = _lines(db, patient, items)
     match = next(((ph, km) for ph, km in _nearby_pharmacies(db, patient) if ph.id == pharmacy_id), None)
@@ -270,12 +272,15 @@ def _priced(db: Session, user: User, items: list[dict], pharmacy_id: int, delive
     if subtotal is None:
         raise Conflict("out_of_stock", f"Out of stock now: {', '.join(missing)}.", missing=missing)
     tax = round(subtotal * policy_for(patient.jurisdiction).tax_rate, 2)
-    total = round(subtotal + tax + opt["fee"], 2)
-    return patient, lines, ph, opt, subtotal, tax, total
+    promo, discount = (promo_svc.check(db, patient.id, promo_code, "medicines", subtotal)
+                       if promo_svc.normalize(promo_code) else (None, 0.0))
+    total = round(subtotal + tax + opt["fee"] - discount, 2)
+    return patient, lines, ph, opt, subtotal, tax, total, promo, discount
 
 
-def payment_intent(db: Session, user: User, items: list[dict], pharmacy_id: int, delivery_option: str) -> dict:
-    patient, _, _, _, _, _, total = _priced(db, user, items, pharmacy_id, delivery_option)
+def payment_intent(db: Session, user: User, items: list[dict], pharmacy_id: int, delivery_option: str,
+                   promo_code: str | None = None) -> dict:
+    patient, _, _, _, _, _, total, _, _ = _priced(db, user, items, pharmacy_id, delivery_option, promo_code)
     gw = order_svc.get_gateway()
     if not isinstance(gw, RazorpayGateway):
         return {"gateway": "sandbox", "amount": total, "currency": "INR"}
@@ -292,7 +297,7 @@ def payment_intent(db: Session, user: User, items: list[dict], pharmacy_id: int,
 # ------------------------------------------------------------------ checkout
 def checkout(db: Session, user: User, *, items: list[dict], pharmacy_id: int, delivery_option: str,
              payment_method: str, payment_token: str, idempotency_key: str,
-             expected_total: float | None = None) -> PharmacyOrder:
+             expected_total: float | None = None, promo_code: str | None = None) -> PharmacyOrder:
     from ..adapters.payments import SUPPORTED_METHODS
     existing = db.scalars(select(PharmacyOrder).where(PharmacyOrder.idempotency_key == idempotency_key)).first()
     if existing is not None:
@@ -301,7 +306,8 @@ def checkout(db: Session, user: User, *, items: list[dict], pharmacy_id: int, de
         return existing
     if payment_method not in SUPPORTED_METHODS:
         raise Unprocessable("bad_payment_method", "Choose a supported payment method.")
-    patient, lines, ph, opt, subtotal, tax, total = _priced(db, user, items, pharmacy_id, delivery_option)
+    patient, lines, ph, opt, subtotal, tax, total, promo, discount = _priced(db, user, items, pharmacy_id,
+                                                                             delivery_option, promo_code)
     if expected_total is not None and abs(expected_total - total) > 0.009:
         raise Conflict("price_changed", "The total changed. Please review the updated price.", total=total)
 
@@ -325,10 +331,12 @@ def checkout(db: Session, user: User, *, items: list[dict], pharmacy_id: int, de
     order = PharmacyOrder(
         order_no=new_ref("ORD"), idempotency_key=idempotency_key, source="shop", cart_id=None, prescription_id=None,
         patient_id=patient.id, pharmacy_id=ph.id, fulfillment="delivery", delivery_option=delivery_option,
-        subtotal=subtotal, delivery_fee=opt["fee"], tax=tax, discount=0.0, total=total,
+        subtotal=subtotal, delivery_fee=opt["fee"], tax=tax, discount=discount, total=total,
     )
     db.add(order)
     db.flush()
+    if promo:
+        promo_svc.redeem(db, promo, patient.id, "order", order.id, discount)
     for ln in lines:
         unit_price = network.stock(ph, ln.med.id).unit_price
         db.add(OrderItem(order_id=order.id, cart_item_id=None, prescription_item_id=None, medication_id=ln.med.id,

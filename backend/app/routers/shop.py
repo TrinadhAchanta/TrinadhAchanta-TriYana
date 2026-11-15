@@ -29,6 +29,7 @@ class BasketIn(BaseModel):
 class IntentIn(BasketIn):
     pharmacy_id: int
     delivery_option: str
+    promo_code: str | None = Field(None, max_length=24)
 
 
 class CheckoutIn(IntentIn):
@@ -56,7 +57,7 @@ def quote(body: BasketIn, user: User = Depends(patient), db: Session = Depends(g
 @router.post("/api/shop/payment-intent")
 def payment_intent(body: IntentIn, user: User = Depends(patient), db: Session = Depends(get_db)):
     privacy_svc.require_care(db, user)
-    return shop_svc.payment_intent(db, user, _items(body), body.pharmacy_id, body.delivery_option)
+    return shop_svc.payment_intent(db, user, _items(body), body.pharmacy_id, body.delivery_option, body.promo_code)
 
 
 @router.post("/api/shop/checkout", status_code=201)
@@ -65,7 +66,7 @@ def checkout(body: CheckoutIn, user: User = Depends(patient), db: Session = Depe
     order = shop_svc.checkout(db, user, items=_items(body), pharmacy_id=body.pharmacy_id,
                               delivery_option=body.delivery_option, payment_method=body.payment_method,
                               payment_token=body.payment_token, idempotency_key=body.idempotency_key,
-                              expected_total=body.expected_total)
+                              expected_total=body.expected_total, promo_code=body.promo_code)
     return order_svc.serialize_order(db, order, user)
 
 

@@ -159,7 +159,7 @@ async function doctorNowSheet() {
     const reason = [b.reason, $("#nowDetails").value.trim()].filter(Boolean).join(" · ");
     goBtn.disabled = true;
     try {
-      const v = await post("/api/patient/visits/now", { reason, address: $("#nowAddr").value, accept_longer: !q.within_promise, cashless: b.cashless, member_id: typeof FAM !== "undefined" ? FAM.member : null });
+      const v = await post("/api/patient/visits/now", { reason, address: $("#nowAddr").value, accept_longer: !q.within_promise, cashless: b.cashless, promo_code: b.promoApplied || null, member_id: typeof FAM !== "undefined" ? FAM.member : null });
       s.close(); liveScreen("visit", v.id);
     } catch (e) {
       goBtn.disabled = false;

@@ -425,7 +425,7 @@ SCREENS.book = async () => {
       const v = await post("/api/patient/visits", {
         doctor_id: b.mode === "doctor" ? b.doctor : null, scheduled_for: b.mode === "asap" ? "" : b.slot, asap: b.mode === "asap",
         reason: reasonText, address: b.address, follow_up_of: isFollowUp() ? fu.previous_visit.id : null, cashless: b.cashless,
-        member_id: typeof FAM !== "undefined" ? FAM.member : null,
+        promo_code: b.promoApplied || null, member_id: typeof FAM !== "undefined" ? FAM.member : null,
       });
       bookedScreen(v);
     });
@@ -609,7 +609,7 @@ function loadRazorpay() {
   return rzpLoading;
 }
 async function payWithRazorpay(p, opt, total) {
-  const intent = await post(`/api/carts/${state.ctx.cartId}/payment-intent`, { pharmacy_id: p.pharmacy_id, fulfillment: opt.fulfillment, delivery_option: opt.fulfillment === "delivery" ? opt.delivery_option : null });
+  const intent = await post(`/api/carts/${state.ctx.cartId}/payment-intent`, { pharmacy_id: p.pharmacy_id, fulfillment: opt.fulfillment, delivery_option: opt.fulfillment === "delivery" ? opt.delivery_option : null, promo_code: opt.promo?.applied ? opt.promo.code : null });
   if (Math.abs(intent.amount - total) > 0.009) throw new Error("The total changed. Please review the updated price.");
   await loadRazorpay();
   const r = await new Promise((resolve, reject) => {
@@ -631,11 +631,12 @@ const r2 = (n) => Math.round(n * 100) / 100;
 async function checkoutScreen(p) {
   const [methods, cfg] = await Promise.all([api("/api/payment-methods"), api("/api/payment-config")]);
   const rzp = cfg.gateway === "razorpay";
-  const opt = { fulfillment: p.delivery_available ? "delivery" : "pickup", delivery_option: p.delivery_options[0]?.code || null, method: methods[0].code, decline: false };
+  const opt = { fulfillment: p.delivery_available ? "delivery" : "pickup", delivery_option: p.delivery_options[0]?.code || null, method: methods[0].code, decline: false, promo: null };
   const key = `chk-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const render = () => {
     const fee = opt.fulfillment === "delivery" ? r2(p.delivery_fee * (MULT[opt.delivery_option] || 1)) : 0;
-    const total = r2(p.subtotal + p.tax + fee);
+    const off = opt.promo?.applied ? opt.promo.discount : 0;
+    const total = r2(p.subtotal + p.tax + fee - off);
     view().innerHTML = pageHead("Checkout", `${esc(shortName(p.name))} · ${p.distance_km} km away`, `<button class="btn ghost" id="back">← Pharmacies</button>`) + `
       <div class="split"><div>
         <div class="card"><h3>Your medicines</h3>${p.items.map((i, n) => `<div class="list-item">${miniPill(n)}
@@ -650,7 +651,8 @@ async function checkoutScreen(p) {
       </div><aside class="sticky"><div class="card featured">
         <h3>Payment summary</h3>
         <table class="price" style="margin-top:8px"><tr><td>Medicine subtotal</td><td>${money(p.subtotal)}</td></tr><tr><td>Delivery fee</td><td>${money(fee)}</td></tr>
-          <tr><td>Taxes</td><td>${money(p.tax)}</td></tr><tr><td>Discounts</td><td>${money(0)}</td></tr><tr class="total"><td>Total</td><td>${money(total)}</td></tr></table>
+          <tr><td>Taxes</td><td>${money(p.tax)}</td></tr>${off ? `<tr class="good-text"><td>Promo ${esc(opt.promo.code)}</td><td>−${money(off)}</td></tr>` : ""}<tr class="total"><td>Total</td><td>${money(total)}</td></tr></table>
+        <div id="promoSlot">${promoField(opt.promo)}</div>
         <div class="notice info small">${ic("shield")}<span><b>Authorised, not charged.</b> You're only charged after a licensed pharmacist approves your order, and only for what they approve.</span></div>
         <button class="btn primary block" id="pay">${ic("lock")} Pay ${money(total)}</button>
         <p class="tiny muted" style="text-align:center;margin:10px 0 0">${rzp ? (cfg.test_mode ? "Secured by Razorpay · test mode, no real money moves" : "Secured by Razorpay") : "Sandbox payments · no real money moves"}</p>
@@ -660,6 +662,11 @@ async function checkoutScreen(p) {
     $$("[data-d]").forEach((b) => (b.onclick = () => { opt.delivery_option = b.dataset.d; render(); }));
     $$("[data-m]").forEach((b) => (b.onclick = () => { opt.method = b.dataset.m; render(); }));
     if ($("#decline")) $("#decline").onchange = (e) => (opt.decline = e.target.checked);
+    wirePromo($("#promoSlot"), async (code) => {
+      const r = await checkMedPromo(code, p.subtotal);
+      opt.promo = r.ok ? { code: r.code, applied: true, discount: r.discount } : { code, message: r.message };
+      render();
+    }, () => { opt.promo = null; render(); });
     $("#pay").onclick = () => guard(async () => {
       const btn = $("#pay"); btn.disabled = true; btn.textContent = "Authorising…";
       try {
@@ -669,7 +676,7 @@ async function checkoutScreen(p) {
         const order = await post(`/api/carts/${state.ctx.cartId}/checkout`, {
           pharmacy_id: p.pharmacy_id, fulfillment: opt.fulfillment, delivery_option: opt.fulfillment === "delivery" ? opt.delivery_option : null,
           scheduled_for: sched ? new Date(sched).toISOString().slice(0, 19) : null, payment_method: opt.method,
-          payment_token: token, idempotency_key: key, expected_total: total,
+          payment_token: token, idempotency_key: key, expected_total: total, promo_code: opt.promo?.applied ? opt.promo.code : null,
         });
         toast("Order placed. A pharmacist is reviewing it.");
         go("orders", { orderId: order.id });

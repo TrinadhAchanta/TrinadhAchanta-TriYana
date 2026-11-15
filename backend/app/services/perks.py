@@ -6,6 +6,7 @@
 * Refer a friend: ₹200 Triyana credit each once the friend's first visit is done.
 * Partner organisations (housing societies, offices, old-age homes): member discount and priority.
 * "Promise kept" guarantee: a 10-minute visit is free if the doctor arrives late.
+* Promo codes typed at payment (services/promos.py), competing with the automatic offer.
 
 The doctor always earns their full fee. Every discount here is Triyana's cost, never the doctor's.
 """
@@ -27,6 +28,7 @@ from ..errors import Conflict, NotFound, Unprocessable
 from ..models import HomeVisit, Patient, User, VisitStatus, utcnow
 from ..models_perks import (CreditEntry, InsurancePolicy, Membership, OrgMember, PartnerOrg, Referral,
                             ReferralCode, VisitBill)
+from . import promos
 from .common import notify, users_for_patient
 
 
@@ -91,24 +93,47 @@ def is_new_patient(db: Session, patient_id: int, exclude_visit_id: int | None = 
 
 
 # ------------------------------------------------------------------ pricing
-def _price(db: Session, patient_id: int, fee: float, *, cashless: bool, exclude_visit_id: int | None = None) -> dict:
-    """Price lines before credit. Best single offer wins: membership, then first visit, then partner discount."""
+def _price(db: Session, patient_id: int, fee: float, *, cashless: bool, exclude_visit_id: int | None = None,
+           promo_code: str | None = None) -> dict:
+    """Price lines before credit. One offer per visit: membership covers it; otherwise the best of the
+    ₹99 first visit, a partner discount and the patient's promo code wins."""
     fee = _r(fee or 0)
     lines = [{"code": "fee", "label": "Doctor's visit fee", "amount": fee}]
     due = fee
     m = active_membership(db, patient_id)
     org = org_for(db, patient_id)
+    new = is_new_patient(db, patient_id, exclude_visit_id)
+    auto = None  # (line code, label, money off)
     if m:
         lines.append({"code": "membership", "label": "Covered by Triyana Family", "amount": -due})
         due = 0.0
-    elif is_new_patient(db, patient_id, exclude_visit_id) and fee > FIRST_VISIT_PRICE:
-        off = _r(fee - FIRST_VISIT_PRICE)
-        lines.append({"code": "first_visit", "label": f"First visit offer: just ₹{FIRST_VISIT_PRICE:g}", "amount": -off})
-        due = FIRST_VISIT_PRICE
+    elif new and fee > FIRST_VISIT_PRICE:
+        auto = ("first_visit", f"First visit offer: just ₹{FIRST_VISIT_PRICE:g}", _r(fee - FIRST_VISIT_PRICE))
     elif org and org.discount_pct:
-        off = _r(fee * org.discount_pct / 100)
-        lines.append({"code": "partner", "label": f"{org.name} member: {org.discount_pct}% off", "amount": -off})
-        due = _r(fee - off)
+        auto = ("partner", f"{org.name} member: {org.discount_pct}% off", _r(fee * org.discount_pct / 100))
+    promo, promo_off, promo_note = None, 0.0, None
+    if promo_code and promos.normalize(promo_code):
+        if m:
+            promo_note = "Not needed: Triyana Family already covers this visit."
+        elif cashless:
+            promo_note = "Not needed: this visit is billed to your insurer."
+        else:
+            try:
+                promo, promo_off = promos.check(db, patient_id, promo_code, "visits", fee, new_customer=new)
+            except Unprocessable as e:
+                promo_note = e.message
+                if exclude_visit_id is not None:  # booking: say so rather than quietly charging more
+                    raise
+            if promo and auto and auto[2] >= promo_off:
+                what = f"₹{FIRST_VISIT_PRICE:g} first visit" if auto[0] == "first_visit" else "partner"
+                promo_note = f"Your {what} offer already saves more, so {promo.code} isn't needed. Keep it for later."
+                promo, promo_off = None, 0.0
+    if promo:
+        lines.append({"code": "promo", "label": promos.label(promo), "amount": -promo_off})
+        due = _r(fee - promo_off)
+    elif auto:
+        lines.append({"code": auto[0], "label": auto[1], "amount": -auto[2]})
+        due = _r(fee - auto[2])
     policy = active_policy(db, patient_id) if cashless and due > 0 else None
     if cashless and due > 0 and policy is None:
         raise Unprocessable("no_policy", "Add an active health insurance policy to use cashless.")
@@ -118,13 +143,23 @@ def _price(db: Session, patient_id: int, fee: float, *, cashless: bool, exclude_
         lines.append({"code": "insurance", "label": f"Cashless: billed to {INSURERS.get(policy.insurer, policy.insurer)}",
                       "amount": -due})
         due = 0.0
-    return {"lines": lines, "due": _r(due), "insurer": _r(insurer), "policy": policy}
+    return {"lines": lines, "due": _r(due), "insurer": _r(insurer), "policy": policy,
+            "promo": promo, "promo_off": promo_off, "promo_note": promo_note}
 
 
-def quote(db: Session, patient_id: int, fee: float, cashless: bool = False) -> dict:
-    """What the patient would pay for a visit at this fee, including Triyana credit."""
+def _promo_out(code: str | None, p: dict) -> dict | None:
+    if not code or not promos.normalize(code):
+        return None
+    if p["promo"]:
+        return {"code": p["promo"].code, "applied": True, "discount": p["promo_off"],
+                "message": f"{promos.label(p['promo'])} applied"}
+    return {"code": promos.normalize(code), "applied": False, "discount": 0, "message": p["promo_note"]}
+
+
+def quote(db: Session, patient_id: int, fee: float, cashless: bool = False, promo_code: str | None = None) -> dict:
+    """What the patient would pay for a visit at this fee, including Triyana credit and a promo code."""
     try:
-        p = _price(db, patient_id, fee, cashless=cashless)
+        p = _price(db, patient_id, fee, cashless=cashless, promo_code=promo_code)
     except Unprocessable as e:
         return {"error": e.message, "patient_pays": None, "lines": []}
     credit = min(credit_balance(db, patient_id), p["due"])
@@ -132,14 +167,17 @@ def quote(db: Session, patient_id: int, fee: float, cashless: bool = False) -> d
     if credit > 0:
         lines.append({"code": "credit", "label": "Triyana credit", "amount": -credit})
     return {"lines": lines, "patient_pays": _r(p["due"] - credit), "insurer_pays": p["insurer"],
-            "base_fee": _r(fee or 0)}
+            "base_fee": _r(fee or 0), "promo": _promo_out(promo_code, p)}
 
 
-def bill_visit(db: Session, visit: HomeVisit, cashless: bool = False) -> VisitBill:
+def bill_visit(db: Session, visit: HomeVisit, cashless: bool = False, promo_code: str | None = None) -> VisitBill:
     """Price a freshly created visit. Call after the visit is flushed and before commit."""
-    p = _price(db, visit.patient_id, visit.fee or 0, cashless=cashless, exclude_visit_id=visit.id)
+    p = _price(db, visit.patient_id, visit.fee or 0, cashless=cashless, exclude_visit_id=visit.id,
+               promo_code=promo_code)
     bill = VisitBill(visit_id=visit.id, patient_id=visit.patient_id, base_fee=_r(visit.fee or 0),
                      lines=p["lines"], patient_pays=p["due"], insurer_pays=p["insurer"])
+    if p["promo"]:
+        promos.redeem(db, p["promo"], visit.patient_id, "visit", visit.id, p["promo_off"])
     if p["policy"]:
         res = insurer_api.submit_claim(p["policy"].insurer, p["policy"].policy_no, p["insurer"])
         if not res.ok:
@@ -171,6 +209,7 @@ def _release(db: Session, bill: VisitBill, visit: HomeVisit, why: str) -> None:
         insurer_api.withdraw_claim(bill.claim_ref)
         bill.claim_status = "withdrawn"
     bill.insurer_pays = 0
+    promos.release(db, "visit", visit.id)
 
 
 def on_cancel(db: Session, visit: HomeVisit) -> None:
@@ -435,3 +474,4 @@ def seed_perks(db: Session) -> None:
         db.add(PartnerOrg(name=name, kind=kind, join_code=code, discount_pct=pct, priority=prio, area=area,
                           contact="Demo partner"))
     db.flush()
+    promos.seed_promos(db)
