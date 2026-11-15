@@ -45,6 +45,8 @@ DEMO_TOKENS = {
     "phlebotomist3": "demo-phlebotomist-fatima",
 }
 DEMO_TOKENS.update(PHYSIO_TOKENS)
+from .services.specialties import DEMO_SPECIALISTS  # noqa: E402
+DEMO_TOKENS.update({key: token for key, token, *_ in DEMO_SPECIALISTS})
 
 
 def seed(db: Session) -> dict:
@@ -298,6 +300,8 @@ def seed(db: Session) -> dict:
     db.flush()
     db.add_all([DispatchOffer(kind="visit", visit_id=v.id, user_id=carter_user.id, distance_km=km)
                 for v, km in ((visit, 0.8), (visit2, 2.6))])
+    from .services.specialties import seed_demo as seed_specialists
+    seed_specialists(db)
     from .services.face_verification import seed_demo_enrollments
     seed_demo_enrollments(db)
     from .services.family import seed_demo as seed_family

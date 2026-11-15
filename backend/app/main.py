@@ -348,6 +348,7 @@ class BookingIn(BaseModel):
     cashless: bool = False  # bill the visit to the patient's health insurer
     member_id: int | None = None  # family booking: the family member this visit is for
     promo_code: str | None = Field(None, max_length=24)  # typed at payment
+    care_type: Literal["general", "eye", "ent", "dental"] = "general"  # which kind of doctor
 
 
 class AvailabilityIn(BaseModel):
@@ -355,24 +356,37 @@ class AvailabilityIn(BaseModel):
     hours: list[int] = Field(default_factory=list, max_length=24)
 
 
+CareType = Literal["general", "eye", "ent", "dental"]
+
+
+@app.get("/api/care-types")
+def care_types():
+    """The kinds of doctor a patient can book: general, eye, ear-nose-throat and teeth."""
+    from .services import specialties
+    return specialties.public()
+
+
 @app.get("/api/doctors")
-def nearby_doctors(member: int | None = None, user: User = Depends(require(Role.patient)), db: Session = Depends(get_db)):
+def nearby_doctors(member: int | None = None, care_type: CareType = "general",
+                   user: User = Depends(require(Role.patient)), db: Session = Depends(get_db)):
     from .services.family import patient_for
     patient = patient_for(db, user, member)
-    return {"address": patient.address, "radius_km": visit_svc.SERVICE_RADIUS_KM,
-            "doctors": visit_svc.list_doctors(db, patient), "soonest": visit_svc.soonest_to_dict(db, patient)}
+    return {"address": patient.address, "radius_km": visit_svc.SERVICE_RADIUS_KM, "care_type": care_type,
+            "doctors": visit_svc.list_doctors(db, patient, care_type),
+            "soonest": visit_svc.soonest_to_dict(db, patient, care_type=care_type)}
 
 
 @app.get("/api/patient/follow-up")
-def follow_up(user: User = Depends(require(Role.patient)), db: Session = Depends(get_db)):
-    return visit_svc.follow_up(db, user)
+def follow_up(care_type: CareType = "general", user: User = Depends(require(Role.patient)),
+              db: Session = Depends(get_db)):
+    return visit_svc.follow_up(db, user, care_type)
 
 
 @app.get("/api/visit-slots")
-def visit_slots(doctor_id: int | None = None, member: int | None = None, user: User = Depends(require(Role.patient)),
-                db: Session = Depends(get_db)):
+def visit_slots(doctor_id: int | None = None, member: int | None = None, care_type: CareType = "general",
+                user: User = Depends(require(Role.patient)), db: Session = Depends(get_db)):
     from .services.family import patient_for
-    return visit_svc.slots_for(db, patient_for(db, user, member), doctor_id)
+    return visit_svc.slots_for(db, patient_for(db, user, member), doctor_id, care_type)
 
 
 @app.get("/api/patient/visits")
@@ -385,7 +399,7 @@ def book_visit(body: BookingIn, user: User = Depends(require(Role.patient)), db:
     privacy_svc.require_care(db, user)
     v = visit_svc.book(db, user, body.doctor_id, body.scheduled_for, body.reason, body.address,
                        asap=body.asap, follow_up_of=body.follow_up_of, cashless=body.cashless,
-                       member_id=body.member_id, promo_code=body.promo_code)
+                       member_id=body.member_id, promo_code=body.promo_code, care_type=body.care_type)
     return visit_svc.visit_to_dict(v, v.patient)
 
 
@@ -743,7 +757,8 @@ DEMO_APPS = {
                 "hospital": "Nisha · hospital (Lotus Hospital)", "hospital2": "Dev · hospital (District Hospital)"},
     "provider": {
         "doctor": "Dr. Carter · doctor", "doctor_rohan": "Dr. Rohan · doctor", "doctor_vikram": "Dr. Vikram · doctor",
-        "doctor_sana": "Dr. Sana · doctor", "physio": "Ananya · physiotherapist", "physio_arun": "Arun · physiotherapist",
+        "doctor_sana": "Dr. Sana · doctor", "doctor_kavya": "Dr. Kavya · eye doctor",
+        "doctor_farhan": "Dr. Farhan · ear, nose & throat", "doctor_nisha": "Dr. Nisha · dentist", "physio": "Ananya · physiotherapist", "physio_arun": "Arun · physiotherapist",
         "physio_meghna": "Meghna · physiotherapist", "courier": "Asha · courier (GreenLeaf)", "courier2": "Kiran · courier",
         "pharmacist": "Ravi · pharmacist (GreenLeaf)", "pharmacist2": "Lina · pharmacist (Sunrise)",
         "phlebotomist": "Priya · phlebotomist (sample collector)", "phlebotomist2": "Suresh · phlebotomist",
@@ -835,6 +850,8 @@ def startup():
             from .seed import seed
             seed(db)
         if config.is_demo():
+            from .services.specialties import seed_demo as seed_specialists
+            seed_specialists(db)  # demo databases made before specialists existed get them too
             from .services.face_verification import seed_demo_enrollments
             seed_demo_enrollments(db)
         else:

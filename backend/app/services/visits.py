@@ -10,7 +10,7 @@ from .. import audit
 from ..adapters.geo import haversine_km
 from ..errors import Conflict, NotFound, Unprocessable
 from ..models import Doctor, DoctorAvailability, HomeVisit, Patient, User, VisitStatus, utcnow
-from . import dispatch, perks, visit_notes
+from . import dispatch, perks, specialties, visit_notes
 from .common import demo_doctor_ids, is_real_patient, new_ref, notify, users_for_doctor, users_for_patient
 
 SERVICE_RADIUS_KM = 15.0
@@ -28,9 +28,10 @@ def _distance(doc: Doctor, patient: Patient) -> float:
     return round(haversine_km(patient.lat, patient.lng, doc.lat, doc.lng), 1)
 
 
-def _nearby_doctors(db: Session, patient: Patient) -> list[tuple[Doctor, float]]:
+def _nearby_doctors(db: Session, patient: Patient, care_type: str = specialties.GENERAL) -> list[tuple[Doctor, float]]:
+    """Verified doctors of one kind (general, eye, ENT or dental) within reach of the patient."""
     docs = db.scalars(select(Doctor).where(Doctor.license_verified.is_(True))).all()
-    rows = [(d, _distance(d, patient)) for d in docs]
+    rows = [(d, _distance(d, patient)) for d in docs if specialties.of_doctor(d) == care_type]
     rows = [r for r in rows if r[1] <= SERVICE_RADIUS_KM and r[0].jurisdiction == patient.jurisdiction]
     demo = demo_doctor_ids(db) if patient.id and is_real_patient(db, patient.id) else set()
     # Real patients see real doctors first (demo doctors still cover when none are near).
@@ -85,6 +86,7 @@ def travel_minutes(km: float) -> int:
 def doctor_to_dict(doc: Doctor, km: float | None, slots: list[datetime] | None = None) -> dict:
     return {
         "id": doc.id, "name": doc.name, "specialty": doc.specialty, "license_no": doc.license_no,
+        "care_type": specialties.of_doctor(doc),
         "license_verified": doc.license_verified, "medical_council": doc.medical_council,
         "qualification": doc.qualification, "registration_year": doc.registration_year, "rating": doc.rating, "rating_count": doc.rating_count,
         "experience_years": doc.experience_years, "visit_fee": doc.visit_fee, "languages": doc.languages or [],
@@ -94,25 +96,27 @@ def doctor_to_dict(doc: Doctor, km: float | None, slots: list[datetime] | None =
     }
 
 
-def list_doctors(db: Session, patient: Patient) -> list[dict]:
+def list_doctors(db: Session, patient: Patient, care_type: str = specialties.GENERAL) -> list[dict]:
     out = []
-    for doc, km in _nearby_doctors(db, patient):
+    for doc, km in _nearby_doctors(db, patient, care_type):
         out.append(doctor_to_dict(doc, km, free_slots(db, doc.id)))
     return out
 
 
-def slots_for(db: Session, patient: Patient, doctor_id: int | None) -> list[str]:
+def slots_for(db: Session, patient: Patient, doctor_id: int | None,
+              care_type: str = specialties.GENERAL) -> list[str]:
     if doctor_id is None:
         union: set[datetime] = set()
-        for doc, _ in _nearby_doctors(db, patient):
+        for doc, _ in _nearby_doctors(db, patient, care_type):
             union.update(free_slots(db, doc.id))
         return [s.isoformat() for s in sorted(union)]
-    doc = _nearby_doctor_or_404(db, patient, doctor_id)
+    doc = _nearby_doctor_or_404(db, patient, doctor_id, care_type)
     return [s.isoformat() for s in free_slots(db, doc.id)]
 
 
-def _nearby_doctor_or_404(db: Session, patient: Patient, doctor_id: int) -> Doctor:
-    for doc, _ in _nearby_doctors(db, patient):
+def _nearby_doctor_or_404(db: Session, patient: Patient, doctor_id: int,
+                          care_type: str = specialties.GENERAL) -> Doctor:
+    for doc, _ in _nearby_doctors(db, patient, care_type):
         if doc.id == doctor_id:
             return doc
     raise NotFound("not_found", "Doctor not found or not available in your area.")
@@ -128,10 +132,11 @@ def _parse(ts: str) -> datetime:
     return dt.replace(second=0, microsecond=0)
 
 
-def soonest(db: Session, patient: Patient, exclude: int | None = None) -> tuple[Doctor, float, datetime] | None:
+def soonest(db: Session, patient: Patient, exclude: int | None = None,
+            care_type: str = specialties.GENERAL) -> tuple[Doctor, float, datetime] | None:
     """Whoever can come first: the earliest free slot across nearby doctors, nearest doctor on a tie."""
     best = None
-    for doc, km in _nearby_doctors(db, patient):
+    for doc, km in _nearby_doctors(db, patient, care_type):
         if doc.id == exclude:
             continue
         slots = free_slots(db, doc.id)
@@ -140,28 +145,30 @@ def soonest(db: Session, patient: Patient, exclude: int | None = None) -> tuple[
     return best
 
 
-def soonest_to_dict(db: Session, patient: Patient, exclude: int | None = None) -> dict | None:
-    hit = soonest(db, patient, exclude)
+def soonest_to_dict(db: Session, patient: Patient, exclude: int | None = None,
+                    care_type: str = specialties.GENERAL) -> dict | None:
+    hit = soonest(db, patient, exclude, care_type)
     if hit is None:
         return None
     doc, km, slot = hit
     return {"doctor": doctor_to_dict(doc, km, [slot]), "slot": slot.isoformat()}
 
 
-def _previous_visit(db: Session, patient_id: int) -> HomeVisit | None:
-    return db.scalars(select(HomeVisit).where(HomeVisit.patient_id == patient_id,
+def _previous_visit(db: Session, patient_id: int, care_type: str = specialties.GENERAL) -> HomeVisit | None:
+    rows = db.scalars(select(HomeVisit).where(HomeVisit.patient_id == patient_id,
                                               HomeVisit.status == VisitStatus.completed)
-                      .order_by(HomeVisit.scheduled_for.desc(), HomeVisit.id.desc())).first()
+                      .order_by(HomeVisit.scheduled_for.desc(), HomeVisit.id.desc()))
+    return next((v for v in rows if specialties.of_visit(v) == care_type), None)
 
 
-def follow_up(db: Session, user: User) -> dict:
-    """Suggest the doctor from the patient's last visit, and whether they can come soon."""
+def follow_up(db: Session, user: User, care_type: str = specialties.GENERAL) -> dict:
+    """Suggest the doctor from the patient's last visit of this kind, and whether they can come soon."""
     patient = db.get(Patient, user.patient_id)
-    prev = _previous_visit(db, patient.id)
+    prev = _previous_visit(db, patient.id, care_type)
     if prev is None:
         return {"previous_visit": None, "doctor": None, "available_soon": False, "next_slot": None,
-                "alternative": soonest_to_dict(db, patient)}
-    nearby = {d.id: km for d, km in _nearby_doctors(db, patient)}
+                "alternative": soonest_to_dict(db, patient, care_type=care_type)}
+    nearby = {d.id: km for d, km in _nearby_doctors(db, patient, care_type)}
     bookable = prev.doctor_id in nearby
     slots = free_slots(db, prev.doctor_id) if bookable else []
     nxt = slots[0] if slots else None
@@ -174,13 +181,14 @@ def follow_up(db: Session, user: User) -> dict:
         "available_soon": soon,
         "next_slot": nxt.isoformat() if nxt else None,
         # Someone who can come sooner, offered when the usual doctor can't come soon.
-        "alternative": None if soon else soonest_to_dict(db, patient, exclude=prev.doctor_id),
+        "alternative": None if soon else soonest_to_dict(db, patient, exclude=prev.doctor_id, care_type=care_type),
     }
 
 
 def book(db: Session, user: User, doctor_id: int | None, scheduled_for: str, reason: str, address: str,
          asap: bool = False, follow_up_of: int | None = None, cashless: bool = False,
-         member_id: int | None = None, promo_code: str | None = None) -> HomeVisit:
+         member_id: int | None = None, promo_code: str | None = None,
+         care_type: str = specialties.GENERAL) -> HomeVisit:
     from . import family  # family booking: a visit for a parent or child, at their home
     patient = family.patient_for(db, user, member_id)
     prev = None
@@ -190,27 +198,28 @@ def book(db: Session, user: User, doctor_id: int | None, scheduled_for: str, rea
             raise NotFound("not_found", "Previous visit not found.")
         if prev.status != VisitStatus.completed:
             raise Conflict("bad_visit_state", "You can only book a follow-up after a completed visit.")
+    care_type = specialties.check(care_type)
     if asap:
         # "Whoever is available soonest": the earliest free slot of any nearby doctor.
-        hit = soonest(db, patient)
+        hit = soonest(db, patient, care_type=care_type)
         if hit is None:
             raise Conflict("slot_taken", "No nearby doctor has a free time right now. Please pick a time.")
         doc, _, when = hit
     elif doctor_id is None:
         when = _parse(scheduled_for)
         # "Nearest available doctor": closest verified doctor who is free at that time.
-        doc = next((d for d, _ in _nearby_doctors(db, patient) if when in free_slots(db, d.id)), None)
+        doc = next((d for d, _ in _nearby_doctors(db, patient, care_type) if when in free_slots(db, d.id)), None)
         if doc is None:
             raise Conflict("slot_taken", "No nearby doctor is free at that time. Please pick another time.")
     else:
         when = _parse(scheduled_for)
-        doc = _nearby_doctor_or_404(db, patient, doctor_id)
+        doc = _nearby_doctor_or_404(db, patient, doctor_id, care_type)
         if when not in free_slots(db, doc.id):
             raise Conflict("slot_taken", "That time is no longer available. Please pick another time.")
     visit = HomeVisit(doctor_id=doc.id, patient_id=patient.id, status=VisitStatus.requested,
                       reason=reason.strip(), scheduled_for=when, booking_ref=new_ref("BK"),
                       address=(address.strip() or patient.address), fee=doc.visit_fee,
-                      follow_up_of_id=prev.id if prev else None,
+                      follow_up_of_id=prev.id if prev else None, care_type=care_type,
                       booked_by_user_id=user.id if patient.id != user.patient_id else None)
     db.add(visit)
     db.flush()
@@ -218,6 +227,8 @@ def book(db: Session, user: User, doctor_id: int | None, scheduled_for: str, rea
     dispatch.offer_booked_visit(db, visit)
     local = when.replace(tzinfo=timezone.utc).astimezone(LOCAL_TZ).strftime("%a %d %b, %I:%M %p")
     kind = "follow-up visit" if prev else "home visit"
+    if care_type != specialties.GENERAL:
+        kind = f"{specialties.CARE_TYPES[care_type]['short'].lower()} {kind}"
     seen_before = " You saw them before." if prev and prev.doctor_id == doc.id else ""
     notify(db, users_for_doctor(db, doc.id), f"New {kind} request",
            f"{patient.name} booked a {kind} for {local}.{seen_before} Reason: {visit.reason}", f"visit:{visit.id}")
@@ -331,6 +342,7 @@ def visit_to_dict(v: HomeVisit, patient: Patient | None = None) -> dict:
         "notes": visit_notes.summary(v) if v.status == VisitStatus.completed else None,
         "bill": perks.bill_dict(v),
         "sos": bool(v.sos),
+        "care_type": specialties.of_visit(v), "care_label": specialties.label(v.care_type),
         "patient": {"id": v.patient_id, "name": v.patient.name if v.patient else None},
     }
 

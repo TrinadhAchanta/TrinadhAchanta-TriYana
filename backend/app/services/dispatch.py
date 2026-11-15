@@ -37,6 +37,7 @@ from ..models import (
     VisitStatus,
     utcnow,
 )
+from . import specialties
 from . import face_verification as face
 from .common import is_real_patient, notify, users_for_patient
 
@@ -188,6 +189,9 @@ def candidates(db: Session, kind: str, target, *, online_only: bool = True,
             patient = db.get(Patient, target.patient_id)
             if not doc or not doc.license_verified or doc.jurisdiction != patient.jurisdiction:
                 continue
+            # Eye, ENT and dental visits go only to that kind of doctor; "Doctor now" only to general doctors.
+            if specialties.of_doctor(doc) != specialties.of_visit(target):
+                continue
         if online_only and _busy(db, u):
             continue
         plat, plng = provider_point(db, u)
@@ -207,7 +211,8 @@ def online_count(db: Session, kind: str, lat: float, lng: float) -> int:
     for u in db.scalars(select(User).where(User.role == role, User.on_duty.is_(True))):
         plat, plng = provider_point(db, u)
         if haversine_km(lat, lng, plat, plng) <= radius and not _busy(db, u):
-            if kind == "visit" and not db.get(Doctor, u.doctor_id).license_verified:
+            if kind == "visit" and (not db.get(Doctor, u.doctor_id).license_verified
+                                    or specialties.of_doctor(db.get(Doctor, u.doctor_id)) != specialties.GENERAL):
                 continue
             n += 1
     return n

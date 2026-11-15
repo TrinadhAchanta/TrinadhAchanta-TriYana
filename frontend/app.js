@@ -58,6 +58,9 @@ const P = {
   sign: '<path d="M3 17c3-3 5-8 7-8s-1 8 2 8 3-4 5-4 2 3 4 3"/><path d="M3 21h18"/>',
   audit: '<path d="M9 3h6l1 2h3v16H5V5h3z"/><path d="M9 12l2 2 4-4"/>',
   lock: '<rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>',
+  eye: '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+  ear: '<path d="M6 9a6 6 0 1 1 12 0c0 3-2 4.2-3 5.5-.9 1.2-1 2.5-1.5 3.8A3 3 0 0 1 8.7 19"/><path d="M9.5 9.5a2.5 2.5 0 0 1 5 0c0 1.4-1.5 2-1.5 3"/>',
+  tooth: '<path d="M7 3c-2.2 0-4 1.8-4 4.4 0 2.3 1 3.6 1.6 5.6.7 2.4.8 8 3 8 1.8 0 1.6-5 4.4-5s2.6 5 4.4 5c2.2 0 2.3-5.6 3-8 .6-2 1.6-3.3 1.6-5.6C21 4.8 19.2 3 17 3c-2 0-3 1-5 1S9 3 7 3z"/>',
 };
 const ic = (n, cls = "") => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true">${P[n] || ""}</svg>`;
 
@@ -187,6 +190,7 @@ function renderNav() {
 }
 
 function go(tab, ctx = {}) {
+  if (tab === "book") ctx = { care: "general", ...ctx }; // the eye / ENT / teeth tiles pass their own kind
   clearInterval(state.poll);
   stopLive();
   state.screenTok = tab;
@@ -299,6 +303,22 @@ function dayLabel(iso) {
 }
 
 const FOLLOW_UP = "Follow-up visit";
+
+/* Kinds of doctor a patient can book. General doctors also do the 10-minute "Doctor now" visit;
+   eye, ear-nose-throat and teeth doctors come at a time you book, with a portable kit. */
+const CARE = {
+  general: { tab: "Doctor", title: "Book a doctor home visit", icon: "stethoscope", who: "doctor", reasons: REASONS, from: 500 },
+  eye: { tab: "Eye", title: "Book an eye doctor at home", icon: "eye", who: "eye doctor", from: 800,
+    note: "Vision test, eye pressure check and a full eye exam with a portable lamp.",
+    reasons: [["Red or itchy eyes", "eye"], ["Blurred vision", "eye"], ["Eye check-up", "stethoscope"], ["Glasses check", "eye"], ["Elderly eye care", "shield"], [FOLLOW_UP, "calendar"]] },
+  ent: { tab: "Ear & nose", title: "Book an ear, nose & throat doctor at home", icon: "ear", who: "ENT doctor", from: 800,
+    note: "Ear, nose and throat exam with a scope, ear wax cleaning and a simple hearing check.",
+    reasons: [["Ear pain or blocked ear", "ear"], ["Ear wax cleaning", "ear"], ["Blocked or runny nose", "bolt"], ["Sore throat", "chat"], ["Hearing check", "ear"], [FOLLOW_UP, "calendar"]] },
+  dental: { tab: "Teeth", title: "Book a dentist at home", icon: "tooth", who: "dentist", from: 700,
+    note: "Check-up, cleaning and small fixes with a portable dental kit. Anything bigger is booked at a clinic.",
+    reasons: [["Toothache", "tooth"], ["Teeth cleaning", "tooth"], ["Dental check-up", "stethoscope"], ["Bleeding gums", "tooth"], ["Denture problem", "shield"], [FOLLOW_UP, "calendar"]] },
+};
+function careQ(url, care) { return care === "general" ? url : `${url}${url.includes("?") ? "&" : "?"}care_type=${care}`; }
 const hourIso = (date, h) => `${date}T${String(h).padStart(2, "0")}:00:00+05:30`;
 function dateLabel(date) { return dayLabel(parseIso(hourIso(date, 12)).toISOString().replace("Z", "")); }
 
@@ -306,7 +326,8 @@ SCREENS.book = async () => {
   const preset = state.ctx.followUp; state.ctx.followUp = false;
   if (typeof famLoad === "function") await famLoad();
   const fq = typeof famQ === "function" ? famQ() : "";
-  const [near, visits, fu0] = await Promise.all([api(`/api/doctors${fq}`), api("/api/patient/visits"), api("/api/patient/follow-up")]);
+  const care = CARE[state.ctx.care] ? state.ctx.care : "general", C = CARE[care];
+  const [near, visits, fu0] = await Promise.all([api(careQ(`/api/doctors${fq}`, care)), api("/api/patient/visits"), api(careQ("/api/patient/follow-up", care))]);
   const fu = fq ? { previous_visit: null, doctor: null } : fu0; // follow-ups are for your own visits
   const docs = near.doctors;
   // mode: "asap" = whoever is free soonest, "any" = nearest doctor free at my time, "doctor" = a specific doctor's slot
@@ -314,6 +335,7 @@ SCREENS.book = async () => {
   let slots = [];
   const loadSlots = async () => {
     const qs = new URLSearchParams(); if (b.mode === "doctor") qs.set("doctor_id", b.doctor); if (fq) qs.set("member", FAM.member);
+    if (care !== "general") qs.set("care_type", care);
     slots = await api(`/api/visit-slots${qs.toString() ? `?${qs}` : ""}`);
     if (!slots.includes(b.slot)) b.slot = null;
     const days = [...new Set(slots.map(dayKey))];
@@ -327,7 +349,7 @@ SCREENS.book = async () => {
   const suggestPrevious = async () => { if (isFollowUp() && fu.available_soon && b.mode === "any" && !b.slot) await pickDoctor(prevDoc.id, fu.next_slot); };
   await loadSlots();
   await suggestPrevious();
-  const minFee = Math.min(...docs.map((d) => d.visit_fee));
+  const minFee = docs.length ? Math.min(...docs.map((d) => d.visit_fee)) : C.from;
   const chosen = () => (b.mode === "doctor" ? docs.find((d) => d.id === b.doctor) : b.mode === "asap" ? near.soonest?.doctor : null);
   const ready = () => b.reason && (b.mode === "asap" ? near.soonest : b.slot) && b.address.trim();
 
@@ -368,13 +390,18 @@ SCREENS.book = async () => {
           <div class="seg">${days.map((k) => `<button class="${k === b.day ? "on" : ""}" data-day="${esc(k)}">${dayLabel(slots.find((s) => dayKey(s) === k))}</button>`).join("")}</div>
           <div class="slot-grid">${daySlots.map((s) => `<button class="slot ${s === b.slot ? "on" : ""}" data-slot="${s}">${time(s)}</button>`).join("")}</div>`
       : `<p class="muted small">No free times in the next 7 days. Try another doctor.</p>`;
-    view().innerHTML = pageHead(isFollowUp() ? "Book a follow-up visit" : "Book a doctor home visit", `${ic("pin")} Verified doctors near <b>${esc(near.address)}</b>`) + (typeof whoPickerHTML === "function" ? `<div class="card who-card">${whoPickerHTML("Who is this visit for?")}</div>` : "") + doctorNowBanner() + `
+    const careTabs = `<div class="seg care-seg" role="tablist" aria-label="Kind of doctor">${Object.entries(CARE).map(([k, c]) => `<button class="${k === care ? "on" : ""}" data-care="${k}" role="tab" aria-selected="${k === care}">${ic(c.icon)} ${c.tab}</button>`).join("")}</div>`;
+    const specialistNote = care === "general" ? doctorNowBanner()
+      : `<div class="card now-banner care-note"><div class="row" style="flex-wrap:nowrap"><div class="ico">${ic(C.icon, "lg")}</div>
+          <div><h3 style="margin:0">A verified ${C.who} at your home, at a time you choose</h3><span class="small muted">${C.note}</span></div></div></div>
+        ${docs.length ? "" : `<div class="notice warn">${ic("info")}<span><b>No ${C.who} covers your area yet.</b> We're adding more every week. For something urgent, book a general doctor in 10 minutes.</span></div>`}`;
+    view().innerHTML = pageHead(isFollowUp() ? `Book a follow-up${care === "general" ? " visit" : ` with your ${C.who}`}` : C.title, `${ic("pin")} Verified ${C.who}s near <b>${esc(near.address)}</b>`) + careTabs + (typeof whoPickerHTML === "function" ? `<div class="card who-card">${whoPickerHTML("Who is this visit for?")}</div>` : "") + specialistNote + `
       <div class="split"><div>
         <div class="card"><div class="step-label"><span class="n">1</span><h3>What do you need help with?</h3></div>
-          <div class="choice-grid">${REASONS.map(([r, i]) => `<button class="choice ${b.reason === r ? "on" : ""}" data-reason="${esc(r)}"><span class="ico">${ic(i)}</span><div><b>${r}</b></div></button>`).join("")}</div>
-          <label class="field" style="margin-top:14px">Tell the doctor more (optional)<textarea id="details" rows="2" placeholder="For example: fever since yesterday, 101°F">${esc(b.details)}</textarea></label></div>
+          <div class="choice-grid">${C.reasons.map(([r, i]) => `<button class="choice ${b.reason === r ? "on" : ""}" data-reason="${esc(r)}"><span class="ico">${ic(i)}</span><div><b>${r}</b></div></button>`).join("")}</div>
+          <label class="field" style="margin-top:14px">Tell the doctor more (optional)<textarea id="details" rows="2" placeholder="${care === "general" ? "For example: fever since yesterday, 101°F" : care === "eye" ? "For example: right eye red and watery since 2 days" : care === "ent" ? "For example: left ear blocked after a cold" : "For example: pain in a lower back tooth when chewing"}">${esc(b.details)}</textarea></label></div>
 
-        <div class="card"><div class="step-label"><span class="n">2</span><h3>Choose a doctor</h3></div>
+        <div class="card"><div class="step-label"><span class="n">2</span><h3>Choose ${care === "general" ? "a doctor" : `your ${C.who}`}</h3></div>
           ${followUpCard()}
           <div class="doc-list">
             <button class="doc any ${b.mode === "asap" ? "on" : ""}" data-mode="asap" ${soon ? "" : "disabled"}><div class="avatar">${ic("bolt")}</div><div class="info"><b>Whoever is available soonest</b>
@@ -399,6 +426,7 @@ SCREENS.book = async () => {
       <aside class="sticky"><div class="card featured">
         <h3>Your booking</h3>
         <table class="price" style="margin-top:8px">
+          ${care === "general" ? "" : `<tr><td>Visit</td><td>${ic(C.icon)} ${esc(C.tab === "Teeth" ? "Dentist" : C.tab === "Eye" ? "Eye doctor" : "Ear, nose & throat")}</td></tr>`}
           <tr><td>Reason</td><td>${esc(b.reason || "—")}</td></tr>
           <tr><td>Doctor</td><td>${b.mode === "asap" ? `Soonest available${doc ? `<div class="tiny muted">${esc(doc.name)}</div>` : ""}` : doc ? esc(doc.name) : "Nearest available"}</td></tr>
           <tr><td>Time</td><td>${b.mode === "asap" ? (soon ? `${dayLabel(soon.slot)}, ${time(soon.slot)}` : "—") : b.slot ? `${dayLabel(b.slot)}, ${time(b.slot)}` : "—"}</td></tr>
@@ -419,6 +447,7 @@ SCREENS.book = async () => {
     $$("[data-prev]").forEach((x) => (x.onclick = () => redo(() => pickDoctor(prevDoc.id, fu.next_slot))));
     $$("[data-alt]").forEach((x) => (x.onclick = () => redo(() => pickDoctor(fu.alternative.doctor.id, fu.alternative.slot))));
     $$("[data-day]").forEach((x) => (x.onclick = () => { b.day = x.dataset.day; render(); }));
+    $$("[data-care]").forEach((x) => (x.onclick = () => { if (x.dataset.care !== care) go("book", { care: x.dataset.care }); }));
     $$("[data-slot]").forEach((x) => (x.onclick = () => { b.slot = x.dataset.slot; render(); }));
     wireCancel(() => SCREENS.book());
     wireServices();
@@ -428,7 +457,7 @@ SCREENS.book = async () => {
       const v = await post("/api/patient/visits", {
         doctor_id: b.mode === "doctor" ? b.doctor : null, scheduled_for: b.mode === "asap" ? "" : b.slot, asap: b.mode === "asap",
         reason: reasonText, address: b.address, follow_up_of: isFollowUp() ? fu.previous_visit.id : null, cashless: b.cashless,
-        promo_code: b.promoApplied || null, member_id: typeof FAM !== "undefined" ? FAM.member : null,
+        promo_code: b.promoApplied || null, member_id: typeof FAM !== "undefined" ? FAM.member : null, care_type: care,
       });
       bookedScreen(v);
     });

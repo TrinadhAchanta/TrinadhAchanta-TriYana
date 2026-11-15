@@ -474,3 +474,10 @@ hr.soft { border: 0; border-top: 1px solid var(--line); margin: 14px 0; }
 .bp-pair input { min-width: 0; flex: 1; }
 .bp-pair b { color: var(--muted); }
 .sticky-actions { gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+
+/* Booking: kind of doctor (general, eye, ear & nose, teeth) */
+.care-seg { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); width: 100%; margin: 0 0 14px; }
+.care-seg button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 9px 6px; white-space: nowrap; }
+@media (max-width: 520px) {
+  .care-seg button { flex-direction: column; gap: 2px; font-size: 12px; padding: 8px 2px; white-space: normal; text-align: center; line-height: 1.2; }
+}

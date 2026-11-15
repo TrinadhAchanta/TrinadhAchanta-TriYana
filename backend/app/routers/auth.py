@@ -24,6 +24,7 @@ class DoctorIn(BaseModel):
     medical_council: str = Field(max_length=120)
     qualification: str = Field("MBBS", max_length=120)
     specialty: str = Field("General Medicine", max_length=80)
+    care_type: Literal["general", "eye", "ent", "dental"] = "general"  # eye doctor, ENT, dentist or general
     registration_year: int | None = Field(None, ge=1950, le=2100)
     visit_fee: float | None = Field(None, ge=0, le=100000)
 
