@@ -32,6 +32,7 @@ from .routers.care import router as care_router
 from .routers.family import router as family_router
 from .routers.push import router as push_router
 from .routers.hero_cancel import router as hero_cancel_router
+from .routers.reviews import router as reviews_router
 from .errors import DomainError, Forbidden, NotFound
 from .models import (
     AuditLog,
@@ -827,6 +828,7 @@ app.include_router(care_router)
 app.include_router(family_router)
 app.include_router(push_router)
 app.include_router(hero_cancel_router)
+app.include_router(reviews_router)
 
 # --------------------------------------------------------------- frontend
 FRONTEND = Path(__file__).resolve().parents[2] / "frontend"
@@ -937,6 +939,8 @@ def startup():
             seed_specialists(db)  # demo databases made before specialists existed get them too
             from .services.face_verification import seed_demo_enrollments
             seed_demo_enrollments(db)
+            from .services.reviews import seed_samples as seed_sample_reviews
+            seed_sample_reviews(db)  # a few sample comments so demo doctors' profiles aren't empty
         else:
             from .services.accounts import retire_demo_people
             retire_demo_people(db)

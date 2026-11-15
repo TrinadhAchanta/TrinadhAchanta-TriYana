@@ -310,6 +310,8 @@ def seed(db: Session) -> dict:
     physio_ids = seed_physio(db, meera, arjun)
     from .services.perks import seed_perks
     seed_perks(db)
+    from .services.reviews import seed_samples as seed_sample_reviews
+    seed_sample_reviews(db)
     db.commit()
     return {
         "patients": {"meera": meera.id, "arjun": arjun.id},

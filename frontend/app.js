@@ -240,7 +240,7 @@ const SCREENS = {};
 const OPEN_VISIT = ["requested", "accepted", "in_progress"];
 const VISIT_LABEL = { requested: ["Waiting for doctor to confirm", "info", "clock"], accepted: ["Confirmed", "good", "check"], in_progress: ["Doctor is with you", "warn", "stethoscope"], completed: ["Completed", "brand", "check"], cancelled: ["Cancelled", "", "x"] };
 const dateChip = (iso) => { const d = parseIso(iso); return `<div class="date-chip"><b>${d.toLocaleDateString("en-IN", { day: "numeric", timeZone: TZ })}</b><span>${d.toLocaleDateString(undefined, { month: "short", timeZone: TZ })}</span></div>`; };
-const stars = (d) => `<span class="stars">★ ${d.rating.toFixed(1)}</span> <span class="muted">(${d.rating_count})</span>`;
+const stars = (d) => (typeof ratingLine === "function" ? ratingLine(d) : `<span class="stars">★ ${d.rating.toFixed(1)}</span> <span class="muted">(${d.rating_count})</span>`);
 
 function visitCard(v) {
   const [label, cls, icon] = VISIT_LABEL[v.status] || [v.status, "", "info"];
@@ -307,6 +307,7 @@ SCREENS.home = async () => {
         <div class="stat"><b>${dash.active_orders.length}</b><span>Orders in progress</span></div></div>` : ""}
     </section>`}
     <div id="liveSlot"></div>
+    <div id="ratePrompt"></div>
     ${idle ? "" : doctorNowBanner()}
     ${servicesHTML()}
     <div id="perkSlot"></div>
@@ -332,6 +333,7 @@ SCREENS.home = async () => {
   wireServices();
   wireCancel(() => SCREENS.home());
   $$("[data-vnotes]").forEach((b) => (b.onclick = () => guard(() => patientNotesScreen(+b.dataset.vnotes))));
+  if (typeof mountReviewPrompt === "function") { mountReviewPrompt($("#ratePrompt"), () => SCREENS.home()); wireRateButtons(view(), () => SCREENS.home()); }
   patientLiveBanner(visits, dash.active_orders);
   const ol = $("#openLiveVisit"); if (ol) ol.onclick = () => liveScreen("visit", upcoming[0].id);
   if (ready) {
@@ -466,6 +468,7 @@ SCREENS.book = async () => {
                 <div class="small muted">${esc(d.specialty)} · ${d.experience_years} yrs experience</div>
                 <div class="tiny muted">${regLine(d)}</div>
                 <div class="meta small"><span>${stars(d)}</span><span>${ic("pin")} ${d.distance_km} km · can arrive in ~${d.arrives_in_min} min</span><span>${ic("chat")} ${esc(d.languages.join(", "))}</span></div>
+                ${typeof reviewQuotes === "function" ? reviewQuotes(d.reviews) : ""}${d.rating_count ? `<span class="link-btn tiny" role="link" tabindex="0" data-reviews="doctor:${d.id}">Read all reviews ›</span>` : ""}
                 <div class="tiny muted" style="margin-top:4px">${d.next_slot ? `Next free: ${dayLabel(d.next_slot)}, ${time(d.next_slot)}` : "No openings in the next 7 days"}</div></div>
               <div class="fee"><b>${money(d.visit_fee)}</b><span class="tiny muted">per visit</span></div></button>`).join("")}
           </div></div>
@@ -502,6 +505,7 @@ SCREENS.book = async () => {
     $$("[data-care]").forEach((x) => (x.onclick = () => { if (x.dataset.care !== care) go("book", { care: x.dataset.care }); }));
     $$("[data-slot]").forEach((x) => (x.onclick = () => { b.slot = x.dataset.slot; render(); }));
     wireCancel(() => SCREENS.book());
+    if (typeof wireReviewLinks === "function") wireReviewLinks(view());
     wireServices();
     perkQuote($("#perkQuote"), doc ? doc.visit_fee : minFee, b);
     if (typeof wireWho === "function") wireWho(view(), () => SCREENS.book());
@@ -1033,8 +1037,12 @@ function pastVisitCard(v) {
       <span class="badge brand">${ic("check")} Completed</span></div>
     ${n ? `<div class="instructions"><b>Diagnosis:</b> ${esc(n.diagnosis || "Not recorded")}</div>
       <div class="row small" style="margin-top:10px;gap:6px">${n.temperature_c != null ? `<span class="badge">${ic("thermo")} ${(n.temperature_c * 9 / 5 + 32).toFixed(1)} °F</span>` : ""}${n.bp ? `<span class="badge">${ic("heart")} BP ${esc(n.bp)}</span>` : ""}${n.spo2_pct != null ? `<span class="badge">SpO2 ${n.spo2_pct}%</span>` : ""}${flagBadges(n.flags)}</div>
-      <div class="actions-bar"><button class="btn sm" data-vnotes="${v.id}">${ic("notes")} View visit notes</button></div>`
-      : `<div class="instructions"><b>Reason:</b> ${esc(v.reason)}</div><p class="tiny muted" style="margin:8px 0 0">The doctor hasn't added notes for this visit.</p>`}</article>`;
+      <div class="actions-bar"><button class="btn sm" data-vnotes="${v.id}">${ic("notes")} View visit notes</button>${rateBtn(v)}</div>`
+      : `<div class="instructions"><b>Reason:</b> ${esc(v.reason)}</div><p class="tiny muted" style="margin:8px 0 0">The doctor hasn't added notes for this visit.</p>${v.review ? "" : `<div class="actions-bar">${rateBtn(v)}</div>`}`}
+    ${v.review && typeof myReviewHTML === "function" ? myReviewHTML(v.review) : ""}</article>`;
+}
+function rateBtn(v) {
+  return !v.review && v.doctor && typeof myReviewHTML === "function" ? myReviewHTML(null, `data-rate="visit:${v.id}" data-provider="${esc(v.doctor.name)}"`) : "";
 }
 
 async function prescribeScreen(visitId, visit) {

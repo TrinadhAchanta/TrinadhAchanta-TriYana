@@ -66,12 +66,14 @@ SCREENS.dash = async () => {
           <div class="earn-big">${inr(earn.week.total)}</div>
           <div class="mini-bars">${earn.week.days.map((d) => `<i class="${d.today ? "today" : ""}" style="height:${Math.max(4, Math.round((d.total / Math.max(1, ...earn.week.days.map((x) => x.total))) * 100))}%"></i>`).join("")}</div>
           <div class="row between small"><span class="muted">Balance ${inr(earn.balance)}</span><span class="strong" style="color:var(--brand)">View earnings ›</span></div></button>` : ""}
+        ${["doctor", "physio"].includes(st.role) && st.can_go_online ? `<div id="ratingSlot"></div>` : ""}
         <div class="card map-card"><div class="mini-map" id="areaMap"></div>
           <div class="row between small" style="margin-top:10px"><span class="muted">${ic("pin")} Your location</span><span class="badge ${st.online ? "good" : ""}">${st.online ? "Visible to dispatch" : "Hidden"}</span></div></div>
         <div class="notice info small">${ic("info")}<span>Demo: your GPS is simulated. In the field the app uses your phone's location.</span></div>
       </aside></div>`;
     wire();
     faceBanner();
+    if (typeof heroRatingCard === "function") heroRatingCard($("#ratingSlot"));
     drawArea();
     tickCountdowns();
   };

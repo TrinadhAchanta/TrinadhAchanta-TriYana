@@ -727,17 +727,20 @@ def provider_status(db: Session, user: User) -> dict:
 
 
 def _provider_card(db: Session, user: User | None) -> dict | None:
+    from . import reviews as _reviews
     if not user:
         return None
     card = {"name": user.name.split(" (")[0], "role": user.role.value, "vehicle": user.vehicle}
     if user.doctor_id:
         d = db.get(Doctor, user.doctor_id)
-        card.update({"name": d.name, "specialty": d.specialty, "rating": d.rating, "license_no": d.license_no})
+        card.update({"name": d.name, "specialty": d.specialty, "rating": d.rating, "rating_count": d.rating_count,
+                     "license_no": d.license_no, "reviews": _reviews.preview(db, doctor_id=d.id)})
     if user.physio_id:
         from ..models import Physiotherapist
         ph = db.get(Physiotherapist, user.physio_id)
         card.update({"name": ph.name, "specialty": f"Physiotherapist · {ph.qualification}", "rating": ph.rating,
-                     "license_no": ph.registration_no})
+                     "rating_count": ph.rating_count, "license_no": ph.registration_no,
+                     "reviews": _reviews.preview(db, physio_id=ph.id)})
     return card
 
 

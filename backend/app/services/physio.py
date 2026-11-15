@@ -32,6 +32,7 @@ from ..models import (
     User,
     utcnow,
 )
+from . import reviews
 from .common import new_ref, notify, users_for_patient
 
 RADIUS_KM = 12.0
@@ -120,7 +121,13 @@ def physio_to_dict(ph: Physiotherapist, km: float | None = None, online: bool | 
             "council": ph.council, "verified": ph.verified, "rating": ph.rating, "rating_count": ph.rating_count,
             "experience_years": ph.experience_years, "languages": ph.languages, "gender": ph.gender,
             "about": ph.about, "area": ph.area, "focus": [CONDITIONS[f]["label"] for f in ph.focus if f in CONDITIONS],
-            "distance_km": km, "online": online}
+            "distance_km": km, "online": online, "reviews": _review_preview(ph)}
+
+
+def _review_preview(ph: Physiotherapist) -> list[dict]:
+    from sqlalchemy.orm import object_session
+    from . import reviews
+    return reviews.preview(object_session(ph), physio_id=ph.id)
 
 
 # ------------------------------------------------------------------ catalogue
@@ -457,6 +464,8 @@ def booking_to_dict(db: Session, b: PhysioBooking) -> dict:
             "physio": physio_to_dict(b.physio, _km(p.lat, p.lng, b.physio.lat, b.physio.lng)) if b.physio else None,
             "next_session": session_to_dict(nxt, with_notes=False) if nxt else None,
             "sessions": [session_to_dict(s) for s in b.sessions],
+            "review": reviews.mine(db, "physio", b.id),
+            "can_review": bool(b.physio_id and done),
             "can_cancel": b.status in ("searching", "active") and not any(s.status == "in_progress" for s in b.sessions)}
 
 

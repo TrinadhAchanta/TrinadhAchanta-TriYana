@@ -32,7 +32,8 @@ function physioCardHTML(ph, extra = "") {
       <b>${esc(ph.name)}</b> ${ph.verified ? `<span class="verified" title="Verified registration">${ic("badge")}</span>` : ""} ${extra}
       <div class="small muted">${esc(ph.qualification)} · ${ph.experience_years} yrs${ph.distance_km != null ? ` · ${ph.distance_km} km away` : ""}</div>
       <div class="tiny muted">Reg. ${esc(ph.registration_no)} · ${esc(ph.council)}</div>
-      <div class="meta small"><span><span class="stars">★ ${ph.rating.toFixed(1)}</span> <span class="muted">(${ph.rating_count})</span></span><span>${ic("chat")} ${esc(ph.languages.join(", "))}</span></div></div></div>`;
+      <div class="meta small"><span>${typeof ratingLine === "function" ? ratingLine(ph) : `<span class="stars">★ ${ph.rating.toFixed(1)}</span>`}</span><span>${ic("chat")} ${esc(ph.languages.join(", "))}</span></div>
+      ${typeof reviewQuotes === "function" ? reviewQuotes(ph.reviews) : ""}${ph.rating_count && ph.id ? `<span class="link-btn tiny" role="link" tabindex="0" data-reviews="physio:${ph.id}">Read all reviews ›</span>` : ""}</div></div>`;
 }
 
 function physioBookingCard(b) {
@@ -51,6 +52,7 @@ function physioBookingCard(b) {
 function wirePhysioCards() {
   $$("[data-pb]").forEach((x) => (x.onclick = () => physioBookingScreen(+x.dataset.pb)));
   $$("[data-plive]").forEach((x) => (x.onclick = () => liveScreen("physio", +x.dataset.plive)));
+  if (typeof wireReviewLinks === "function") wireReviewLinks(view());
 }
 
 /* ------------------------------------------------------------------ patient: book */
@@ -147,7 +149,8 @@ async function physioBookingScreen(id) {
       <h1>${esc(b.condition_label)}</h1>
       <p>${b.physio ? `With ${esc(b.physio.name)}. ` : "We're finding the nearest physiotherapist. "}${b.sessions_done} of ${b.sessions_total} sessions done.${first && last && done.length > 1 ? ` Pain has gone from ${first.pain_before}/10 to ${last.pain_after}/10.` : ""}</p>
       <div class="actions"><button class="btn" data-go="physio">${ic("arrow")} All physiotherapy</button></div></section>
-    ${b.physio ? `<div class="card">${physioCardHTML(b.physio, `<span class="badge ${cls}">${label}</span>`)}</div>` : `<div class="notice info">${ic("clock")}<span>${label}</span></div>`}
+    ${b.physio ? `<div class="card">${physioCardHTML(b.physio, `<span class="badge ${cls}">${label}</span>`)}
+      ${typeof myReviewHTML === "function" && (b.review || b.can_review) ? `<div class="actions-bar">${myReviewHTML(b.review, `data-rate="physio:${b.id}" data-provider="${esc(b.physio.name)}"`)}</div>` : ""}</div>` : `<div class="notice info">${ic("clock")}<span>${label}</span></div>`}
     <div class="section-title">Sessions</div>
     ${b.sessions.map((s) => { const [sl, sc] = SESSION_STATUS[s.status] || [s.status, ""]; return `<article class="card session">
       <div class="card-head"><div class="row" style="flex-wrap:nowrap"><div class="session-n">${s.number}</div><div><h3>Session ${s.number}</h3>
@@ -162,6 +165,7 @@ async function physioBookingScreen(id) {
     ${b.can_cancel ? `<div class="actions-bar"><button class="btn ghost sm danger" id="pCancel">${ic("x")} ${b.sessions_done ? "Cancel remaining sessions" : "Cancel booking"}</button></div>` : ""}`;
   $$("[data-go]").forEach((x) => (x.onclick = () => go(x.dataset.go)));
   wirePhysioCards();
+  if (typeof wireRateButtons === "function") wireRateButtons(view(), () => physioBookingScreen(id));
   const c = $("#pCancel"); if (c) c.onclick = () => guard(async () => { if (!confirm("Cancel the remaining sessions?")) return; await post(`/api/patient/physio/bookings/${id}/cancel`); toast("Cancelled"); physioBookingScreen(id); });
   $$("[data-move]").forEach((x) => (x.onclick = () => guard(() => moveSessionSheet(id, +x.dataset.move))));
 }

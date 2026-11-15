@@ -1,0 +1,26 @@
+/* Patient reviews: star picker, comment quotes, Heros rating card. */
+.stars-off { color: var(--line-strong); }
+.review-quote { font-size: 12.5px; line-height: 1.4; margin-top: 6px; color: var(--text-2); overflow-wrap: anywhere; }
+.review-quote .stars { margin-right: 2px; }
+.doc .link-btn, .physio-card .link-btn, .card .link-btn.tiny { display: inline-block; margin-top: 4px; font-size: 12px; border: 0; background: none; padding: 0;
+  color: var(--brand); font-weight: 700; cursor: pointer; text-decoration: none; }
+.doc .link-btn:hover { text-decoration: underline; }
+
+.rate-stars { display: flex; gap: 6px; justify-content: center; margin: 4px 0 6px; }
+.rate-stars button { border: 0; background: none; cursor: pointer; font-size: 40px; line-height: 1; padding: 2px 4px; color: var(--line-strong);
+  transition: transform .15s var(--ease), color .15s; }
+.rate-stars button.on { color: #e6a417; }
+.rate-stars button:hover { transform: scale(1.12); }
+.rate-stars button:focus-visible { outline: 2px solid var(--brand); border-radius: 8px; }
+.rate-stars.sm { justify-content: flex-start; margin: 10px 0 0; }
+.rate-stars.sm button { font-size: 30px; }
+.rate-stars.sm:hover button { color: #e6a417; }
+.rate-stars.sm button:hover ~ button { color: var(--line-strong); }
+.rate-word { text-align: center; font-weight: 700; margin-bottom: 12px; color: var(--text-2); }
+.rate-prompt { border: 1.5px solid var(--brand-soft); }
+
+.my-review { margin-top: 10px; }
+.review-list { display: grid; gap: 10px; max-height: 55vh; overflow: auto; }
+.review-item { padding: 10px 12px; border-radius: 14px; background: var(--surface-2); }
+.hero-rating { display: block; width: 100%; text-align: left; cursor: pointer; font: inherit; color: inherit; }
+.hero-rating .earn-big { display: flex; align-items: baseline; gap: 8px; }

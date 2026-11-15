@@ -1188,3 +1188,29 @@ class PatientCallAttempt(Base):
     kind: Mapped[str] = mapped_column(String(12))
     job_id: Mapped[int] = mapped_column(Integer, index=True)
     at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+# ------------------------------------------------------------------ patient reviews of Heros
+class Review(Base):
+    """A patient's star rating (1-5) and comment after a finished home visit or physio package.
+
+    One review per job. ``kind`` is "visit" (home_visits, any doctor specialty) or "physio" (physio_bookings).
+    ``sample`` rows are demo examples seeded so a demo doctor's profile isn't empty; they have no job and do
+    not change the doctor's average (the seeded average already counts them).
+    """
+    __tablename__ = "reviews"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    kind: Mapped[str] = mapped_column(String(12), index=True)                  # visit | physio
+    job_id: Mapped[int | None] = mapped_column(Integer, index=True)           # None on sample reviews
+    doctor_id: Mapped[int | None] = mapped_column(ForeignKey("doctors.id"), index=True)
+    physio_id: Mapped[int | None] = mapped_column(ForeignKey("physiotherapists.id"), index=True)
+    patient_id: Mapped[int | None] = mapped_column(ForeignKey("patients.id"), index=True)
+    author_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    author_name: Mapped[str] = mapped_column(String(60), default="")         # shown as "Meera S."
+    stars: Mapped[int] = mapped_column(Integer)
+    comment: Mapped[str] = mapped_column(String(500), default="")
+    hidden: Mapped[bool | None] = mapped_column(Boolean, default=False)      # hidden by Triyana ops
+    hidden_reason: Mapped[str | None] = mapped_column(String(200))
+    hidden_by: Mapped[str | None] = mapped_column(String(120))
+    sample: Mapped[bool | None] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)

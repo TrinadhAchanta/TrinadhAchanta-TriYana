@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from ..models import Doctor, HomeVisit, User, VerificationCheck, VisitStatus
 from . import face_verification as face
+from . import reviews
 
 SHOWN_IN = (VisitStatus.requested, VisitStatus.accepted, VisitStatus.in_progress, VisitStatus.completed)
 
@@ -55,6 +56,7 @@ def card(db: Session, v: HomeVisit, *, with_photo: bool = True) -> dict | None:
         "doctor_id": d.id, "name": d.name, "specialty": d.specialty, "qualification": d.qualification,
         "experience_years": d.experience_years, "languages": d.languages or [],
         "rating": d.rating, "rating_count": d.rating_count, "about": d.about,
+        "reviews": reviews.preview(db, doctor_id=d.id),
         "license_no": d.license_no, "medical_council": d.medical_council, "registration_year": d.registration_year,
         "photo": enr.photo if (with_photo and accepted and enr) else None,
         "verified": all(c["ok"] for c in checks[:2]),

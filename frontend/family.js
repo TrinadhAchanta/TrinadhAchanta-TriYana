@@ -133,7 +133,8 @@ function doctorCardHTML(c, idProf) {
       ${photo ? `<img class="prov-photo" src="${esc(photo)}" alt="Verified photo of ${esc(c.name)}">` : `<div class="avatar lg">${esc(initials(c.name))}</div>`}
       <div class="grow"><div class="row" style="gap:6px"><b>${esc(c.name)}</b>${c.verified ? `<span class="badge good">${ic("badge")} Verified doctor</span>` : `<span class="badge warn">Checks pending</span>`}</div>
         <div class="tiny muted">${esc([c.specialty, c.qualification, c.experience_years ? `${c.experience_years} yrs` : ""].filter(Boolean).join(" · "))}</div>
-        <div class="tiny" style="margin-top:2px">${c.rating ? `<span class="stars">★ ${c.rating.toFixed(1)}</span> <span class="muted">from ${c.rating_count} patients</span>` : ""}${c.languages.length ? ` <span class="muted">· ${esc(c.languages.join(", "))}</span>` : ""}</div></div>
+        <div class="tiny" style="margin-top:2px">${c.rating ? `<span class="stars">★ ${c.rating.toFixed(1)}</span> <span class="muted">from ${c.rating_count} patients</span>` : ""}${c.languages.length ? ` <span class="muted">· ${esc(c.languages.join(", "))}</span>` : ""}</div>
+        ${typeof reviewQuotes === "function" ? reviewQuotes(c.reviews) : ""}</div>
       <button class="btn sm" id="callProv" title="Calls are masked to protect both numbers">${ic("phone")} Call</button></div>
     <ul class="doc-checks">${c.checks.map((k) => `<li class="${k.ok ? "ok" : "wait"}">${ic(k.ok ? "check" : "clock")}<div><b>${esc(k.label)}${k.at ? ` · ${esc(time(k.at))}` : ""}</b><span class="tiny muted">${esc(k.detail)}</span></div></li>`).join("")}</ul>
     ${c.face_verified ? `<div class="tiny muted">${ic("shield")} ${photo ? "Compare the person at your door with this photo." : "Check their name and registration at the door."} Never let anyone in who can't enter your arrival code.</div>` : ""}</div>`;

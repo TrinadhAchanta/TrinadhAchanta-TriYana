@@ -57,7 +57,7 @@
     </form>
   </div>
   <div id="main" hidden>
-    <div class="areas"><button class="btn sm on" data-area="providers">Providers</button><button class="btn sm" data-area="identity">Identity &amp; security <span class="badge bad" id="caseCount" hidden></span></button><button class="btn sm" data-area="log">Face check log</button><button class="btn sm" data-area="cancels">Hero cancellations</button><button class="btn sm" data-area="partners">Partners</button><button class="btn sm" data-area="promos">Promo codes</button><button class="btn sm" data-area="admins">Admins</button><button class="btn sm" data-area="launch">Launch check</button></div>
+    <div class="areas"><button class="btn sm on" data-area="providers">Providers</button><button class="btn sm" data-area="identity">Identity &amp; security <span class="badge bad" id="caseCount" hidden></span></button><button class="btn sm" data-area="log">Face check log</button><button class="btn sm" data-area="cancels">Hero cancellations</button><button class="btn sm" data-area="reviews">Reviews</button><button class="btn sm" data-area="partners">Partners</button><button class="btn sm" data-area="promos">Promo codes</button><button class="btn sm" data-area="admins">Admins</button><button class="btn sm" data-area="launch">Launch check</button></div>
     <div class="who"><span class="meta" id="who"></span><button class="btn sm" id="lock">Sign out</button></div>
     <div id="idTabs" class="ops-tabs" hidden><button class="btn sm on" data-c="open">Open cases</button><button class="btn sm" data-c="resolved">Resolved</button></div>
     <div class="ops-tabs" id="provTabs"><button class="btn sm on" data-s="pending">Waiting</button><button class="btn sm" data-s="rejected">Rejected</button><button class="btn sm" data-s="verified">Approved</button></div>
@@ -176,6 +176,28 @@ async function loadCancels() {
       <td><span class="badge ${r.reason === "unsafe" ? "bad" : r.reason === "other" ? "warn" : ""}">${esc(r.reason_label)}</span>${r.note ? `<div class="meta">“${esc(r.note)}”</div>` : ""}</td>
       <td>${r.calls}</td><td>${r.waited_min} min</td><td>${r.reason === "other" ? "Review" : inr(r.hero_paid)}</td></tr>`).join("") || `<tr><td colspan="8">No cancellations yet. When a Hero cancels at the door, it shows up here.</td></tr>`}</tbody></table></div>`;
 }
+let reviewShow = "all";
+async function loadReviews() {
+  const rows = await call(`/api/admin/reviews?show=${reviewShow}`);
+  const starTxt = (n) => "★".repeat(n) + "☆".repeat(5 - n);
+  const tabs = [["all", "All"], ["low", "1–2 stars"], ["hidden", "Hidden"]];
+  $("#list").innerHTML = `<div class="ops-tabs">${tabs.map(([k, w]) => `<button class="btn sm ${k === reviewShow ? "on" : ""}" data-rv="${k}">${w}</button>`).join("")}</div>
+    <div class="card log-wrap"><table class="log"><thead><tr><th>Time</th><th>Doctor / physio</th><th>Stars</th><th>Comment</th><th>By</th><th></th></tr></thead><tbody>${rows.map((r) =>
+    `<tr${r.hidden ? ' style="opacity:.6"' : ""}><td>${esc(at(r.at))}</td><td>${esc(r.provider)}<div class="meta">${esc(r.provider_role)} · now ★ ${Number(r.provider_rating || 0).toFixed(2)} (${r.provider_count})</div></td>
+      <td><span class="badge ${r.stars <= 2 ? "bad" : r.stars === 3 ? "warn" : "good"}">${starTxt(r.stars)}</span></td>
+      <td>${r.comment ? `“${esc(r.comment)}”` : '<span class="meta">No comment</span>'}${r.hidden ? `<div class="meta">Hidden by ${esc(r.hidden_by || "ops")}${r.hidden_reason ? `: ${esc(r.hidden_reason)}` : ""}</div>` : ""}</td>
+      <td>${esc(r.name)}${r.sample ? '<div class="meta">Demo sample</div>' : ""}</td>
+      <td><button class="btn sm" data-hide="${r.id}" data-hidden="${r.hidden ? 1 : 0}">${r.hidden ? "Show again" : "Hide"}</button></td></tr>`).join("")
+      || `<tr><td colspan="6">No reviews here yet. Patients rate doctors and physios after a finished visit.</td></tr>`}</tbody></table></div>
+    <p class="meta">Hide a review that is abusive, shares private health details, or isn't about the visit. Hidden reviews leave the doctor's average and every patient screen. You can show them again.</p>`;
+  document.querySelectorAll("[data-rv]").forEach((b) => b.onclick = () => { reviewShow = b.dataset.rv; loadReviews(); });
+  document.querySelectorAll("[data-hide]").forEach((b) => b.onclick = async () => {
+    const hide = b.dataset.hidden !== "1";
+    const reason = hide ? (prompt("Why hide this review? (e.g. abusive language)") ?? null) : "";
+    if (reason === null) return;
+    try { await call(`/api/admin/reviews/${b.dataset.hide}/hide`, { hidden: hide, reason }); toast(hide ? "Hidden. Patients no longer see it." : "Shown again."); loadReviews(); } catch (err) { toast(err.message); }
+  });
+}
 async function loadPromos() {
   const rows = await call("/api/admin/promos");
   const rules = (p) => [p.applies_to_label, p.min_amount ? `bills from ${rupees(p.min_amount)}` : "", p.new_customers_only ? "new customers only" : "",
@@ -279,13 +301,14 @@ async function load() {
     if (!me) { me = (await call("/api/admin/me")).admin; $("#who").textContent = me ? `Signed in as ${me.name} (${me.email})` : ""; }
     if (area === "admins") { $("#pageTitle").textContent = "Admins"; $("#pageSub").textContent = "Everyone who can sign in to Triyana Ops. Each person has their own login."; $("#provTabs").hidden = true; $("#idTabs").hidden = true; await loadAdmins(); $("#keyCard").hidden = true; $("#main").hidden = false; return; }
     if (area === "launch") { $("#pageTitle").textContent = "Launch check"; $("#pageSub").textContent = "What the server still needs before real patients. No secret values are shown."; $("#provTabs").hidden = true; $("#idTabs").hidden = true; await loadLaunch(); $("#keyCard").hidden = true; $("#main").hidden = false; return; }
-    const head = { providers: ["Provider verification", "Partner checks come in automatically. You give the final approval."], identity: ["Identity & security", "Face-check alerts, lockouts and recovery. Only Triyana's security team should act here."], log: ["Face check log", "Every live face check: outcome, scores and time."], partners: ["Partner organisations", "Housing societies, offices and old-age homes whose members get discounts and priority."], promos: ["Promo codes", "Codes patients type at payment for money off a doctor visit or medicines."], cancels: ["Hero cancellations", "Visits, sample collections and physio sessions a Hero cancelled at the patient's door, with the reason they picked."] }[area];
+    const head = { providers: ["Provider verification", "Partner checks come in automatically. You give the final approval."], identity: ["Identity & security", "Face-check alerts, lockouts and recovery. Only Triyana's security team should act here."], log: ["Face check log", "Every live face check: outcome, scores and time."], partners: ["Partner organisations", "Housing societies, offices and old-age homes whose members get discounts and priority."], promos: ["Promo codes", "Codes patients type at payment for money off a doctor visit or medicines."], cancels: ["Hero cancellations", "Visits, sample collections and physio sessions a Hero cancelled at the patient's door, with the reason they picked."], reviews: ["Reviews", "Star ratings and comments patients left after a visit. Hide abusive ones here."] }[area];
     $("#pageTitle").textContent = head[0]; $("#pageSub").textContent = head[1];
     $("#provTabs").hidden = area !== "providers"; $("#idTabs").hidden = area !== "identity";
     if (area === "identity") { await loadIdentity(); $("#keyCard").hidden = true; $("#main").hidden = false; return; }
     if (area === "log") { await loadLog(); $("#keyCard").hidden = true; $("#main").hidden = false; return; }
     if (area === "partners") { await loadPartners(); $("#keyCard").hidden = true; $("#main").hidden = false; return; }
     if (area === "cancels") { await loadCancels(); $("#keyCard").hidden = true; $("#main").hidden = false; return; }
+    if (area === "reviews") { await loadReviews(); $("#keyCard").hidden = true; $("#main").hidden = false; return; }
     if (area === "promos") { await loadPromos(); $("#keyCard").hidden = true; $("#main").hidden = false; return; }
     const rows = await call(`/api/admin/providers/pending?status=${tab}`);
     $("#keyCard").hidden = true; $("#main").hidden = false;
