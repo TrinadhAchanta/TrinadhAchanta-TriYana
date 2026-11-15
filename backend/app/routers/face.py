@@ -1,4 +1,4 @@
-"""Doctor face verification: Partner app, patient app and Triyana Ops endpoints."""
+"""Doctor face verification: Heros app, patient app and Triyana Ops endpoints."""
 from __future__ import annotations
 
 from typing import Literal
@@ -39,7 +39,7 @@ class ResolveIn(BaseModel):
     note: str = Field(max_length=300)
 
 
-# ------------------------------------------------------------------ Partner app (doctors)
+# ------------------------------------------------------------------ Heros app (doctors)
 @router.get("/provider/face")
 def my_face(user: User = Depends(doctor), db: Session = Depends(get_db)):
     return face.provider_state(db, user)

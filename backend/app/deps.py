@@ -4,6 +4,7 @@ from __future__ import annotations
 from fastapi import Depends, Header, HTTPException
 from sqlalchemy.orm import Session
 
+from .config import PROVIDER_APP_NAME
 from .db import get_db
 from .models import Role, User
 from .services import accounts
@@ -21,11 +22,11 @@ def current_user(authorization: str | None = Header(default=None), x_triyana_app
     user = accounts.user_for_token(db, token)
     if not user:
         raise HTTPException(status_code=401, detail={"code": "unauthenticated", "message": "Invalid session."})
-    # Two apps, two logins: patients use Triyana, providers use Triyana Partner.
+    # Two apps, two logins: patients use Triyana, providers use the provider app (config.PROVIDER_APP_NAME).
     if x_triyana_app == "provider" and user.role not in PROVIDER_ROLES:
-        raise HTTPException(status_code=403, detail={"code": "wrong_app", "message": "This is the Triyana Partner app for doctors, physiotherapists, couriers and pharmacists. Patients sign in to the Triyana app."})
+        raise HTTPException(status_code=403, detail={"code": "wrong_app", "message": f"This is the {PROVIDER_APP_NAME} app for doctors, physiotherapists, couriers and pharmacists. Patients sign in to the Triyana app."})
     if x_triyana_app == "patient" and user.role in PROVIDER_ROLES:
-        raise HTTPException(status_code=403, detail={"code": "wrong_app", "message": "Providers sign in to the Triyana Partner app."})
+        raise HTTPException(status_code=403, detail={"code": "wrong_app", "message": f"Providers sign in to the {PROVIDER_APP_NAME} app."})
     return user
 
 

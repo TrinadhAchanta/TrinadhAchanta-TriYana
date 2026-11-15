@@ -1,4 +1,4 @@
-"""Provider app (Triyana Partner) and live tracking endpoints."""
+"""Provider app (Triyana Heros) and live tracking endpoints."""
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends

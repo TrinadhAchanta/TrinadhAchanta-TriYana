@@ -1,5 +1,5 @@
 /* Triyana accounts: email sign-up and sign-in (DoorDash style) for both apps, plus the Account tab.
-   Patients register in Triyana; doctors, riders and sample collectors register in Triyana Partner.
+   Patients register in Triyana; doctors, riders and sample collectors register in the provider app (PROVIDER_APP).
    Everything they do is saved to their account, so it is there whenever they sign in again. */
 "use strict";
 
@@ -65,7 +65,7 @@ function renderAuth(mode) {
       ${input("password", "Password", "password", 'autocomplete="current-password" required')}
       <p class="tiny" style="margin:-6px 0 0;text-align:right"><a href="#" id="forgotLink">Forgot password?</a></p>
       <button class="btn primary block" id="authGo">Sign in</button>
-      <p class="tiny muted center">New to ${partner ? "Triyana Partner" : "Triyana"}? <a href="#" data-mode="signup">Create an account</a></p>
+      <p class="tiny muted center">New to ${partner ? PROVIDER_APP : "Triyana"}? <a href="#" data-mode="signup">Create an account</a></p>
     </form>`;
 
   const providerFields = !partner ? "" : `
@@ -122,14 +122,14 @@ function renderAuth(mode) {
     </details>` : "";
 
   $("#login").innerHTML = `<div class="login-card">
-      <div class="brand"><div class="mark">${ic("logo")}</div><div><b>${partner ? "Triyana Partner" : "Triyana"}</b><small>${partner ? "For doctors, physios, riders, pharmacists & sample collectors" : "Doctor at home in 10 min"}</small></div></div>
-      <h1>${signup ? (partner ? "Join Triyana Partner" : "Create your account") : (partner ? "Welcome back, partner" : "Welcome to Triyana")}</h1>
+      <div class="brand"><div class="mark">${ic("logo")}</div><div><b>${partner ? PROVIDER_APP : "Triyana"}</b><small>${partner ? "For doctors, physios, riders, pharmacists & sample collectors" : "Doctor at home in 10 min"}</small></div></div>
+      <h1>${signup ? (partner ? `Join ${PROVIDER_APP}` : "Create your account") : (partner ? "Welcome back, hero" : "Welcome to Triyana")}</h1>
       <p class="muted">${signup ? (partner ? "Sign up with your email. Once we verify you, go online and get nearby requests." : "Sign up with your email. Your visits, prescriptions, orders and lab reports stay in your account.") : (partner ? "Sign in to go online, see your jobs and your earnings." : "Sign in, or create an account in a minute.")}</p>
       <div class="seg auth-seg"><button type="button" data-mode="signin" class="${signup ? "" : "on"}">Sign in</button><button type="button" data-mode="signup" class="${signup ? "on" : ""}">Create account</button></div>
       <div class="auth-error" id="authErr" role="alert" hidden></div>
       ${signup ? signupForm : signinForm}
       ${demo}
-      <div class="demo-flag">${ic("info")}<span>${partner ? `Patients use <a href="/">the Triyana app</a>.` : `Doctors and riders use <a href="/provider">Triyana Partner</a>.`}</span></div>
+      <div class="demo-flag">${ic("info")}<span>${partner ? `Patients use <a href="/">the Triyana app</a>.` : `Doctors and riders use <a href="/provider">${PROVIDER_APP}</a>.`}</span></div>
     </div>`;
 
   const keep = () => $$("#authForm input, #authForm select").forEach((el) => (d[el.id] = el.value));
@@ -204,7 +204,7 @@ async function submitAuth() {
     const fresh = auth.mode === "signup";
     auth.draft = {}; auth.otp = null;
     await signIn(data.token);
-    toast(fresh ? `Welcome to ${partner ? "Triyana Partner" : "Triyana"}, ${data.account.name.replace(/^Dr\.?\s+/i, "").split(" ")[0]}` : "Signed in");
+    toast(fresh ? `Welcome to ${partner ? PROVIDER_APP : "Triyana"}, ${data.account.name.replace(/^Dr\.?\s+/i, "").split(" ")[0]}` : "Signed in");
   } catch (e) {
     showAuthErr(e.message);
   } finally {

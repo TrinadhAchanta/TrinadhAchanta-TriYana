@@ -21,6 +21,11 @@ import os
 
 log = logging.getLogger("triyana.config")
 
+# The provider app's name (doctors, physios, riders, pharmacists, sample collectors). Change it
+# here and every screen, manifest and message follows; URLs (/provider) and code names stay put.
+PROVIDER_APP_NAME = "Triyana Heros"
+PROVIDER_APP_SHORT = "Heros"
+
 DEFAULT_SECRET = "triyana-demo-secret-change-me"
 MIN_SECRET_LEN = 32
 
