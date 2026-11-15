@@ -57,7 +57,7 @@
     </form>
   </div>
   <div id="main" hidden>
-    <div class="areas"><button class="btn sm on" data-area="providers">Providers</button><button class="btn sm" data-area="identity">Identity &amp; security <span class="badge bad" id="caseCount" hidden></span></button><button class="btn sm" data-area="log">Face check log</button><button class="btn sm" data-area="partners">Partners</button><button class="btn sm" data-area="admins">Admins</button></div>
+    <div class="areas"><button class="btn sm on" data-area="providers">Providers</button><button class="btn sm" data-area="identity">Identity &amp; security <span class="badge bad" id="caseCount" hidden></span></button><button class="btn sm" data-area="log">Face check log</button><button class="btn sm" data-area="partners">Partners</button><button class="btn sm" data-area="promos">Promo codes</button><button class="btn sm" data-area="admins">Admins</button></div>
     <div class="who"><span class="meta" id="who"></span><button class="btn sm" id="lock">Sign out</button></div>
     <div id="idTabs" class="ops-tabs" hidden><button class="btn sm on" data-c="open">Open cases</button><button class="btn sm" data-c="resolved">Resolved</button></div>
     <div class="ops-tabs" id="provTabs"><button class="btn sm on" data-s="pending">Waiting</button><button class="btn sm" data-s="rejected">Rejected</button><button class="btn sm" data-s="verified">Approved</button></div>
@@ -163,6 +163,50 @@ async function loadPartners() {
     try { await call(`/api/admin/partners/${o.id}`, body); toast("Saved."); load(); } catch (err) { toast(err.message); }
   });
 }
+const PROMO_ST = { live: ["good", "Live"], paused: ["", "Paused"], expired: ["", "Expired"], scheduled: ["info", "Scheduled"], used_up: ["warn", "Used up"] };
+const rupees = (n) => "₹" + Number(n || 0).toLocaleString("en-IN");
+async function loadPromos() {
+  const rows = await call("/api/admin/promos");
+  const rules = (p) => [p.applies_to_label, p.min_amount ? `bills from ${rupees(p.min_amount)}` : "", p.new_customers_only ? "new customers only" : "",
+    p.per_patient_limit ? `${p.per_patient_limit}× per patient` : "unlimited per patient", p.max_uses ? `${p.uses}/${p.max_uses} used` : `${p.uses} used`,
+    p.starts_on || p.ends_on ? `${p.starts_on || "now"} to ${p.ends_on || "no end"}` : ""].filter(Boolean).map(esc).join(" · ");
+  $("#list").innerHTML = `<form class="card prov" id="newPromo"><h3 style="margin:0">Make a promo code</h3>
+      <div class="prov-actions"><input name="code" placeholder="Code, e.g. DIWALI100" required maxlength="24" pattern="[A-Za-z0-9 ]{3,24}" style="text-transform:uppercase"><input name="description" placeholder="What it's for (only ops see this)" maxlength="160"></div>
+      <div class="prov-actions"><select name="kind"><option value="flat">₹ off</option><option value="percent">% off</option></select>
+        <label class="meta">Amount <input name="value" type="number" min="1" step="1" value="100" required style="width:90px;min-width:0"></label>
+        <label class="meta">Cap ₹ (for %) <input name="max_discount" type="number" min="0" step="1" style="width:90px;min-width:0"></label>
+        <label class="meta">Min bill ₹ <input name="min_amount" type="number" min="0" step="1" value="0" style="width:90px;min-width:0"></label></div>
+      <div class="prov-actions"><select name="applies_to"><option value="all">Doctor visits and medicines</option><option value="visits">Doctor visits only</option><option value="medicines">Medicines only</option></select>
+        <label class="meta">Uses per patient <input name="per_patient_limit" type="number" min="0" value="1" style="width:70px;min-width:0"></label>
+        <label class="meta">Total uses <input name="max_uses" type="number" min="1" placeholder="no limit" style="width:90px;min-width:0"></label>
+        <label class="meta"><input name="new_customers_only" type="checkbox"> New customers only</label></div>
+      <div class="prov-actions"><label class="meta">From <input name="starts_on" type="date"></label><label class="meta">Until <input name="ends_on" type="date"></label>
+        <button class="btn primary sm">Make code</button></div>
+      <p class="tiny muted" style="margin:0">On a doctor visit a code competes with the ₹99 first visit or a partner discount, and the patient gets whichever saves more. Not used when Triyana Family or cashless insurance already covers the visit. On medicines it comes off the medicine price. Triyana pays the discount: doctors and pharmacies are paid in full. "Uses per patient" 0 means no limit.</p></form>
+    ${rows.map((p) => { const [cls, w] = PROMO_ST[p.status] || ["", p.status];
+      return `<div class="card prov" data-promo="${p.id}"><div class="prov-head"><div class="grow"><h3 style="margin:0">${esc(p.code)} <span class="meta" style="font-weight:600">${esc(p.headline)}</span></h3>
+        ${p.description ? `<div class="meta">${esc(p.description)}</div>` : ""}
+        <div class="meta">${rules(p)}</div>
+        <div class="meta">Patients saved ${rupees(p.total_discount)} · made by ${esc(p.created_by || "—")}</div></div>
+        <span class="badge ${cls}">${w}</span></div>
+      <div class="prov-actions"><label class="meta">Until <input class="until" type="date" value="${esc(p.ends_on || "")}"></label><button class="btn sm" data-q="save">Save date</button>
+        <button class="btn sm" data-q="toggle">${p.active ? "Pause" : "Reactivate"}</button></div></div>`; }).join("") || `<div class="card empty"><h3>No promo codes yet</h3><p class="small">Make one above.</p></div>`}`;
+  $("#newPromo").onsubmit = async (e) => {
+    e.preventDefault(); const f = e.target.elements, num = (x) => (x.value === "" ? null : +x.value);
+    try {
+      await call("/api/admin/promos", { code: f.code.value, description: f.description.value, kind: f.kind.value, value: +f.value.value,
+        max_discount: f.kind.value === "percent" ? num(f.max_discount) : null, min_amount: num(f.min_amount) || 0, applies_to: f.applies_to.value,
+        per_patient_limit: num(f.per_patient_limit) ?? 0, max_uses: num(f.max_uses), new_customers_only: f.new_customers_only.checked,
+        starts_on: f.starts_on.value || null, ends_on: f.ends_on.value || null });
+      toast("Promo code is ready."); load();
+    } catch (err) { toast(err.message); }
+  };
+  document.querySelectorAll("[data-promo] [data-q]").forEach((b) => b.onclick = async () => {
+    const c = b.closest("[data-promo]"), p = rows.find((x) => x.id === +c.dataset.promo);
+    const body = b.dataset.q === "toggle" ? { active: !p.active } : { ends_on: c.querySelector(".until").value || null };
+    try { await call(`/api/admin/promos/${p.id}`, body); toast(b.dataset.q === "toggle" ? (p.active ? "Paused. Patients can't use it now." : "Live again.") : "Saved."); load(); } catch (err) { toast(err.message); }
+  });
+}
 async function loadAdmins() {
   const rows = await call("/api/admin/admins");
   const when = (iso) => iso ? new Date(iso).toLocaleString() : "never";
@@ -206,12 +250,13 @@ async function load() {
   try {
     if (!me) { me = (await call("/api/admin/me")).admin; $("#who").textContent = me ? `Signed in as ${me.name} (${me.email})` : ""; }
     if (area === "admins") { $("#pageTitle").textContent = "Admins"; $("#pageSub").textContent = "Everyone who can sign in to Triyana Ops. Each person has their own login."; $("#provTabs").hidden = true; $("#idTabs").hidden = true; await loadAdmins(); $("#keyCard").hidden = true; $("#main").hidden = false; return; }
-    const head = { providers: ["Provider verification", "Partner checks come in automatically. You give the final approval."], identity: ["Identity & security", "Face-check alerts, lockouts and recovery. Only Triyana's security team should act here."], log: ["Face check log", "Every live face check: outcome, scores and time."], partners: ["Partner organisations", "Housing societies, offices and old-age homes whose members get discounts and priority."] }[area];
+    const head = { providers: ["Provider verification", "Partner checks come in automatically. You give the final approval."], identity: ["Identity & security", "Face-check alerts, lockouts and recovery. Only Triyana's security team should act here."], log: ["Face check log", "Every live face check: outcome, scores and time."], partners: ["Partner organisations", "Housing societies, offices and old-age homes whose members get discounts and priority."], promos: ["Promo codes", "Codes patients type at payment for money off a doctor visit or medicines."] }[area];
     $("#pageTitle").textContent = head[0]; $("#pageSub").textContent = head[1];
     $("#provTabs").hidden = area !== "providers"; $("#idTabs").hidden = area !== "identity";
     if (area === "identity") { await loadIdentity(); $("#keyCard").hidden = true; $("#main").hidden = false; return; }
     if (area === "log") { await loadLog(); $("#keyCard").hidden = true; $("#main").hidden = false; return; }
     if (area === "partners") { await loadPartners(); $("#keyCard").hidden = true; $("#main").hidden = false; return; }
+    if (area === "promos") { await loadPromos(); $("#keyCard").hidden = true; $("#main").hidden = false; return; }
     const rows = await call(`/api/admin/providers/pending?status=${tab}`);
     $("#keyCard").hidden = true; $("#main").hidden = false;
     $("#list").innerHTML = rows.length ? rows.map(card).join("") : `<div class="card empty"><h3>Nothing here</h3><p class="small">No providers in this list.</p></div>`;

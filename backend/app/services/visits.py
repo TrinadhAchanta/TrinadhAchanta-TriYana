@@ -180,7 +180,7 @@ def follow_up(db: Session, user: User) -> dict:
 
 def book(db: Session, user: User, doctor_id: int | None, scheduled_for: str, reason: str, address: str,
          asap: bool = False, follow_up_of: int | None = None, cashless: bool = False,
-         member_id: int | None = None) -> HomeVisit:
+         member_id: int | None = None, promo_code: str | None = None) -> HomeVisit:
     from . import family  # family booking: a visit for a parent or child, at their home
     patient = family.patient_for(db, user, member_id)
     prev = None
@@ -214,7 +214,7 @@ def book(db: Session, user: User, doctor_id: int | None, scheduled_for: str, rea
                       booked_by_user_id=user.id if patient.id != user.patient_id else None)
     db.add(visit)
     db.flush()
-    perks.bill_visit(db, visit, cashless)
+    perks.bill_visit(db, visit, cashless, promo_code)
     dispatch.offer_booked_visit(db, visit)
     local = when.replace(tzinfo=timezone.utc).astimezone(LOCAL_TZ).strftime("%a %d %b, %I:%M %p")
     kind = "follow-up visit" if prev else "home visit"
@@ -279,7 +279,8 @@ def set_availability(db: Session, user: User, day: str, hours: list[int]) -> dic
 
 
 def book_now(db: Session, user: User, reason: str, address: str, accept_longer: bool = False,
-             cashless: bool = False, member_id: int | None = None, sos: bool = False) -> HomeVisit:
+             cashless: bool = False, member_id: int | None = None, sos: bool = False,
+             promo_code: str | None = None) -> HomeVisit:
     """"Doctor now": a doctor at the door in 10 minutes.
 
     Offered to the nearest online doctor, who has a short time to accept (DoorDash style). When no doctor
@@ -306,7 +307,7 @@ def book_now(db: Session, user: User, reason: str, address: str, accept_longer: 
                       booked_by_user_id=user.id if patient.id != user.patient_id else None, sos=sos)
     db.add(visit)
     db.flush()
-    perks.bill_visit(db, visit, cashless)
+    perks.bill_visit(db, visit, cashless, promo_code)
     dispatch.offer_on_demand_visit(db, visit)
     notify(db, users_for_patient(db, patient.id), "SOS: finding the nearest doctor" if sos else "Finding your doctor",
            "We're asking the nearest available doctor. You'll see them on the map as soon as they accept."

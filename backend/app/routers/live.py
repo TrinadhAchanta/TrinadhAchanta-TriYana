@@ -49,6 +49,7 @@ class BookNowIn(BaseModel):
     accept_longer: bool = False  # go ahead when no doctor can make it inside the 10-minute promise
     cashless: bool = False       # bill the visit to the patient's health insurer
     member_id: int | None = None  # family booking: send the doctor to this family member's home
+    promo_code: str | None = Field(None, max_length=24)  # typed at payment
 
 
 # ------------------------------------------------------------------ patient
@@ -56,7 +57,7 @@ class BookNowIn(BaseModel):
 def book_doctor_now(body: BookNowIn, user: User = Depends(require(Role.patient)), db: Session = Depends(get_db)):
     privacy_svc.require_care(db, user)
     v = visit_svc.book_now(db, user, body.reason, body.address, body.accept_longer, body.cashless,
-                           member_id=body.member_id)
+                           member_id=body.member_id, promo_code=body.promo_code)
     return visit_svc.visit_to_dict(v, v.patient)
 
 

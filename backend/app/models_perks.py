@@ -121,3 +121,39 @@ class OrgMember(Base):
     joined_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     org = relationship("PartnerOrg")
+
+
+class PromoCode(Base):
+    """A code a patient types at payment for money off (made and paused by Triyana Ops at /admin)."""
+    __tablename__ = "promo_codes"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    code: Mapped[str] = mapped_column(String(24), unique=True, index=True)
+    description: Mapped[str] = mapped_column(String(160), default="")
+    kind: Mapped[str] = mapped_column(String(10), default="flat")         # flat (₹ off) | percent
+    value: Mapped[float] = mapped_column(Float, default=0)                # ₹ for flat, % for percent
+    max_discount: Mapped[float | None] = mapped_column(Float)             # cap for percent codes
+    min_amount: Mapped[float] = mapped_column(Float, default=0)           # smallest bill the code works on
+    applies_to: Mapped[str] = mapped_column(String(12), default="all")    # all | visits | medicines
+    new_customers_only: Mapped[bool] = mapped_column(Boolean, default=False)
+    per_patient_limit: Mapped[int] = mapped_column(Integer, default=1)    # 0 = no limit
+    max_uses: Mapped[int | None] = mapped_column(Integer)                 # all patients together; None = no limit
+    starts_on: Mapped[str | None] = mapped_column(String(10))             # YYYY-MM-DD (India time), inclusive
+    ends_on: Mapped[str | None] = mapped_column(String(10))               # YYYY-MM-DD (India time), inclusive
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_by: Mapped[str] = mapped_column(String(254), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class PromoRedemption(Base):
+    """One use of a promo code on a home visit or a medicine order. Released (given back) if that is cancelled."""
+    __tablename__ = "promo_redemptions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    promo_id: Mapped[int] = mapped_column(ForeignKey("promo_codes.id"), index=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    ref_kind: Mapped[str] = mapped_column(String(10))                     # visit | order
+    ref_id: Mapped[int] = mapped_column(Integer, index=True)
+    amount: Mapped[float] = mapped_column(Float, default=0)
+    status: Mapped[str] = mapped_column(String(10), default="used")       # used | released
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    promo = relationship("PromoCode")

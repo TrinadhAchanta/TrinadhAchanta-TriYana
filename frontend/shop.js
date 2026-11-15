@@ -157,12 +157,13 @@ SCREENS.basket = async () => {
   }
   const [methods, cfg] = await Promise.all([api("/api/payment-methods"), api("/api/payment-config")]);
   const rzp = cfg.gateway === "razorpay";
-  const opt = { pharmacy: quote.offers[0]?.pharmacy_id, delivery: quote.offers[0]?.delivery_options[0]?.code, method: methods[0].code, decline: false, more: false };
+  const opt = { pharmacy: quote.offers[0]?.pharmacy_id, delivery: quote.offers[0]?.delivery_options[0]?.code, method: methods[0].code, decline: false, more: false, promo: null };
   const key = `shop-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const render = () => {
     const offer = quote.offers.find((o) => o.pharmacy_id === opt.pharmacy);
     const d = offer?.delivery_options.find((x) => x.code === opt.delivery);
-    const total = offer && d ? r2(offer.subtotal + offer.tax + d.fee) : null;
+    const off = offer && opt.promo?.applied ? Math.min(opt.promo.discount, offer.subtotal) : 0;
+    const total = offer && d ? r2(offer.subtotal + offer.tax + d.fee - off) : null;
     const others = quote.offers.filter((o) => o.pharmacy_id !== opt.pharmacy);
     view().innerHTML = pageHead("Your basket", `${basketCount()} item${basketCount() === 1 ? "" : "s"} · delivered by a Triyana rider`, `<button class="btn ghost" data-back>← Keep shopping</button>`) + `
       <div class="split"><div>
@@ -180,7 +181,8 @@ SCREENS.basket = async () => {
         : `<div class="notice warn">${ic("alert")}<span>${esc(quote.note)} ${quote.unavailable.map((u) => `${esc(shortName(u.pharmacy))}: missing ${u.missing.map(esc).join(", ")}`).join(" · ")}</span></div>`}
       </div><aside class="sticky">${offer ? `<div class="card featured"><h3>Bill summary</h3>
         <table class="price" style="margin-top:8px"><tr><td>Item total</td><td>${money(offer.subtotal)}</td></tr><tr><td>Delivery fee</td><td>${money(d.fee)}</td></tr>
-          <tr><td>Taxes</td><td>${money(offer.tax)}</td></tr><tr class="total"><td>To pay</td><td>${money(total)}</td></tr></table>
+          <tr><td>Taxes</td><td>${money(offer.tax)}</td></tr>${off ? `<tr class="good-text"><td>Promo ${esc(opt.promo.code)}</td><td>−${money(off)}</td></tr>` : ""}<tr class="total"><td>To pay</td><td>${money(total)}</td></tr></table>
+        <div id="promoSlot">${promoField(opt.promo)}</div>
         <button class="btn primary block" id="pay">${ic("lock")} Pay ${money(total)}</button>
         <p class="tiny muted" style="text-align:center;margin:10px 0 0">${rzp ? (cfg.test_mode ? "Secured by Razorpay · test mode, no real money moves" : "Secured by Razorpay") : "Sandbox payments · no real money moves"}</p>
       </div>` : ""}</aside></div>`;
@@ -191,15 +193,22 @@ SCREENS.basket = async () => {
       saveBasket(bk); SCREENS.basket().catch((e) => toast(e.message, "alert"));
     }));
     const more = $("#morePh"); if (more) more.onclick = () => { opt.more = !opt.more; render(); };
-    $$("[data-ph]").forEach((b) => (b.onclick = () => { opt.pharmacy = +b.dataset.ph; opt.more = false; const o = quote.offers.find((x) => x.pharmacy_id === opt.pharmacy); opt.delivery = o.delivery_options[0].code; render(); }));
+    $$("[data-ph]").forEach((b) => (b.onclick = () => { opt.pharmacy = +b.dataset.ph; opt.more = false; const o = quote.offers.find((x) => x.pharmacy_id === opt.pharmacy); opt.delivery = o.delivery_options[0].code;
+      if (opt.promo?.applied) guard(async () => { const r = await checkMedPromo(opt.promo.code, o.subtotal); opt.promo = r.ok ? { code: r.code, applied: true, discount: r.discount } : { code: opt.promo.code, message: r.message }; render(); });
+      else render(); }));
     $$("[data-d]").forEach((b) => (b.onclick = () => { opt.delivery = b.dataset.d; render(); }));
     $$("[data-m]").forEach((b) => (b.onclick = () => { opt.method = b.dataset.m; render(); }));
     if ($("#decline")) $("#decline").onchange = (e) => (opt.decline = e.target.checked);
+    if ($("#promoSlot")) wirePromo($("#promoSlot"), async (code) => {
+      const r = await checkMedPromo(code, offer.subtotal);
+      opt.promo = r.ok ? { code: r.code, applied: true, discount: r.discount } : { code, message: r.message };
+      render();
+    }, () => { opt.promo = null; render(); });
     const pay = $("#pay");
     if (pay) pay.onclick = () => guard(async () => {
       pay.disabled = true; pay.textContent = "Processing…";
       try {
-        const body = { items, pharmacy_id: opt.pharmacy, delivery_option: opt.delivery };
+        const body = { items, pharmacy_id: opt.pharmacy, delivery_option: opt.delivery, promo_code: opt.promo?.applied ? opt.promo.code : null };
         const token = rzp ? await payShopWithRazorpay(body, total, opt.method) : opt.decline ? "sandbox-decline" : "sandbox-ok";
         pay.textContent = "Placing order…";
         const order = await post("/api/shop/checkout", { ...body, payment_method: opt.method, payment_token: token, idempotency_key: key, expected_total: total });

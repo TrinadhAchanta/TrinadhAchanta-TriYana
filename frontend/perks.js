@@ -7,6 +7,7 @@ Object.assign(P, {
   users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17" cy="9" r="2.5"/><path d="M16 14.2a5 5 0 0 1 5.5 4.8"/>',
   building: '<rect x="4" y="3" width="16" height="18" rx="1.5"/><path d="M9 7h2M13 7h2M9 11h2M13 11h2M9 15h2M13 15h2M10 21v-3h4v3"/>',
   umbrella: '<path d="M3 12a9 9 0 0 1 18 0z"/><path d="M12 12v7a2 2 0 0 1-4 0"/>',
+  tag: '<path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9z"/><circle cx="7.5" cy="7.5" r="1.5"/>',
 });
 
 TABS.patient.splice(3, 0, ["perks", "Offers & rewards", "gift", "desktop"]);
@@ -49,18 +50,45 @@ function billTable(lines, pays) {
     <tr class="total"><td>You pay</td><td>${pays ? money(pays) : "₹0"}</td></tr></table>`;
 }
 
-/* Price box for a booking: fills `el` with the patient's real price and a cashless switch. */
+/* Promo code field for a payment step. `st` = { code, applied, discount, message } (null = nothing typed). */
+function promoField(st) {
+  if (st?.applied) return `<div class="promo-row on">${ic("tag")}<span class="grow"><b>${esc(st.code)}</b> <span class="small">applied · you save ${money(st.discount)}</span></span>
+    <button type="button" class="btn ghost sm" data-promo-remove>Remove</button></div>`;
+  return `<form class="promo-row" data-promo-form>${ic("tag")}<input data-promo-input placeholder="Have a promo code?" maxlength="24" value="${esc(st?.code || "")}" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Promo code">
+      <button class="btn sm">Apply</button></form>
+    ${st?.message ? `<p class="tiny promo-msg" role="status">${esc(st.message)}</p>` : ""}`;
+}
+
+/* Wire a promoField inside `root`. apply(code) checks and re-renders; remove() clears it. */
+function wirePromo(root, apply, remove) {
+  const f = $("[data-promo-form]", root);
+  if (f) f.onsubmit = (e) => { e.preventDefault(); const code = $("[data-promo-input]", f).value.trim(); if (code) guard(() => apply(code.toUpperCase())); };
+  const x = $("[data-promo-remove]", root); if (x) x.onclick = () => remove();
+}
+
+/* Medicine payment steps: ask the server what a code takes off the medicine price. */
+async function checkMedPromo(code, subtotal) {
+  return post("/api/promos/check", { code, scope: "medicines", amount: subtotal });
+}
+
+/* Price box for a booking: fills `el` with the patient's real price, a cashless switch and a promo code field. */
 async function perkQuote(el, fee, opt, onChange) {
   if (!el) return;
   const perks = PERKS.data || await loadPerks().catch(() => null);
   const policy = perks?.insurance.policies[0];
-  const q = await api(`/api/perks/quote?fee=${fee}&cashless=${opt.cashless ? 1 : 0}`).catch(() => null);
+  const promo = opt.promo ? `&promo=${encodeURIComponent(opt.promo)}` : "";
+  const q = await api(`/api/perks/quote?fee=${fee}&cashless=${opt.cashless ? 1 : 0}${promo}`).catch(() => null);
   if (!el.isConnected || !q) return;
+  // A code that can't be used (or isn't needed) isn't sent with the booking.
+  opt.promoApplied = q.promo?.applied ? q.promo.code : null;
   el.innerHTML = `${billTable(q.lines, q.patient_pays)}
+    ${promoField(q.promo ? { ...q.promo, message: q.promo.applied ? "" : q.promo.message } : null)}
     ${policy ? `<label class="perk-toggle"><input type="checkbox" id="cashlessBox" ${opt.cashless ? "checked" : ""}> ${ic("umbrella")} <span>Cashless with <b>${esc(policy.insurer_name)}</b> <span class="tiny muted">(${esc(policy.policy_no)})</span></span></label>`
       : `<p class="tiny muted" style="margin:6px 0 0">${ic("umbrella")} Have health insurance? <a href="#" data-goperks>Add it</a> for cashless visits.</p>`}`;
+  const again = () => { onChange?.(); return perkQuote(el, fee, opt, onChange); };
+  wirePromo(el, (code) => { opt.promo = code; return again(); }, () => { opt.promo = null; again(); });
   const box = $("#cashlessBox", el);
-  if (box) box.onchange = () => { opt.cashless = box.checked; onChange?.(); perkQuote(el, fee, opt, onChange); };
+  if (box) box.onchange = () => { opt.cashless = box.checked; again(); };
   $$("[data-goperks]", el).forEach((a) => (a.onclick = (e) => { e.preventDefault(); document.querySelector(".sheet-wrap")?.remove(); go("perks"); }));
 }
 

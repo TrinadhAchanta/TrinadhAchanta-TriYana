@@ -28,3 +28,14 @@
 .perk-banner .grow { flex: 1; display: grid; gap: 2px; min-width: 0; }
 .perk-banner .small { color: var(--text-2); }
 .perk-banner .btn { flex: none; }
+
+/* Promo code at payment */
+.promo-row { display: flex; gap: 8px; align-items: center; margin: 10px 0 12px; padding: 6px 6px 6px 10px; border-radius: 12px; border: 1px dashed var(--line-strong); }
+.promo-row > .i { flex: none; color: var(--brand); }
+.promo-row input { flex: 1; min-width: 0; border: 0; background: transparent; font: inherit; text-transform: uppercase; letter-spacing: .04em; padding: 6px 0; color: var(--text); outline: none; }
+.promo-row input::placeholder { text-transform: none; letter-spacing: 0; }
+.promo-row.on { border-style: solid; border-color: var(--good); background: var(--good-soft); }
+.promo-row.on .grow { flex: 1; min-width: 0; }
+.promo-row.on .small { color: var(--good); }
+.promo-msg { margin: -8px 2px 12px; color: var(--warn); }
+.price tr.good-text td { color: var(--good); }
