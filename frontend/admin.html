@@ -57,7 +57,7 @@
     </form>
   </div>
   <div id="main" hidden>
-    <div class="areas"><button class="btn sm on" data-area="providers">Providers</button><button class="btn sm" data-area="identity">Identity &amp; security <span class="badge bad" id="caseCount" hidden></span></button><button class="btn sm" data-area="log">Face check log</button><button class="btn sm" data-area="partners">Partners</button><button class="btn sm" data-area="promos">Promo codes</button><button class="btn sm" data-area="admins">Admins</button></div>
+    <div class="areas"><button class="btn sm on" data-area="providers">Providers</button><button class="btn sm" data-area="identity">Identity &amp; security <span class="badge bad" id="caseCount" hidden></span></button><button class="btn sm" data-area="log">Face check log</button><button class="btn sm" data-area="partners">Partners</button><button class="btn sm" data-area="promos">Promo codes</button><button class="btn sm" data-area="admins">Admins</button><button class="btn sm" data-area="launch">Launch check</button></div>
     <div class="who"><span class="meta" id="who"></span><button class="btn sm" id="lock">Sign out</button></div>
     <div id="idTabs" class="ops-tabs" hidden><button class="btn sm on" data-c="open">Open cases</button><button class="btn sm" data-c="resolved">Resolved</button></div>
     <div class="ops-tabs" id="provTabs"><button class="btn sm on" data-s="pending">Waiting</button><button class="btn sm" data-s="rejected">Rejected</button><button class="btn sm" data-s="verified">Approved</button></div>
@@ -237,6 +237,13 @@ async function loadAdmins() {
     try { await call(`/api/admin/admins/${a.id}/remove`, {}); toast("Admin removed."); load(); } catch (err) { toast(err.message); }
   });
 }
+async function loadLaunch() {
+  const r = await call("/api/admin/launch-check");
+  $("#list").innerHTML = `<div class="card prov"><h3 style="margin:0">${r.mode === "live" ? "Live mode" : "Demo mode"}</h3>
+      <p class="tiny muted" style="margin:4px 0 0">${r.mode === "live" ? "Demo accounts and demo buttons are off." : "Demo accounts, Approve me and Reset demo are on. Set TRIYANA_DEMO=0 on the server to go live once the items below are ready."}</p></div>
+    ${r.checks.map((c) => `<div class="card prov"><div class="prov-head"><div class="grow"><h3 style="margin:0">${esc(c.label)}</h3>
+      ${c.ok ? "" : `<div class="meta">${esc(c.fix)}</div>`}</div><span class="badge ${c.ok ? "good" : c.blocking ? "bad" : "warn"}">${c.ok ? "Ready" : c.blocking ? "Required" : "Not yet"}</span></div></div>`).join("")}`;
+}
 function signedOut() {
   token = ""; me = null; try { sessionStorage.removeItem("triyana-admin-token"); } catch {}
   $("#keyCard").hidden = false; $("#main").hidden = true;
@@ -255,6 +262,7 @@ async function load() {
     $("#provTabs").hidden = area !== "providers"; $("#idTabs").hidden = area !== "identity";
     if (area === "identity") { await loadIdentity(); $("#keyCard").hidden = true; $("#main").hidden = false; return; }
     if (area === "log") { await loadLog(); $("#keyCard").hidden = true; $("#main").hidden = false; return; }
+    if (area === "launch") { $("#pageTitle").textContent = "Launch check"; $("#pageSub").textContent = "What the server still needs before real patients. No secret values are shown."; $("#provTabs").hidden = true; $("#idTabs").hidden = true; await loadLaunch(); $("#keyCard").hidden = true; $("#main").hidden = false; return; }
     if (area === "partners") { await loadPartners(); $("#keyCard").hidden = true; $("#main").hidden = false; return; }
     if (area === "promos") { await loadPromos(); $("#keyCard").hidden = true; $("#main").hidden = false; return; }
     const rows = await call(`/api/admin/providers/pending?status=${tab}`);

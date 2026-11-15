@@ -22,9 +22,12 @@ docker run -p 8000:8000 -e TRIYANA_SECRET="$(openssl rand -hex 32)" -v triyana-d
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `TRIYANA_SECRET` | demo value | Encryption and signature key material. **Always set in any hosted environment.** |
+| `TRIYANA_SECRET` | demo value | Encryption and signature key material. **Always set in any hosted environment.** Live mode refuses to start unless it is at least 32 random characters. |
+| `TRIYANA_OLD_SECRETS` | unset | Previous secrets, comma separated, so data written with them can still be read after a rotation. |
 | `TRIYANA_DATABASE_URL` | `sqlite:////data/triyana_demo.db` | SQLAlchemy URL. Use Postgres for anything beyond a demo. |
-| `TRIYANA_DEMO` | `1` | Enables the demo account switcher and **Reset demo**. Set to `0` to hide both. |
+| `TRIYANA_DEMO` | `1` | `1` = demo (demo accounts, Approve me, Reset demo, on-screen SMS codes). `0` = live: all of those are off and demo tokens stop working. See `docs/GOING_LIVE.md`. |
+| `TRIYANA_VAPID_PRIVATE_KEY` | derived from the secret | Optional key for push alerts (base64url, 32-byte P-256 private value). |
+| `TRIYANA_VAPID_SUBJECT` | `TRIYANA_PUBLIC_URL` | Contact the push services see, e.g. `mailto:ops@yourdomain.in`. |
 | `RAZORPAY_KEY_ID` | unset | Razorpay key. Use a `rzp_test_...` key for test mode. When unset, the built-in sandbox is used. |
 | `RAZORPAY_KEY_SECRET` | unset | Razorpay key secret. Set it as a secret, never in code. |
 | `TRIYANA_ADMINS` | unset | Admin logins for `/admin`, created at startup: `email:password` entries separated by `;`. Changing a password here resets it. See `docs/VERIFICATION.md`. |

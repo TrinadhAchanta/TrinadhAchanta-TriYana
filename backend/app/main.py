@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from . import audit
+from . import audit, config
 from .adapters.payments import INDIA_METHODS, SUPPORTED_METHODS
 from .db import Base, engine, get_db, SessionLocal
 from .deps import current_user, require
@@ -28,6 +28,7 @@ from .routers.face import router as face_router
 from .routers.perks import router as perks_router
 from .routers.care import router as care_router
 from .routers.family import router as family_router
+from .routers.push import router as push_router
 from .errors import DomainError, Forbidden, NotFound
 from .models import (
     AuditLog,
@@ -68,6 +69,7 @@ for _ext, _type in ((".js", "text/javascript"), (".css", "text/css"), (".svg", "
                     (".webmanifest", "application/manifest+json")):
     mimetypes.add_type(_type, _ext)
 
+config.check_startup()  # live mode (TRIYANA_DEMO=0) refuses to start with demo-grade secrets
 app = FastAPI(title="Triyana Home — Prescriptions to Delivery", version="1.0.0")
 
 
@@ -220,7 +222,7 @@ def rx_to_dict(rx: Prescription, include_integrity: bool = True) -> dict:
 # -------------------------------------------------------------------- meta
 @app.get("/api/health")
 def health():
-    return {"ok": True, "mode": "demo" if os.environ.get("TRIYANA_DEMO", "1") == "1" else "live"}
+    return {"ok": True, "mode": "demo" if config.is_demo() else "live"}
 
 
 @app.get("/api/me")
@@ -752,7 +754,7 @@ DEMO_APPS = {
 
 @app.get("/api/demo/accounts")
 def demo_accounts(app_name: Literal["patient", "provider"] | None = Query(None, alias="app")):
-    if os.environ.get("TRIYANA_DEMO", "1") != "1":
+    if not config.is_demo():
         raise NotFound("not_found", "Not available.")
     from .seed import DEMO_TOKENS
     apps = [app_name] if app_name else list(DEMO_APPS)
@@ -761,7 +763,7 @@ def demo_accounts(app_name: Literal["patient", "provider"] | None = Query(None, 
 
 @app.post("/api/demo/reset")
 def demo_reset():
-    if os.environ.get("TRIYANA_DEMO", "1") != "1":
+    if not config.is_demo():
         raise NotFound("not_found", "Not available.")
     from .services.accounts import registered_accounts_exist
     with SessionLocal() as db:
@@ -788,6 +790,7 @@ app.include_router(face_router)
 app.include_router(perks_router)
 app.include_router(care_router)
 app.include_router(family_router)
+app.include_router(push_router)
 
 # --------------------------------------------------------------- frontend
 FRONTEND = Path(__file__).resolve().parents[2] / "frontend"
@@ -831,8 +834,12 @@ def startup():
         if not db.scalars(select(User)).first():
             from .seed import seed
             seed(db)
-        from .services.face_verification import seed_demo_enrollments
-        seed_demo_enrollments(db)
+        if config.is_demo():
+            from .services.face_verification import seed_demo_enrollments
+            seed_demo_enrollments(db)
+        else:
+            from .services.accounts import retire_demo_people
+            retire_demo_people(db)
         db.commit()
         from .services.admins import seed_from_env
         seed_from_env(db)
