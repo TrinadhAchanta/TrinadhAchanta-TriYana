@@ -16,11 +16,10 @@ const callWhen = (iso) => `${dayLabel(iso)}, ${time(iso)}`;
 if (APP === "patient") {
   const at = TABS.patient.findIndex((t) => t[0] === "meds") + 1;
   TABS.patient.splice(at, 0, ["records", "Health records", "folder", "desktop"], ["care", "Care plans", "repeat", "desktop"]);
-  const afterBook = SERVICES.findIndex((s) => s.key === "book") + 1;
-  SERVICES.splice(afterBook, 0,
-    { key: "voice", title: "Book by voice", sub: "Just say what's wrong, in your language", icon: "mic", tone: "gold" },
-    { key: "care", title: "Care plans", sub: "Monthly home check-ups: diabetes, BP, elders", icon: "repeat", go: "care" },
-    { key: "records", title: "Health records", sub: "Visits, vitals, labs and prescriptions", icon: "folder", go: "records", tone: "blue" });
+  const afterPhysio = SERVICES.findIndex((s) => s.key === "physio") + 1;
+  SERVICES.splice(afterPhysio, 0,
+    { key: "care", title: "Care plans", icon: "repeat", go: "care" },
+    { key: "records", title: "Records", icon: "folder", go: "records", tone: "blue" });
 } else {
   // Desktop sidebar tab; on phones the bottom bar is full, so the doctor's Home shows a card that opens it.
   TABS.doctor.push(["calls", "Follow-up calls", "phoneCall", "desktop"]);
@@ -88,8 +87,8 @@ if (APP === "patient") {
   SCREENS.home = async () => {
     await homeBefore();
     if (state.role !== "patient" || state.tab !== "home") return;
-    const hero = $(".home-hero .actions");
-    if (hero && !$("#voiceHero")) hero.insertAdjacentHTML("beforeend", `<button class="btn" id="voiceHero">${ic("mic")} Book by voice</button>`);
+    const links = $(".home-hero .hero-links");
+    if (links && !$("#voiceHero")) links.insertAdjacentHTML("beforeend", `<button class="link-btn" id="voiceHero">${ic("mic")} Speak instead</button>`);
     $$("#voiceHero, [data-svc='voice']").forEach((b) => (b.onclick = () => voiceSheet()));
     const calls = (await api("/api/patient/follow-up-calls").catch(() => [])).filter((c) => c.status === "scheduled");
     const slot = $("#liveSlot");
