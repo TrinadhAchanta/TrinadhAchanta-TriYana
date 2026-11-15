@@ -334,7 +334,8 @@ def register(db: Session, body: dict) -> tuple[User, str]:
     name = (body.get("name") or "").strip()
     if len(name) < 2:
         raise Unprocessable("name_required", "Enter your full name.")
-    if _email_taken(db, email):
+    shared = config.demo_login()
+    if _email_taken(db, email) or (shared and email == shared[0]):
         raise Conflict("email_taken", "An account with this email already exists. Sign in instead.")
     if not body.get("phone") or not body.get("otp"):
         raise Unprocessable("phone_required", "Verify your mobile number with the code we send you.")
@@ -426,9 +427,32 @@ def register(db: Session, body: dict) -> tuple[User, str]:
     return user, open_session(db, user, app)
 
 
+def is_demo_login(email: str, password: str) -> bool:
+    """True when email + password are the shared demo login (demo mode only, see config.demo_login)."""
+    shared = config.demo_login()
+    if not shared or (email or "").strip().lower() != shared[0]:
+        return False
+    return hmac.compare_digest((password or "").encode(), shared[1].encode())
+
+
 def login(db: Session, email: str, password: str, app: str) -> tuple[User, str]:
     email = (email or "").strip().lower()
     _check_rate(email)
+    shared = config.demo_login()
+    if shared and email == shared[0]:
+        # The shared demo login opens each app as its demo person, with that person's fixed demo token
+        # (which survives redeploys because the demo people are seeded at startup).
+        if not is_demo_login(email, password):
+            _fail(email)
+            raise DomainError("bad_credentials", "That password isn't right for this email. Tap the eye to "
+                                                 "check what you typed.")
+        from ..seed import DEMO_TOKENS
+        token = DEMO_TOKENS[config.DEMO_LOGIN_PERSONA[app]]
+        user = db.scalars(select(User).where(User.token == token)).first()
+        if not user:
+            raise DomainError("no_account", "The demo people aren't set up on this server yet. Try again in a minute.")
+        _failures.pop(email, None)
+        return user, token
     user = db.scalars(select(User).where(func.lower(User.email) == email)).first() if email else None
     if not user:
         _fail(email)

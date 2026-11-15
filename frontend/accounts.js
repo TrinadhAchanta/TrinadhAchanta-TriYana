@@ -65,10 +65,11 @@ function renderAuth(mode) {
 
   const signinForm = `
     <form class="auth-form" id="authForm" novalidate>
-      ${input("email", "Email", "email", 'autocomplete="email" inputmode="email" required')}
+      ${input("email", "Email", "email", 'autocomplete="username" inputmode="email" required')}
       ${input("password", "Password", "password", 'autocomplete="current-password" required')}
       <p class="tiny" style="margin:-6px 0 0;text-align:right"><a href="#" id="forgotLink">Forgot password?</a></p>
       <button class="btn primary block" id="authGo">Sign in</button>
+      ${state.accounts.length ? `<p class="tiny muted center" style="margin:0">Have the Triyana demo login? Sign in with it once and every Triyana app on this device opens by itself.</p>` : ""}
       <p class="tiny muted center">New to ${partner ? PROVIDER_APP : "Triyana"}? <a href="#" data-mode="signup">Create an account</a></p>
     </form>`;
 
@@ -219,6 +220,7 @@ async function submitAuth() {
       throw new Error(typeof det === "string" ? det : det.message || (Array.isArray(det) ? "Please check the form and try again." : "Something went wrong."));
     }
     const fresh = auth.mode === "signup";
+    if (data.demo_login && window.TriyanaDemoLogin) TriyanaDemoLogin.save(body.email, body.password);
     auth.draft = {}; auth.otp = null;
     await signIn(data.token);
     toast(fresh ? `Welcome to ${partner ? PROVIDER_APP : "Triyana"}, ${data.account.name.replace(/^Dr\.?\s+/i, "").split(" ")[0]}` : "Signed in");
@@ -344,7 +346,7 @@ SCREENS.account = async () => {
   $$("[data-go]").forEach((b) => (b.onclick = () => go(b.dataset.go)));
   if ($("#faceCard")) faceAccountCard();
   if (window.TriyanaPush) TriyanaPush.accountCard($("#pushCard"));
-  $("#acctOut").onclick = signOut;
+  $("#acctOut").onclick = userSignOut;
   if ($("#toSignup")) $("#toSignup").onclick = () => { signOut(); renderAuth("signup"); };
   if ($("#profile")) $("#profile").onsubmit = (e) => { e.preventDefault(); guard(async () => {
     const body = { name: $("#pName").value };
