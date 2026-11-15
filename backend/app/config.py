@@ -60,7 +60,7 @@ def launch_checks() -> list[dict]:
         {"key": "payments", "ok": bool(os.environ.get("RAZORPAY_KEY_ID") and os.environ.get("RAZORPAY_KEY_SECRET")),
          "blocking": False, "label": "Real payments", "fix": "Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET."},
         {"key": "admins", "ok": admins, "blocking": False, "label": "Triyana Ops admin logins",
-         "fix": "Set TRIYANA_ADMINS=you@example.com:password;partner@example.com:password."},
+         "fix": "Set TRIYANA_ADMINS to email:password pairs separated by ; so admin logins exist from the first boot."},
         {"key": "face", "ok": bool(os.environ.get("TRIYANA_FACE_PROVIDER")), "blocking": False,
          "label": "Face check vendor (doctors can't start visits without it in live mode)",
          "fix": "Connect a face-match vendor; until then live mode refuses every face check."},

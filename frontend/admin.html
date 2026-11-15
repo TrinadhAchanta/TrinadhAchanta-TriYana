@@ -242,7 +242,7 @@ async function loadLaunch() {
   $("#list").innerHTML = `<div class="card prov"><h3 style="margin:0">${r.mode === "live" ? "Live mode" : "Demo mode"}</h3>
       <p class="tiny muted" style="margin:4px 0 0">${r.mode === "live" ? "Demo accounts and demo buttons are off." : "Demo accounts, Approve me and Reset demo are on. Set TRIYANA_DEMO=0 on the server to go live once the items below are ready."}</p></div>
     ${r.checks.map((c) => `<div class="card prov"><div class="prov-head"><div class="grow"><h3 style="margin:0">${esc(c.label)}</h3>
-      ${c.ok ? "" : `<div class="meta">${esc(c.fix)}</div>`}</div><span class="badge ${c.ok ? "good" : c.blocking ? "bad" : "warn"}">${c.ok ? "Ready" : c.blocking ? "Required" : "Not yet"}</span></div></div>`).join("")}`;
+      ${c.ok ? "" : `<div class="meta" style="overflow-wrap:anywhere">${esc(c.fix)}</div>`}</div><span class="badge ${c.ok ? "good" : c.blocking ? "bad" : "warn"}">${c.ok ? "Ready" : c.blocking ? "Required" : "Not yet"}</span></div></div>`).join("")}`;
 }
 function signedOut() {
   token = ""; me = null; try { sessionStorage.removeItem("triyana-admin-token"); } catch {}
@@ -257,12 +257,12 @@ async function load() {
   try {
     if (!me) { me = (await call("/api/admin/me")).admin; $("#who").textContent = me ? `Signed in as ${me.name} (${me.email})` : ""; }
     if (area === "admins") { $("#pageTitle").textContent = "Admins"; $("#pageSub").textContent = "Everyone who can sign in to Triyana Ops. Each person has their own login."; $("#provTabs").hidden = true; $("#idTabs").hidden = true; await loadAdmins(); $("#keyCard").hidden = true; $("#main").hidden = false; return; }
+    if (area === "launch") { $("#pageTitle").textContent = "Launch check"; $("#pageSub").textContent = "What the server still needs before real patients. No secret values are shown."; $("#provTabs").hidden = true; $("#idTabs").hidden = true; await loadLaunch(); $("#keyCard").hidden = true; $("#main").hidden = false; return; }
     const head = { providers: ["Provider verification", "Partner checks come in automatically. You give the final approval."], identity: ["Identity & security", "Face-check alerts, lockouts and recovery. Only Triyana's security team should act here."], log: ["Face check log", "Every live face check: outcome, scores and time."], partners: ["Partner organisations", "Housing societies, offices and old-age homes whose members get discounts and priority."], promos: ["Promo codes", "Codes patients type at payment for money off a doctor visit or medicines."] }[area];
     $("#pageTitle").textContent = head[0]; $("#pageSub").textContent = head[1];
     $("#provTabs").hidden = area !== "providers"; $("#idTabs").hidden = area !== "identity";
     if (area === "identity") { await loadIdentity(); $("#keyCard").hidden = true; $("#main").hidden = false; return; }
     if (area === "log") { await loadLog(); $("#keyCard").hidden = true; $("#main").hidden = false; return; }
-    if (area === "launch") { $("#pageTitle").textContent = "Launch check"; $("#pageSub").textContent = "What the server still needs before real patients. No secret values are shown."; $("#provTabs").hidden = true; $("#idTabs").hidden = true; await loadLaunch(); $("#keyCard").hidden = true; $("#main").hidden = false; return; }
     if (area === "partners") { await loadPartners(); $("#keyCard").hidden = true; $("#main").hidden = false; return; }
     if (area === "promos") { await loadPromos(); $("#keyCard").hidden = true; $("#main").hidden = false; return; }
     const rows = await call(`/api/admin/providers/pending?status=${tab}`);
