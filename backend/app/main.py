@@ -32,6 +32,7 @@ from .routers.push import router as push_router
 from .errors import DomainError, Forbidden, NotFound
 from .models import (
     AuditLog,
+    CartItemStatus,
     DispensingRecord,
     HomeVisit,
     Medication,
@@ -581,7 +582,10 @@ def my_medicines(user: User = Depends(require(Role.patient)), db: Session = Depe
                 "refill_eligible": i.refills_allowed > 0 and dispensed >= i.quantity and remaining > 0,
             })
         expired = bool(rx.valid_until and utcnow() > rx.valid_until)
+        cart = db.scalars(select(SuggestedCart).where(SuggestedCart.prescription_id == rx.id)).first()
         out_rx.append({"id": rx.id, "reference_no": rx.reference_no, "doctor": rx.doctor.name,
+                       "cart_id": cart.id if cart else None,
+                       "cart_items_to_order": sum(1 for ci in cart.items if ci.status == CartItemStatus.in_cart) if cart else 0,
                        "status": "expired" if expired and rx.status == RxStatus.signed else rx.status.value,
                        "valid_until": rx.valid_until.isoformat() if rx.valid_until else None, "items": items})
     orders = db.scalars(select(PharmacyOrder).where(PharmacyOrder.patient_id == user.patient_id)
@@ -668,6 +672,12 @@ def fulfil(order_id: int, action: Literal["prepare", "ready", "dispatch"], user:
 def handover(order_id: int, body: HandoverIn, user: User = Depends(require(Role.pharmacist, Role.courier)),
              db: Session = Depends(get_db)):
     order = order_svc.complete_handover(db, user, order_id, body.code, body.recipient_name, body.id_verified)
+    return order_svc.serialize_order(db, order, user)
+
+
+@app.post("/api/orders/{order_id}/received")
+def drone_received(order_id: int, user: User = Depends(require(Role.patient)), db: Session = Depends(get_db)):
+    order = order_svc.patient_received_drone(db, user, order_id)
     return order_svc.serialize_order(db, order, user)
 
 

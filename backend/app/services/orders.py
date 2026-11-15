@@ -1,7 +1,7 @@
 """Checkout, pharmacist review, clarifications, fulfilment, delivery and refunds."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -37,6 +37,7 @@ from ..models import (
     Role,
     TrackingEvent,
     User,
+    utcnow,
 )
 from . import drones as drone_svc
 from .carts import get_cart_for_patient
@@ -545,6 +546,9 @@ def advance(db: Session, user: User, order_id: int, action: str) -> PharmacyOrde
     if action not in transitions:
         raise Unprocessable("bad_action", "Unknown fulfilment action.")
     role, frm, to, msg = transitions[action]
+    drone = action == "dispatch" and _drone_mission(db, order) is not None
+    if drone and user.role == Role.pharmacist:
+        role = Role.pharmacist  # the pharmacy loads the drone and sends it off; no rider is involved
     if user.role != role:
         raise Forbidden("forbidden_role", "Your role cannot perform this step.")
     if order.status != frm:
@@ -558,7 +562,7 @@ def advance(db: Session, user: User, order_id: int, action: str) -> PharmacyOrde
         mission = order_mission(db, order.id)
         if mission is not None:
             drone_svc.launch(mission)
-            msg = "Your medicines are in the air. Keep your handover code ready."
+            msg = "Your medicines are in the air. The drone will lower them at your door."
         else:
             d = order.delivery
             if d.courier_user_id not in (None, user.id):
@@ -566,8 +570,9 @@ def advance(db: Session, user: User, order_id: int, action: str) -> PharmacyOrde
             d.courier_user_id, d.courier_name = user.id, user.name.split(" (")[0]
             dispatch.close_offers_for_order(db, order, user)
             p = db.get(Patient, order.patient_id)
-            dispatch.start_trip(db, user, order_id=order.id, leg="to_patient", dest=(p.lat, p.lng),
-                                dest_label=f"{p.name.split()[0]}'s home")
+            trip = dispatch.start_trip(db, user, order_id=order.id, leg="to_patient", dest=(p.lat, p.lng),
+                                       dest_label=f"{p.name.split()[0]}'s home")
+            d.eta = utcnow() + timedelta(seconds=trip.duration_s)  # the rider's real ETA, not the booking estimate
             msg = f"{d.courier_name} has your medicines and is on the way."
     _event(db, order, to, msg)
     audit.record(db, user, f"order.{action}", "order", order.id)
@@ -636,6 +641,49 @@ def cancel(db: Session, user: User, order_id: int, reason: str) -> PharmacyOrder
 # ------------------------------------------------------------------ drones
 def order_mission(db: Session, order_id: int) -> DeliveryMission | None:
     return db.scalars(select(DeliveryMission).where(DeliveryMission.order_id == order_id)).first()
+
+
+def _drone_mission(db: Session, order: PharmacyOrder) -> DeliveryMission | None:
+    m = order_mission(db, order.id)
+    return m if m is not None and m.mode == "drone" else None
+
+
+def land_due_drones(db: Session) -> None:
+    """A patient's drone that has reached its ETA lowers the parcel at the door (demo stand-in for telemetry)."""
+    due = db.scalars(select(DeliveryMission).where(
+        DeliveryMission.order_id.isnot(None), DeliveryMission.mode == "drone",
+        DeliveryMission.status == "in_flight", DeliveryMission.eta <= utcnow())).all()
+    for m in due:
+        drone_svc.arrive(m)
+        order = db.get(PharmacyOrder, m.order_id)
+        msg = "The drone has lowered your medicines at your door. Collect the parcel and tap \"I've got my medicines\"."
+        db.add(TrackingEvent(order_id=order.id, status=order.status.value, note=msg))
+        _notify_patient(db, order, msg)
+    if due:
+        db.commit()
+
+
+def patient_received_drone(db: Session, user: User, order_id: int) -> PharmacyOrder:
+    """The patient confirms they collected the parcel the drone lowered at their door."""
+    order = get_or_404(db, PharmacyOrder, order_id, "Order")
+    ensure_order_access(user, order)
+    m = _drone_mission(db, order)
+    if user.role != Role.patient or m is None or order.status != OrderStatus.out_for_delivery:
+        raise Conflict("bad_state", "This order isn't a drone delivery on its way to you.")
+    if m.status == "in_flight" and m.eta and m.eta > utcnow():
+        raise Conflict("not_arrived", "The drone hasn't reached you yet. We'll tell you when it lands.")
+    if m.status == "in_flight":
+        drone_svc.arrive(m)
+    name = db.get(Patient, order.patient_id).name
+    drone_svc.confirm(m, name, temperature_ok=True)  # the drone's cold box logs 2-8 °C on the way
+    order.delivery.proof_of_delivery = {"recipient": name, "id_verified": False, "code_matched": False,
+                                        "method": "drone drop, confirmed by the patient in the app"}
+    _event(db, order, OrderStatus.delivered, f"Delivered by drone to {name}.")
+    audit.record(db, user, "order.drone_received", "order", order.id)
+    notify(db, users_for_pharmacy(db, order.pharmacy_id), "Delivery confirmed",
+           f"{order.order_no} was received from the drone.", link=f"order:{order.id}")
+    db.commit()
+    return order
 
 
 def _book_drone(db: Session, order: PharmacyOrder, patient: Patient) -> DeliveryMission:
