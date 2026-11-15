@@ -4,7 +4,7 @@ from __future__ import annotations
 from fastapi import Depends, Header, HTTPException
 from sqlalchemy.orm import Session
 
-from .config import PROVIDER_APP_NAME
+from .config import PROVIDER_APP_NAME, ROLE_APPS
 from .db import get_db
 from .models import Role, User
 from .services import accounts
@@ -27,6 +27,8 @@ def current_user(authorization: str | None = Header(default=None), x_triyana_app
         raise HTTPException(status_code=403, detail={"code": "wrong_app", "message": f"This is the {PROVIDER_APP_NAME} app for doctors, physiotherapists, couriers and pharmacists. Patients sign in to the Triyana app."})
     if x_triyana_app == "patient" and user.role in PROVIDER_ROLES:
         raise HTTPException(status_code=403, detail={"code": "wrong_app", "message": f"Providers sign in to the {PROVIDER_APP_NAME} app."})
+    if x_triyana_app in ROLE_APPS and user.role.value not in ROLE_APPS[x_triyana_app]["roles"]:
+        raise HTTPException(status_code=403, detail={"code": "wrong_app", "message": accounts.wrong_role_app_message(x_triyana_app)})
     return user
 
 

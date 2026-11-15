@@ -3,10 +3,11 @@ from __future__ import annotations
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from .. import config
 from ..db import get_db
 from ..deps import current_user
 from ..models import User
@@ -37,8 +38,11 @@ def key():
 
 
 @router.post("/subscribe")
-def subscribe(body: SubscribeIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    app: Literal["patient", "provider"] = "provider" if user.role in PROVIDER_ROLES else "patient"
+def subscribe(body: SubscribeIn, user: User = Depends(current_user), db: Session = Depends(get_db),
+              x_triyana_app: str | None = Header(default=None)):
+    # Alerts open the app the phone subscribed from: Heros, or the Pharmacy / Rider app.
+    app: str = x_triyana_app if x_triyana_app in config.ROLE_APPS else (
+        "provider" if user.role in PROVIDER_ROLES else "patient")
     return push.subscribe(db, user, body.endpoint, body.keys.p256dh, body.keys.auth, app)
 
 

@@ -87,7 +87,8 @@ function card(p) {
   const [sc, sw] = STAGE[v.stage] || ["", v.stage];
   return `<div class="card prov" data-id="${p.id}">
     <div class="prov-head">${p.face && p.face.photo ? `<img class="case-photo" src="${esc(p.face.photo)}" alt="Enrolled face of ${esc(p.name)}" title="Live enrolment selfie: compare with their ID">` : ""}<div class="grow"><h3 style="margin:0">${esc(p.name)}</h3><div class="meta">${esc(ROLE[p.role] || p.role)} · ${esc(p.email || "")} · ${esc(p.phone || "")}</div>
-      ${reg ? `<div class="meta">${esc([reg.qualification, "Reg. No. " + reg.license_no, reg.medical_council].join(" · "))}</div>` : ""}</div>
+      ${reg ? `<div class="meta">${esc([reg.qualification, "Reg. No. " + reg.license_no, reg.medical_council].join(" · "))}</div>` : ""}
+      ${p.pharmacy ? `<div class="meta">${esc([p.pharmacy.name, "Drug licence " + p.pharmacy.license_no, p.pharmacy.address].join(" · "))}</div><div class="meta">Approving lists this pharmacy for patients.</div>` : ""}</div>
       <span class="badge ${sc}">${esc(sw)}</span></div>
     <ul class="v-list">${v.checks.map((c) => { const [cls, w] = ST[c.status] || ["", c.status];
       return `<li class="v-row"><span class="badge ${cls}">${w}</span><span class="grow"><b>${esc(c.label)}</b>${c.partner ? `<span class="tiny muted"> · ${esc(c.partner)}</span>` : ""}${c.reference ? `<span class="tiny muted"> · ref ${esc(c.reference)}</span>` : ""}<span class="tiny muted v-sum">${esc(c.summary)}</span></span></li>`; }).join("")}</ul>

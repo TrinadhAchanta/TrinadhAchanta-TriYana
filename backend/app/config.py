@@ -26,6 +26,22 @@ log = logging.getLogger("triyana.config")
 PROVIDER_APP_NAME = "Triyana Heros"
 PROVIDER_APP_SHORT = "Heros"
 
+# One-job apps split out of Heros: same screens, but each signs in only its own people and installs on
+# its own home-screen icon. Change a name here and its pages, manifest and messages follow.
+# Key = the app's address (/pharmacy, /rider) and the X-Triyana-App value; roles = who may sign in.
+ROLE_APPS = {
+    "pharmacy": {"name": "Triyana Pharmacy", "short": "Pharmacy", "roles": ("pharmacist",),
+                 "tagline": "For partner pharmacies: approve, pack and send medicine orders",
+                 "description": "For Triyana partner pharmacists: review prescription orders, pack them, "
+                                "hand them to a rider or launch a drone.",
+                 "theme": "#0f2a1f"},
+    "rider": {"name": "Triyana Rider", "short": "Rider", "roles": ("courier",),
+              "tagline": "For delivery riders: pick up and deliver medicines",
+              "description": "For Triyana delivery riders: go online, accept nearby medicine deliveries, "
+                             "navigate and hand over with the patient's 4-digit code.",
+              "theme": "#1f1a0a"},
+}
+
 DEFAULT_SECRET = "triyana-demo-secret-change-me"
 MIN_SECRET_LEN = 32
 

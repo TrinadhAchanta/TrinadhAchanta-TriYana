@@ -4,8 +4,16 @@
 const APP = document.body.dataset.app || "patient"; // "patient" = Triyana, "provider" = the provider app
 /* The provider app's name comes from the server (backend/app/config.py PROVIDER_APP_NAME). */
 const PROVIDER_APP = document.querySelector('meta[name="provider-app"]')?.content.replace(/^__.*__$/, "") || "Triyana Heros";
+const APP_NAMES = document.querySelector('meta[name="provider-app"]')?.dataset || {};
+const HEROS_APP_NAME = (APP_NAMES.heros || "").replace(/^__.*__$/, "") || "Triyana Heros";
+const PHARMACY_APP_NAME = (APP_NAMES.pharmacy || "").replace(/^__.*__$/, "") || "Triyana Pharmacy";
+const RIDER_APP_NAME = (APP_NAMES.rider || "").replace(/^__.*__$/, "") || "Triyana Rider";
 const state = { token: null, role: null, name: "", unread: 0, tab: null, ctx: {}, accounts: [], currency: "INR", timers: [], cleanups: [] };
-const TOKEN_KEY = `triyana.${APP}.token`;
+/* Triyana Pharmacy (/pharmacy) and Triyana Rider (/rider) are one-job versions of the provider app: same
+   screens, but only pharmacists or only riders sign in, with their own saved sign-in and home-screen icon. */
+const ROLE_APP = document.body.dataset.roleApp || "";
+const APP_ID = ROLE_APP || APP; // what the server is told: patient, provider, pharmacy or rider
+const TOKEN_KEY = `triyana.${APP_ID}.token`;
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const view = () => $("#view");
@@ -76,7 +84,7 @@ async function api(path, opts = {}) {
   const res = await fetch(path, {
     method: opts.method || "GET",
     cache: "no-store", // live data: never show a stale list of requests
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${state.token}`, "X-Triyana-App": APP },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${state.token}`, "X-Triyana-App": APP_ID },
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
   const data = await res.json().catch(() => ({}));
@@ -117,7 +125,7 @@ const GREETING = () => { const h = new Date().getHours(); return h < 12 ? "Good 
 async function boot() {
   ["#markA", "#markB"].forEach((s) => ($(s).innerHTML = ic("logo")));
   $("#flagIco").innerHTML = ic("info");
-  const r = await fetch(`/api/demo/accounts?app=${APP}`);
+  const r = await fetch(`/api/demo/accounts?app=${APP_ID}`);
   state.accounts = r.ok ? await r.json() : [];
   const opts = state.accounts.map((a) => `<option value="${esc(a.token)}">${esc(a.label)}</option>`).join("");
   $("#account").innerHTML = opts; $("#accountMobile").innerHTML = opts;
@@ -285,8 +293,15 @@ SCREENS.home = async () => {
       <div class="list-item"><div class="avatar">${ic(n.link.startsWith("order") ? "truck" : n.link.startsWith("cart") ? "rx" : n.link.startsWith("visit") ? "stethoscope" : n.link.startsWith("physio") ? "heart" : "info")}</div>
         <div class="grow"><div class="row between"><b>${esc(n.title)}</b><span class="tiny muted">${when(n.at)}</span></div>
         <div class="small muted">${esc(n.body)}</div></div></div>`).join("")}</div>` : ""}
+    <div class="section-title">Work with Triyana</div>
     <a class="card heros-join" href="/provider"><span class="avatar">${ic("stethoscope")}</span>
-      <span class="grow"><b>${esc(PROVIDER_APP)}</b><span class="small muted">Doctor, physio, rider or sample collector? Join ${esc(PROVIDER_APP)} and earn with Triyana.</span></span>
+      <span class="grow"><b>${esc(HEROS_APP_NAME)}</b><span class="small muted">Doctor, physio or sample collector? Join ${esc(HEROS_APP_NAME)} and earn with Triyana.</span></span>
+      <span class="heros-go">Open →</span></a>
+    <a class="card heros-join" href="/pharmacy"><span class="avatar">${ic("store")}</span>
+      <span class="grow"><b>${esc(PHARMACY_APP_NAME)}</b><span class="small muted">Own a pharmacy? Get medicine orders from patients nearby.</span></span>
+      <span class="heros-go">Open →</span></a>
+    <a class="card heros-join" href="/rider"><span class="avatar">${ic("truck")}</span>
+      <span class="grow"><b>${esc(RIDER_APP_NAME)}</b><span class="small muted">Have a bike or scooter? Deliver medicines and earn per trip.</span></span>
       <span class="heros-go">Open →</span></a>`;
   $$("[data-go]").forEach((b) => (b.onclick = () => go(b.dataset.go)));
   wireServices();
@@ -1133,7 +1148,7 @@ SCREENS.privacy = async () => {
 SCREENS.queue = async () => {
   const orders = await api("/api/pharmacy/orders");
   const open = orders.filter((o) => ["prescription_received", "pharmacist_reviewing", "awaiting_clarification"].includes(o.status)).length;
-  view().innerHTML = `<section class="hero"><div class="eyebrow">${esc(state.name)}</div><h1>Prescription order queue</h1><p>Validate prescriptions, review requested quantities, then approve, adjust or reject as legally appropriate.</p>
+  view().innerHTML = verifyBanner({}) + `<section class="hero"><div class="eyebrow">${esc(state.name)}</div><h1>Prescription order queue</h1><p>Validate prescriptions, review requested quantities, then approve, adjust or reject as legally appropriate.</p>
     <div class="stats"><div class="stat"><b>${open}</b><span>Awaiting review</span></div><div class="stat"><b>${orders.filter((o) => ["order_accepted", "preparing"].includes(o.status)).length}</b><span>To prepare</span></div><div class="stat"><b>${orders.filter((o) => o.status === "delivered" || o.status === "picked_up").length}</b><span>Completed</span></div></div></section>` +
     (orders.map((o) => `<article class="card" data-order="${o.id}"><div class="card-head"><div class="row"><div class="avatar">${esc(initials(o.patient.name))}</div><div><h3>${esc(o.order_no)} · ${esc(o.patient.name)}</h3>
       <div class="meta">${o.prescription ? `<span>${ic("rx")} ${esc(o.prescription.reference_no)}</span><span>${ic("stethoscope")} ${esc(o.prescription.doctor)}</span>` : `<span>${ic("bag")} Shop order · over the counter</span>`}<span>${ic(o.fulfillment === "pickup" ? "bag" : "truck")} ${esc(o.fulfillment)}${o.delivery_option ? " · " + esc(o.delivery_option.replace("_", " ")) : ""}</span></div></div></div>

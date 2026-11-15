@@ -31,7 +31,8 @@ from sqlalchemy.orm import Session
 from .. import audit, config
 from ..errors import Conflict, DomainError, Forbidden, NotFound, Unprocessable
 from ..adapters import sms
-from ..models import AuthSession, Doctor, Patient, PhoneOtp, Physiotherapist, Role, User, utcnow
+from ..models import (AuthSession, Doctor, Patient, Pharmacy, PharmacyInventory, PhoneOtp, Physiotherapist, Role,
+                      User, utcnow)
 
 SESSION_DAYS = 30
 SESSION_PREFIX = "tys_"
@@ -39,7 +40,7 @@ SESSION_PREFIX = "tys_"
 DEFAULT_POINT = (17.4440, 78.3600)
 DEFAULT_JURISDICTION = "DEMO-IN"
 PROVIDER_SIGNUP_ROLES = {"doctor": Role.doctor, "physio": Role.physio, "courier": Role.courier,
-                         "phlebotomist": Role.phlebotomist}
+                         "phlebotomist": Role.phlebotomist, "pharmacist": Role.pharmacist}
 PROVIDER_ROLES = (Role.doctor, Role.courier, Role.pharmacist, Role.phlebotomist, Role.physio)
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
@@ -133,9 +134,21 @@ def _app_of(role) -> str:
     return "provider" if role in PROVIDER_ROLES else "patient"
 
 
+def family(app: str | None) -> str | None:
+    """The Pharmacy and Rider apps are one-job versions of the provider app: same accounts, same phone rule."""
+    return "provider" if app in config.ROLE_APPS else app
+
+
+def wrong_role_app_message(app: str) -> str:
+    ra = config.ROLE_APPS[app]
+    return (f"{ra['name']} is only for {'pharmacists' if app == 'pharmacy' else 'delivery riders'}. "
+            f"Doctors, physios and sample collectors use {config.PROVIDER_APP_NAME}; patients use the Triyana app.")
+
+
 def _phone_taken(db: Session, phone: str, except_user: int | None = None, app: str | None = None) -> bool:
     """A mobile number can hold one Triyana (patient) account and one provider-app account,
     so a doctor can also be a patient. Phones are never a sign-in credential."""
+    app = family(app)
     q = select(User).where(User.phone == phone, User.phone_verified_at.isnot(None))
     if except_user:
         q = q.where(User.id != except_user)
@@ -264,7 +277,9 @@ def close_session(db: Session, token: str) -> None:
 
 
 def check_app(user: User, app: str) -> None:
-    if app == "provider" and user.role not in PROVIDER_ROLES:
+    if app in config.ROLE_APPS and user.role.value not in config.ROLE_APPS[app]["roles"]:
+        raise Forbidden("wrong_app", wrong_role_app_message(app))
+    if family(app) == "provider" and user.role not in PROVIDER_ROLES:
         raise Forbidden("wrong_app", "This email is a patient account, so it can't sign in here. To work as a doctor "
                         "or rider, tap Create account and use a different email. "
                         "You can keep the same mobile number.")
@@ -277,6 +292,39 @@ def check_app(user: User, app: str) -> None:
 # ---------------------------------------------------------------- register
 def _email_taken(db: Session, email: str) -> bool:
     return db.scalars(select(User).where(func.lower(User.email) == email)).first() is not None
+
+
+def _register_pharmacy(db: Session, body: dict, lat: float, lng: float) -> Pharmacy:
+    """A pharmacist signing up registers their store. Patients never see it until Triyana approves the
+    pharmacist (which marks the drug licence verified). In the demo it starts with a copy of a partner
+    pharmacy's stock list so it can take orders right away; a real store loads its own stock."""
+    p = body.get("pharmacy") or {}
+    store = (p.get("name") or "").strip()
+    licence = (p.get("license_no") or "").strip().upper()
+    address = (body.get("address") or "").strip()
+    if len(store) < 2:
+        raise Unprocessable("pharmacy_required", "Enter your pharmacy's name.")
+    if len(licence) < 4:
+        raise Unprocessable("registration_required", "Enter your drug licence number (Form 20/21) so we can verify your pharmacy.")
+    if len(address) < 5:
+        raise Unprocessable("address_required", "Enter your pharmacy's address so riders can pick up orders.")
+    if db.scalars(select(Pharmacy).where(Pharmacy.license_no == licence)).first():
+        raise Conflict("licence_taken", "A pharmacy with this drug licence number already has an account.")
+    ph = Pharmacy(name=store[:120], license_no=licence[:40], license_verified=False,
+                  business_reg_no=(p.get("gstin") or "").strip().upper()[:40] or "-", jurisdiction=DEFAULT_JURISDICTION,
+                  address=address[:200], lat=lat, lng=lng, service_radius_km=6, opens_at=8, closes_at=22,
+                  rating=0, rating_count=0, delivery_fee=25, prep_minutes=20, allows_partial_dispensing=True,
+                  delivery_options=["standard", "same_day", "scheduled"], integration="mock-live")
+    db.add(ph)
+    db.flush()
+    if config.is_demo():
+        model = db.scalars(select(Pharmacy).where(Pharmacy.license_verified.is_(True), Pharmacy.integration == "mock-live")
+                           .order_by(Pharmacy.id)).first()
+        if model:
+            for inv in db.scalars(select(PharmacyInventory).where(PharmacyInventory.pharmacy_id == model.id)):
+                db.add(PharmacyInventory(pharmacy_id=ph.id, medication_id=inv.medication_id,
+                                         units_in_stock=inv.units_in_stock, unit_price=inv.unit_price, verified_at=utcnow()))
+    return ph
 
 
 def register(db: Session, body: dict) -> tuple[User, str]:
@@ -300,6 +348,8 @@ def register(db: Session, body: dict) -> tuple[User, str]:
     user = User(name=name, email=email, password_hash=hash_password(body["password"]),
                 phone=phone, phone_verified_at=utcnow(), token="acct-" + secrets.token_hex(24),
                 created_at=utcnow())
+    if app in config.ROLE_APPS:  # the Pharmacy app signs up pharmacists, the Rider app riders
+        body = {**body, "role": config.ROLE_APPS[app]["roles"][0]}
     if app == "patient":
         address = (body.get("address") or "").strip()
         if len(address) < 5:
@@ -314,7 +364,7 @@ def register(db: Session, body: dict) -> tuple[User, str]:
     else:
         role = PROVIDER_SIGNUP_ROLES.get(body.get("role") or "")
         if not role:
-            raise Unprocessable("role_required", "Choose whether you are a doctor, courier or sample collector.")
+            raise Unprocessable("role_required", "Choose whether you are a doctor, physio, rider, pharmacist or sample collector.")
         user.role, user.verification_status = role, "pending"
         user.lat, user.lng = lat, lng
         user.vehicle = (body.get("vehicle") or ("Car" if role == Role.doctor else "Bike")).strip()[:40]
@@ -364,6 +414,8 @@ def register(db: Session, body: dict) -> tuple[User, str]:
             db.add(ph)
             db.flush()
             user.physio_id = ph.id
+        elif role == Role.pharmacist:
+            user.pharmacy_id = _register_pharmacy(db, body, lat, lng).id
     db.add(user)
     db.flush()
     audit.record(db, user, "account.registered", "user", user.id, app=app, role=user.role.value)
@@ -471,6 +523,10 @@ def account_dict(db: Session, user: User) -> dict:
         ph = db.get(Physiotherapist, user.physio_id)
         out["physio"] = {"qualification": ph.qualification, "license_no": ph.registration_no,
                          "medical_council": ph.council, "verified": ph.verified}
+    if user.role == Role.pharmacist and user.pharmacy_id:
+        store = db.get(Pharmacy, user.pharmacy_id)
+        out["pharmacy"] = {"name": store.name, "license_no": store.license_no, "address": store.address,
+                           "license_verified": store.license_verified}
     return out
 
 
@@ -498,12 +554,27 @@ def set_verification(db: Session, user_id: int, status: str, note: str = "", act
         db.get(Doctor, user.doctor_id).license_verified = status == "verified"
     if user.physio_id:
         db.get(Physiotherapist, user.physio_id).verified = status == "verified"
+    if user.role == Role.pharmacist and user.pharmacy_id:
+        _set_pharmacy_licence(db, user, status == "verified")
     if status != "verified":
         user.on_duty = False
     audit.record(db, actor, f"provider.verification.{status}", "user", user.id, note=note,
                  **({"by": by} if by else {}))
     db.commit()
     return user
+
+
+def _set_pharmacy_licence(db: Session, user: User, ok: bool) -> None:
+    """Approving a pharmacist lists their store for patients; a store stays listed while any of its
+    pharmacists is approved."""
+    ph = db.get(Pharmacy, user.pharmacy_id)
+    if ok:
+        ph.license_verified = True
+        return
+    others = db.scalars(select(User).where(User.pharmacy_id == ph.id, User.role == Role.pharmacist, User.id != user.id,
+                                           User.verification_status == "verified")).first()
+    if not others:
+        ph.license_verified = False
 
 
 def pending_providers(db: Session, status: str = "pending") -> list[dict]:

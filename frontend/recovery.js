@@ -33,7 +33,7 @@ function forgotScreen(email) {
 }
 
 async function resetCall(path, body) {
-  const res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ app: APP, ...body }) });
+  const res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ app: APP_ID, ...body }) });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const det = data.detail || {};
