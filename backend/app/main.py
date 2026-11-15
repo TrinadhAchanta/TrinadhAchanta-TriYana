@@ -770,6 +770,8 @@ def demo_reset():
     Base.metadata.create_all(engine)
     with SessionLocal() as db:
         seed(db)
+        from .services.admins import seed_from_env
+        seed_from_env(db)
     return {"ok": True}
 
 
@@ -801,7 +803,7 @@ if FRONTEND.exists():
 
     @app.get("/admin")
     def admin_app():
-        """Triyana Ops: final review of provider verification (needs the admin key)."""
+        """Triyana Ops: provider verification, security and partners (each admin signs in with their own account)."""
         return FileResponse(FRONTEND / "admin.html")
 
     @app.get("/track/{token}")
@@ -829,3 +831,5 @@ def startup():
         from .services.face_verification import seed_demo_enrollments
         seed_demo_enrollments(db)
         db.commit()
+        from .services.admins import seed_from_env
+        seed_from_env(db)

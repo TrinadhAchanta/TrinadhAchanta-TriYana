@@ -11,9 +11,9 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..deps import current_user
-from ..errors import Forbidden, NotFound
-from ..models import Patient, User
-from ..services import accounts, verification
+from ..errors import Forbidden, NotFound, Unauthorized
+from ..models import AdminAccount, Patient, User
+from ..services import accounts, admins, verification
 
 router = APIRouter(prefix="/api", tags=["accounts"])
 
@@ -196,12 +196,94 @@ def submit_identity(body: IdentityIn, user: User = Depends(current_user), db: Se
 DEMO_ADMIN_KEY = "demo-admin"
 
 
-def _admin(x_admin_key: str | None = Header(default=None)) -> None:
+def _bootstrap_key() -> str:
     key = os.environ.get("TRIYANA_ADMIN_KEY", "")
     if not key and verification.demo_admin_key_allowed():
         key = DEMO_ADMIN_KEY  # demo site only, until TRIYANA_ADMIN_KEY is set
-    if not key or not x_admin_key or not hmac.compare_digest(key, x_admin_key):
-        raise Forbidden("forbidden", "Admin key required.")
+    return key
+
+
+def _admin(authorization: str | None = Header(default=None), x_admin_key: str | None = Header(default=None),
+           db: Session = Depends(get_db)) -> AdminAccount | None:
+    """Triyana Ops access: an admin's own login, or the shared key only until the first admin exists."""
+    if authorization and authorization.lower().startswith("bearer "):
+        a = admins.admin_for_token(db, authorization.split(" ", 1)[1].strip())
+        if a:
+            return a
+        raise Unauthorized("admin_signed_out", "Your admin session has ended. Sign in again.")
+    key = _bootstrap_key()
+    if key and x_admin_key and hmac.compare_digest(key, x_admin_key):
+        if admins.active_admins_exist(db):
+            raise Forbidden("use_admin_login", "Admins now sign in with their own email and password.")
+        return None
+    raise Forbidden("forbidden", "Admin sign-in required.")
+
+
+def _admin_name(admin: AdminAccount | None) -> str:
+    return admin.email if admin else "admin key"
+
+
+class AdminLoginIn(BaseModel):
+    email: str = Field(max_length=254)
+    password: str = Field(max_length=200)
+
+
+class AdminIn(BaseModel):
+    name: str = Field("", max_length=120)
+    email: str = Field(max_length=254)
+    password: str = Field(max_length=200)
+
+
+@router.get("/admin/setup")
+def admin_setup(db: Session = Depends(get_db)):
+    """What the /admin sign-in screen should show: the login form, or first-admin setup with the key."""
+    return {"needs_first_admin": not admins.active_admins_exist(db), "bootstrap_key_set": bool(_bootstrap_key()),
+            "demo_key": bool(verification.demo_admin_key_allowed())}
+
+
+@router.post("/admin/login")
+def admin_login(body: AdminLoginIn, db: Session = Depends(get_db)):
+    a, token = admins.login(db, body.email, body.password)
+    return {"token": token, "admin": admins.admin_dict(a)}
+
+
+@router.post("/admin/logout")
+def admin_logout(authorization: str | None = Header(default=None), db: Session = Depends(get_db)):
+    if authorization and authorization.lower().startswith("bearer "):
+        admins.logout(db, authorization.split(" ", 1)[1].strip())
+    return {"ok": True}
+
+
+@router.get("/admin/me")
+def admin_me(admin: AdminAccount | None = Depends(_admin)):
+    return {"admin": admins.admin_dict(admin) if admin else None, "bootstrap": admin is None}
+
+
+@router.get("/admin/admins", dependencies=[Depends(_admin)])
+def list_admins(db: Session = Depends(get_db)):
+    return admins.list_admins(db)
+
+
+@router.post("/admin/admins", status_code=201)
+def add_admin(body: AdminIn, admin: AdminAccount | None = Depends(_admin), db: Session = Depends(get_db)):
+    return admins.add_admin(db, body.name, body.email, body.password, by=_admin_name(admin))
+
+
+@router.post("/admin/admins/{admin_id}/remove")
+def remove_admin(admin_id: int, admin: AdminAccount | None = Depends(_admin), db: Session = Depends(get_db)):
+    if admin is None:
+        raise Forbidden("use_admin_login", "Sign in with your own admin account to remove admins.")
+    return admins.remove_admin(db, admin_id, admin)
+
+
+@router.post("/admin/password")
+def admin_password(body: PasswordIn, authorization: str | None = Header(default=None),
+                   admin: AdminAccount | None = Depends(_admin), db: Session = Depends(get_db)):
+    if admin is None:
+        raise Forbidden("use_admin_login", "Sign in with your own admin account first.")
+    admins.change_password(db, admin, body.current_password, body.new_password,
+                           keep_token=authorization.split(" ", 1)[1].strip())
+    return {"ok": True}
 
 
 @router.get("/admin/providers/pending", dependencies=[Depends(_admin)])
@@ -209,10 +291,10 @@ def pending(status: Literal["pending", "rejected", "verified"] = "pending", db: 
     return accounts.pending_providers(db, status)
 
 
-@router.post("/admin/providers/{user_id}/verification", dependencies=[Depends(_admin)])
-def verify(user_id: int, body: VerifyIn, db: Session = Depends(get_db)):
+@router.post("/admin/providers/{user_id}/verification")
+def verify(user_id: int, body: VerifyIn, admin: AdminAccount | None = Depends(_admin), db: Session = Depends(get_db)):
     user = accounts.set_verification(db, user_id, body.status, body.note, override=body.override,
-                                     require_checks=True)
+                                     require_checks=True, by=_admin_name(admin))
     return accounts.account_dict(db, user) | {"verification": verification.status(db, user)}
 
 

@@ -15,6 +15,10 @@ class NotFound(DomainError):
     status_code = 404
 
 
+class Unauthorized(DomainError):
+    status_code = 401
+
+
 class Forbidden(DomainError):
     status_code = 403
 

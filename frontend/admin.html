@@ -31,22 +31,36 @@
     .prov-actions label.meta { display: inline-flex; gap: 6px; align-items: center; flex: none; margin: 0; }
     .prov-actions label.meta input { flex: none; min-width: 0; }
     .prov-actions label.meta input[type=checkbox] { width: 18px; height: 18px; }
+    .admin-form { display: grid; gap: 10px; max-width: 420px; }
+    .who { display: flex; gap: 10px; align-items: center; justify-content: flex-end; margin: 0 0 12px; flex-wrap: wrap; }
   </style>
 </head>
 <body>
 <main class="ops">
   <div class="page-head"><div><h1 id="pageTitle">Provider verification</h1><p id="pageSub">Partner checks come in automatically. You give the final approval.</p></div></div>
   <div class="card" id="keyCard">
-    <form class="row" id="keyForm" style="gap:10px;flex-wrap:wrap">
-      <input id="key" type="password" placeholder="Admin key" autocomplete="current-password" style="flex:1;min-width:200px">
-      <button class="btn primary">Open</button>
+    <form id="loginForm" class="admin-form">
+      <h3 style="margin:0">Sign in to Triyana Ops</h3>
+      <input id="email" type="email" placeholder="Admin email" autocomplete="username" required>
+      <input id="password" type="password" placeholder="Password" autocomplete="current-password" required>
+      <button class="btn primary">Sign in</button>
+      <p class="tiny muted" style="margin:0">Each admin has their own login. Ask another admin to add you or reset your password.</p>
     </form>
-    <p class="tiny muted" id="keyHint" style="margin:8px 0 0">Use the TRIYANA_ADMIN_KEY set on the server. On the demo site, before a key is set, use <b>demo-admin</b>.</p>
+    <form id="setupForm" class="admin-form" hidden>
+      <h3 style="margin:0">Create the first admin account</h3>
+      <p class="tiny muted" style="margin:0" id="setupHint">No admin accounts exist yet. Enter the server's admin key once, then make your own login. After this, the key stops working and everyone signs in with their own account.</p>
+      <input id="key" type="password" placeholder="Admin key" autocomplete="off" required>
+      <input id="sName" placeholder="Your name" maxlength="120" required autocomplete="name">
+      <input id="sEmail" type="email" placeholder="Your email" required autocomplete="username">
+      <input id="sPassword" type="password" placeholder="Password (8+ characters, letters and numbers)" required autocomplete="new-password">
+      <button class="btn primary">Create my admin login</button>
+    </form>
   </div>
   <div id="main" hidden>
-    <div class="areas"><button class="btn sm on" data-area="providers">Providers</button><button class="btn sm" data-area="identity">Identity &amp; security <span class="badge bad" id="caseCount" hidden></span></button><button class="btn sm" data-area="log">Face check log</button><button class="btn sm" data-area="partners">Partners</button></div>
+    <div class="areas"><button class="btn sm on" data-area="providers">Providers</button><button class="btn sm" data-area="identity">Identity &amp; security <span class="badge bad" id="caseCount" hidden></span></button><button class="btn sm" data-area="log">Face check log</button><button class="btn sm" data-area="partners">Partners</button><button class="btn sm" data-area="admins">Admins</button></div>
+    <div class="who"><span class="meta" id="who"></span><button class="btn sm" id="lock">Sign out</button></div>
     <div id="idTabs" class="ops-tabs" hidden><button class="btn sm on" data-c="open">Open cases</button><button class="btn sm" data-c="resolved">Resolved</button></div>
-    <div class="ops-tabs" id="provTabs"><button class="btn sm on" data-s="pending">Waiting</button><button class="btn sm" data-s="rejected">Rejected</button><button class="btn sm" data-s="verified">Approved</button><span class="grow"></span><button class="btn sm" id="lock">Lock</button></div>
+    <div class="ops-tabs" id="provTabs"><button class="btn sm on" data-s="pending">Waiting</button><button class="btn sm" data-s="rejected">Rejected</button><button class="btn sm" data-s="verified">Approved</button></div>
     <div id="list"></div>
   </div>
 </main>
@@ -55,14 +69,15 @@
 <script>
 const $ = (s) => document.querySelector(s);
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-let key = ""; try { key = sessionStorage.getItem("triyana-admin") || ""; } catch {}
+let token = ""; try { token = sessionStorage.getItem("triyana-admin-token") || ""; sessionStorage.removeItem("triyana-admin"); } catch {}
+let me = null;
 let tab = "pending", area = "providers", caseTab = "open";
 const ROLE = { doctor: "Doctor", physio: "Physiotherapist", courier: "Delivery rider", phlebotomist: "Sample collector", pharmacist: "Pharmacist" };
 const ST = { passed: ["good", "Passed"], needs_review: ["warn", "Needs review"], failed: ["bad", "Failed"], error: ["warn", "Partner error"], in_progress: ["", "Checking"], not_started: ["", "Not started"] };
 const STAGE = { needs_documents: ["", "Waiting for provider's ID"], checking: ["", "Checks running"], ready_for_review: ["good", "Ready to approve"], flagged: ["warn", "Flagged"], rejected: ["bad", "Rejected"], verified: ["good", "Approved"] };
 function toast(m) { const t = $("#toast"); t.textContent = m; t.classList.add("show"); setTimeout(() => t.classList.remove("show"), 3500); }
 async function call(path, body) {
-  const r = await fetch(path, { method: body ? "POST" : "GET", headers: { "Content-Type": "application/json", "X-Admin-Key": key }, body: body ? JSON.stringify(body) : undefined });
+  const r = await fetch(path, { method: body ? "POST" : "GET", headers: { "Content-Type": "application/json", ...(token ? { Authorization: "Bearer " + token } : {}) }, body: body ? JSON.stringify(body) : undefined });
   const d = await r.json().catch(() => ({}));
   if (!r.ok) { const e = new Error((d.detail && d.detail.message) || "Something went wrong."); e.status = r.status; e.code = d.detail && d.detail.code; throw e; }
   return d;
@@ -148,8 +163,49 @@ async function loadPartners() {
     try { await call(`/api/admin/partners/${o.id}`, body); toast("Saved."); load(); } catch (err) { toast(err.message); }
   });
 }
+async function loadAdmins() {
+  const rows = await call("/api/admin/admins");
+  const when = (iso) => iso ? new Date(iso).toLocaleString() : "never";
+  $("#list").innerHTML = `<form class="card prov" id="newAdmin"><h3 style="margin:0">Add an admin</h3>
+      <div class="prov-actions"><input name="name" placeholder="Name" maxlength="120" required><input name="email" type="email" placeholder="Email" required autocomplete="off"></div>
+      <div class="prov-actions"><input name="password" type="password" placeholder="Starting password (8+ characters, letters and numbers)" required autocomplete="new-password"><button class="btn primary sm">Add admin</button></div>
+      <p class="tiny muted" style="margin:0">Share the starting password with them privately. They can change it here under "My password".</p></form>
+    ${rows.filter((a) => a.active).map((a) => `<div class="card prov" data-admin="${a.id}"><div class="prov-head"><div class="grow"><h3 style="margin:0">${esc(a.name)}${me && a.id === me.id ? " (you)" : ""}</h3>
+        <div class="meta">${esc(a.email)} · last sign-in ${esc(when(a.last_login_at))}</div>
+        <div class="meta">${a.from_env ? "Set on the server (TRIYANA_ADMINS): comes back after a restart while listed there" : `Added by ${esc(a.created_by || "—")}`}</div></div>
+        ${me && a.id !== me.id ? `<button class="btn sm danger" data-rm="${a.id}">Remove</button>` : ""}</div></div>`).join("")}
+    <form class="card prov" id="myPassword"><h3 style="margin:0">My password</h3>
+      <div class="prov-actions"><input name="current" type="password" placeholder="Current password" required autocomplete="current-password"><input name="next" type="password" placeholder="New password" required autocomplete="new-password"><button class="btn sm">Change</button></div>
+      <p class="tiny muted" style="margin:0">Changing it signs you out on every other device.</p></form>`;
+  $("#newAdmin").onsubmit = async (e) => {
+    e.preventDefault(); const f = e.target.elements;
+    try { await call("/api/admin/admins", { name: f.name.value, email: f.email.value, password: f.password.value }); toast("Admin added. They can sign in now."); load(); }
+    catch (err) { toast(err.message); }
+  };
+  $("#myPassword").onsubmit = async (e) => {
+    e.preventDefault(); const f = e.target.elements;
+    try { await call("/api/admin/password", { current_password: f.current.value, new_password: f.next.value }); toast("Password changed."); e.target.reset(); }
+    catch (err) { toast(err.message); }
+  };
+  document.querySelectorAll("[data-rm]").forEach((b) => b.onclick = async () => {
+    const a = rows.find((x) => x.id === +b.dataset.rm);
+    if (!confirm(`Remove ${a.name} (${a.email}) as an admin? They are signed out at once.`)) return;
+    try { await call(`/api/admin/admins/${a.id}/remove`, {}); toast("Admin removed."); load(); } catch (err) { toast(err.message); }
+  });
+}
+function signedOut() {
+  token = ""; me = null; try { sessionStorage.removeItem("triyana-admin-token"); } catch {}
+  $("#keyCard").hidden = false; $("#main").hidden = true;
+  fetch("/api/admin/setup").then((r) => r.json()).then((s) => {
+    $("#setupForm").hidden = !s.needs_first_admin; $("#loginForm").hidden = !!s.needs_first_admin;
+    if (s.needs_first_admin && s.demo_key) $("#setupHint").innerHTML += " On the demo site, before a key is set, the key is <b>demo-admin</b>.";
+  }).catch(() => {});
+}
 async function load() {
+  if (!token) { signedOut(); return; }
   try {
+    if (!me) { me = (await call("/api/admin/me")).admin; $("#who").textContent = me ? `Signed in as ${me.name} (${me.email})` : ""; }
+    if (area === "admins") { $("#pageTitle").textContent = "Admins"; $("#pageSub").textContent = "Everyone who can sign in to Triyana Ops. Each person has their own login."; $("#provTabs").hidden = true; $("#idTabs").hidden = true; await loadAdmins(); $("#keyCard").hidden = true; $("#main").hidden = false; return; }
     const head = { providers: ["Provider verification", "Partner checks come in automatically. You give the final approval."], identity: ["Identity & security", "Face-check alerts, lockouts and recovery. Only Triyana's security team should act here."], log: ["Face check log", "Every live face check: outcome, scores and time."], partners: ["Partner organisations", "Housing societies, offices and old-age homes whose members get discounts and priority."] }[area];
     $("#pageTitle").textContent = head[0]; $("#pageSub").textContent = head[1];
     $("#provTabs").hidden = area !== "providers"; $("#idTabs").hidden = area !== "identity";
@@ -161,12 +217,28 @@ async function load() {
     $("#list").innerHTML = rows.length ? rows.map(card).join("") : `<div class="card empty"><h3>Nothing here</h3><p class="small">No providers in this list.</p></div>`;
     call("/api/admin/identity/cases?status=open").then((cs) => { const n = cs.filter((c) => c.blocking).length; $("#caseCount").hidden = !n; $("#caseCount").textContent = n; }).catch(() => {});
   } catch (e) {
-    $("#keyCard").hidden = false; $("#main").hidden = true;
-    if (key) toast(e.status === 403 ? "That admin key is not right." : e.message);
+    if (e.status === 401 || e.status === 403) { if (e.status === 401) toast("You were signed out. Sign in again."); signedOut(); }
+    else toast(e.message);
   }
 }
-$("#keyForm").onsubmit = (e) => { e.preventDefault(); key = $("#key").value.trim(); try { sessionStorage.setItem("triyana-admin", key); } catch {} load(); };
-$("#lock").onclick = () => { key = ""; try { sessionStorage.removeItem("triyana-admin"); } catch {} $("#key").value = ""; load(); };
+function start(t) { token = t; me = null; try { sessionStorage.setItem("triyana-admin-token", t); } catch {} load(); }
+$("#loginForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const r = await fetch("/api/admin/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: $("#email").value, password: $("#password").value }) });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { toast((d.detail && d.detail.message) || "Couldn't sign in."); return; }
+  $("#password").value = ""; start(d.token);
+};
+$("#setupForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const email = $("#sEmail").value, password = $("#sPassword").value;
+  const r = await fetch("/api/admin/admins", { method: "POST", headers: { "Content-Type": "application/json", "X-Admin-Key": $("#key").value.trim() }, body: JSON.stringify({ name: $("#sName").value, email, password }) });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { toast(r.status === 403 && d.detail && d.detail.code === "forbidden" ? "That admin key is not right." : (d.detail && d.detail.message) || "Something went wrong."); return; }
+  const l = await fetch("/api/admin/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) }).then((x) => x.json());
+  $("#key").value = ""; $("#sPassword").value = ""; toast("Your admin login is ready."); start(l.token);
+};
+$("#lock").onclick = () => { if (token) fetch("/api/admin/logout", { method: "POST", headers: { Authorization: "Bearer " + token } }).catch(() => {}); signedOut(); };
 document.querySelectorAll("[data-area]").forEach((b) => b.onclick = () => { area = b.dataset.area; document.querySelectorAll("[data-area]").forEach((x) => x.classList.toggle("on", x === b)); load(); });
 document.querySelectorAll("[data-c]").forEach((b) => b.onclick = () => { caseTab = b.dataset.c; document.querySelectorAll("[data-c]").forEach((x) => x.classList.toggle("on", x === b)); load(); });
 document.querySelectorAll(".ops-tabs [data-s]").forEach((b) => b.onclick = () => { tab = b.dataset.s; document.querySelectorAll(".ops-tabs [data-s]").forEach((x) => x.classList.toggle("on", x === b)); load(); });
