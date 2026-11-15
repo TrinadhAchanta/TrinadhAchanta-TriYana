@@ -249,9 +249,14 @@ function visitCard(v) {
       <div class="meta">${v.sos ? `<span class="badge bad">SOS</span>` : ""}${v.patient && v.patient.self === false ? `<span class="badge info">${ic("users")} For ${esc(v.patient.name.split(" ")[0])}${v.patient.relation ? ` (${esc(v.patient.relation)})` : ""}</span>` : ""}${v.doctor ? `<span>${ic("stethoscope")} ${esc(v.doctor.specialty)}</span>` : `<span>${ic("bolt")} Doctor now</span>`}<span>${ic("clock")} ${when(v.scheduled_for)}</span>${v.follow_up_of ? `<span class="badge premium">${ic("later")} Follow-up</span>` : ""}</div></div></div>
       <span class="badge ${cls}">${ic(icon)} ${label}</span></div>
     <div class="instructions"><b>Reason:</b> ${esc(v.reason)}</div>
+    ${heroCancelNotice(v.cancelled_by_hero)}
     <div class="row between small" style="margin-top:10px"><span class="muted">${ic("pin")} ${esc(v.address)}</span>${billLine(v)}</div>
     <div class="actions-bar">${v.status === "requested" && v.on_demand || v.status === "accepted" ? `<button class="btn primary sm" data-live-visit="${v.id}">${ic("pin")} ${v.on_demand ? "Track live" : "Live map"}</button>` : ""}
     ${v.can_cancel ? `<button class="btn ghost sm danger" data-cancel="${v.id}">${ic("x")} Cancel booking</button>` : ""}</div></article>`;
+}
+// A Hero cancelled at the patient's door: show why (and that nothing was charged).
+function heroCancelNotice(c) {
+  return c ? `<div class="notice warn small cancel-why">${ic("alert")}<span><b>${esc(c.label)}.</b> ${esc(c.message)}</span></div>` : "";
 }
 function wireCancel(after) {
   $$("[data-live-visit]").forEach((b) => (b.onclick = () => liveScreen("visit", +b.dataset.liveVisit)));
@@ -267,6 +272,8 @@ SCREENS.home = async () => {
   const active = dash.active_orders[0];
   const upcoming = visits.filter((v) => OPEN_VISIT.includes(v.status)).sort((a, b) => a.scheduled_for.localeCompare(b.scheduled_for));
   const past = visits.filter((v) => v.status === "completed");
+  // Cancelled at the door by a Hero in the last 2 days: keep it on Home so the patient sees why.
+  const heroCancelled = visits.filter((v) => v.cancelled_by_hero && Date.now() - parseIso(v.cancelled_by_hero.at).getTime() < 2 * 864e5);
   const first = state.name.split(" ")[0];
   const activeRx = dash.prescriptions.filter((p) => p.status === "signed");
   // A signed prescription whose cart still has medicines to buy keeps a way back in, even after the alert was read.
@@ -304,6 +311,7 @@ SCREENS.home = async () => {
     ${servicesHTML()}
     <div id="perkSlot"></div>
     ${upcoming.length ? `<div class="section-title">Your upcoming visit${upcoming.length > 1 ? "s" : ""}</div>${upcoming.map(visitCard).join("")}` : ""}
+    ${heroCancelled.length ? `<div class="section-title">Cancelled at your door</div>${heroCancelled.map(visitCard).join("")}` : ""}
     ${past.length ? `<div class="section-title">Visit history</div>${past.slice(0, 5).map(pastVisitCard).join("")}` : ""}
     ${notes.length ? `<div class="section-title">Notifications</div>
     <div class="card">${notes.slice(0, 8).map((n) => `

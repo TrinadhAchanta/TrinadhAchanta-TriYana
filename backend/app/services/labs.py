@@ -433,7 +433,8 @@ def booking_to_dict(db: Session, b: LabBooking, *, for_patient: bool = True) -> 
            "created_at": b.created_at.isoformat(), "collected_at": b.collected_at.isoformat() if b.collected_at else None,
            "report_ready": b.report is not None,
            "report_eta": (b.at_lab_at + timedelta(seconds=REPORT_SECONDS)).isoformat() if b.at_lab_at and not b.report else None,
-           "can_cancel": b.status in ("booked", "assigned")}
+           "can_cancel": b.status in ("booked", "assigned"),
+           "cancelled_by_hero": dispatch._hero_cancel_for(db, "lab", b.id) if b.status == "cancelled" else None}
     if for_patient and b.status in ("booked", "assigned"):
         out["collection_code"] = b.collection_code
     return out
@@ -485,7 +486,8 @@ def live(db: Session, user: User, booking_id: int) -> dict:
             "provider_location": t["position"] if t else (list(dispatch.provider_point(db, phleb)) if phleb else None),
             "collection_code": b.collection_code if b.status in ("booked", "assigned") else None,
             "items": b.items, "fasting_hours": b.fasting_hours,
-            "report_eta": (b.at_lab_at + timedelta(seconds=REPORT_SECONDS)).isoformat() if b.at_lab_at and not b.report else None}
+            "report_eta": (b.at_lab_at + timedelta(seconds=REPORT_SECONDS)).isoformat() if b.at_lab_at and not b.report else None,
+            "cancelled_by_hero": dispatch._hero_cancel_for(db, "lab", b.id) if b.status == "cancelled" else None}
 
 
 def collector_pay(b: LabBooking) -> float:

@@ -434,6 +434,11 @@ def session_to_dict(s: PhysioSession, *, with_notes: bool = True) -> dict:
     out = {"id": s.id, "number": s.number, "status": s.status, "scheduled_for": s.scheduled_for.isoformat(),
            "started_at": s.started_at.isoformat() if s.started_at else None,
            "completed_at": s.completed_at.isoformat() if s.completed_at else None}
+    if s.status == "cancelled":
+        from sqlalchemy.orm import object_session
+        from .hero_cancel import for_job
+        db = object_session(s)
+        out["cancelled_by_hero"] = for_job(db, "physio", s.id) if db else None
     if with_notes and s.status == "completed":
         out["notes"] = {"pain_before": s.pain_before, "pain_after": s.pain_after, "exercises": s.exercises or [],
                         "notes": s.notes, "home_plan": s.home_plan, "next_focus": s.next_focus}
@@ -500,7 +505,8 @@ def live(db: Session, user: User, session_id: int) -> dict:
             "home": {"lat": p.lat, "lng": p.lng, "label": "Home", "address": b.address or p.address},
             "provider": _provider_card(db, pu), "trip": t, "providers_asked": len(_asked(db, s.id)),
             "online_nearby": online,
-            "provider_location": t["position"] if t else (list(provider_point(db, pu)) if pu else None)}
+            "provider_location": t["position"] if t else (list(provider_point(db, pu)) if pu else None),
+            "cancelled_by_hero": session_to_dict(s, with_notes=False).get("cancelled_by_hero")}
 
 
 def _pay(fee: float) -> float:

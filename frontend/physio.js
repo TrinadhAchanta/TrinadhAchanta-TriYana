@@ -154,6 +154,7 @@ async function physioBookingScreen(id) {
         <div class="meta"><span>${ic("clock")} ${s.completed_at ? when(s.completed_at) : b.on_demand && s.number === 1 && b.status === "searching" ? "As soon as possible" : when(s.scheduled_for)}</span></div></div></div>
         <span class="badge ${sc}">${sl}</span></div>
       ${sessionNotesHTML(s)}
+      ${heroCancelNotice(s.cancelled_by_hero)}
       ${["requested", "scheduled", "in_progress"].includes(s.status) && b.status !== "cancelled" ? `<div class="actions-bar">
         ${s.id === b.next_session?.id && s.status !== "in_progress" && (b.status === "active" || b.on_demand) ? `<button class="btn sm primary" data-plive="${s.id}">${ic("pin")} Live map</button>` : ""}
         ${s.status === "scheduled" && b.status === "active" ? `<button class="btn sm" data-move="${s.id}">${ic("calendar")} Move</button>` : ""}</div>` : ""}</article>`; }).join("")}

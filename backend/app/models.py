@@ -1155,3 +1155,34 @@ class AdminSession(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     expires_at: Mapped[datetime] = mapped_column(DateTime)
     revoked: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+# ------------------------------------------------------------------ Heros: cancel at the door
+class HeroCancellation(Base):
+    """A Hero (doctor, sample collector, physio) cancelled a job after reaching the patient, with a reason."""
+    __tablename__ = "hero_cancellations"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    kind: Mapped[str] = mapped_column(String(12), index=True)       # visit | lab | physio
+    job_id: Mapped[int] = mapped_column(Integer, index=True)         # home_visits / lab_bookings / physio_sessions id
+    booking_ref: Mapped[str] = mapped_column(String(24), default="")
+    provider_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    reason: Mapped[str] = mapped_column(String(24))
+    note: Mapped[str] = mapped_column(EncryptedText, default="")
+    calls: Mapped[int] = mapped_column(Integer, default=0)            # in-app call attempts before cancelling
+    waited_s: Mapped[int] = mapped_column(Integer, default=0)         # time at the door before cancelling
+    hero_paid: Mapped[float] = mapped_column(Float, default=0)        # wasted-trip pay credited to the Hero
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+
+    provider = relationship("User")
+    patient = relationship("Patient")
+
+
+class PatientCallAttempt(Base):
+    """A Hero tapped "Call patient" from the job screen (kept so a no-show cancel can show they tried)."""
+    __tablename__ = "patient_call_attempts"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    provider_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(12))
+    job_id: Mapped[int] = mapped_column(Integer, index=True)
+    at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

@@ -311,6 +311,9 @@ async function navScreen() {
     else actions = `<div class="form-grid"><label>Handover code<input id="hoCode" inputmode="numeric" maxlength="4" placeholder="4 digits"></label><label>Received by<input id="hoWho" placeholder="Name"></label></div>
       <label class="check" style="margin:10px 0"><input type="checkbox" id="hoId"><span>Photo ID checked (if required)</span></label>
       <button class="btn primary block" id="navDeliver">${ic("check")} Confirm delivery</button>`;
+    const door = doorJob(t);
+    if (door && t.arrived) actions += `<div class="door-help"><div class="small"><b>Patient not answering?</b> <span class="muted">Call them first. If you still can't go ahead, cancel with a reason.</span></div>
+      <div class="row"><button class="btn sm" id="callPt">${ic("phone")} Call patient</button><button class="btn sm danger" id="cancelJob">${ic("x")} Cancel ${DOOR_WORD[door[0]]}</button></div></div>`;
     // Keep anything already typed (e.g. the handover code) when the sheet redraws on arrival.
     const typed = {};
     $$("#navActions input").forEach((el) => { if (el.id) typed[el.id] = el.type === "checkbox" ? el.checked : el.value; });
@@ -334,6 +337,9 @@ async function navScreen() {
       toast("Delivered. Your pay was added to Earnings."); go("dash");
     });
     wireLabNav(t);
+    const door = doorJob(t);
+    const cp = $("#callPt"); if (cp && door) cp.onclick = () => guard(() => callPatient(...door));
+    const cj = $("#cancelJob"); if (cj && door) cj.onclick = () => guard(() => heroCancelSheet(...door));
   };
 
   drawRoute(); draw();
@@ -356,6 +362,63 @@ async function navScreen() {
     }
     draw();
     if (arrivedNow) { try { navigator.vibrate?.(300); } catch {} toast("You've arrived", "flag"); }
+  });
+}
+
+/* ------------------------------------------------------------------ at the door: call or cancel with a reason */
+const DOOR_WORD = { visit: "visit", lab: "collection", physio: "session" };
+function doorJob(t) {
+  if (!t || t.leg !== "to_patient") return null;
+  if (t.visit_id) return ["visit", t.visit_id];
+  if (t.lab_booking_id) return ["lab", t.lab_booking_id];
+  if (t.physio_session_id) return ["physio", t.physio_session_id];
+  return null;
+}
+async function callPatient(kind, id) {
+  const r = await post(`/api/provider/jobs/${kind}/${id}/call`);
+  if (r.phone) location.href = `tel:${r.phone}`;
+  else toast("Calling the patient. We also sent them an alert that you're at the door. (Demo: no phone number on file.)", "phone");
+  return r;
+}
+async function heroCancelSheet(kind, id) {
+  const info = await api(`/api/provider/jobs/${kind}/${id}/cancel-info`);
+  const word = DOOR_WORD[kind];
+  let pick = null, calls = info.calls, left = info.wait_left_s, timer = null;
+  const s = sheet(`<div class="sheet-head"><div><div class="eyebrow-sm">${ic("flag")} ${esc(info.patient)} · ${esc(info.booking_ref)}</div>
+      <h2>Cancel this ${word}?</h2><p class="small muted">Pick what happened. The patient sees the reason, and Triyana's team gets a record of it.</p></div>
+      <button class="x" aria-label="Close">${ic("x")}</button></div>
+    <div class="reason-list">${info.reasons.map((r) => `<button class="choice" data-code="${r.code}"><div><b>${esc(r.label)}</b><span>${esc(r.hint)}</span></div></button>`).join("")}</div>
+    <label class="field" style="margin-top:12px"><span id="hcNoteReq">Note (optional)</span><textarea id="hcNote" rows="2" maxlength="300" placeholder="For example: gate locked, rang the bell 3 times"></textarea></label>
+    <div id="hcGate"></div>
+    <button class="btn danger block" id="hcGo" disabled>${ic("x")} Cancel ${word}</button>
+    <button class="btn block" id="hcKeep">Keep waiting</button>`);
+  s.el.classList.add("over-nav");
+  const close = () => { clearInterval(timer); s.close(); };
+  $(".x", s.el).onclick = close; $("#hcKeep", s.el).onclick = close;
+  const mmss = (n) => `${Math.floor(n / 60)}:${String(n % 60).padStart(2, "0")}`;
+  const render = () => {
+    const r = info.reasons.find((x) => x.code === pick);
+    $$(".reason-list .choice", s.el).forEach((b) => b.classList.toggle("on", b.dataset.code === pick));
+    $("#hcNoteReq", s.el).textContent = pick === "other" ? "Note (required)" : "Note (optional)";
+    let gate = "", ok = !!r;
+    if (r && r.needs_call_and_wait) {
+      const called = calls > 0, waited = left <= 0;
+      ok = called && waited;
+      gate = `<div class="notice ${ok ? "good" : "info"} small">${ic(ok ? "check" : "clock")}<span>${called ? `<b>Called ${calls} time${calls > 1 ? "s" : ""}.</b>` : `<b>Call the patient first.</b>`}${waited ? " You've waited long enough at the door." : ` Please wait at the door ${mmss(left)} more.`}</span></div>
+        ${called ? "" : `<button class="btn sm" id="hcCall" style="margin:6px 0">${ic("phone")} Call patient</button>`}`;
+    }
+    if (r) gate += `<p class="tiny muted" style="margin:6px 0 0">${r.paid ? `You'll get ${money(info.hero_pay)} wasted-trip pay.` : "Triyana's team will review this and decide on pay."} The patient is not charged.</p>`;
+    $("#hcGate", s.el).innerHTML = gate;
+    const c = $("#hcCall", s.el); if (c) c.onclick = () => guard(async () => { calls = (await callPatient(kind, id)).calls; render(); });
+    $("#hcGo", s.el).disabled = !ok;
+  };
+  $$(".reason-list .choice", s.el).forEach((b) => (b.onclick = () => { pick = b.dataset.code; render(); }));
+  timer = setInterval(() => { if (!s.el.isConnected) return clearInterval(timer); if (left > 0) { left -= 1; if (pick) render(); } }, 1000);
+  $("#hcGo", s.el).onclick = () => guard(async () => {
+    const r = await post(`/api/provider/jobs/${kind}/${id}/cancel`, { reason: pick, note: $("#hcNote", s.el).value.trim() });
+    close();
+    toast(`${word[0].toUpperCase() + word.slice(1)} cancelled. The patient has been told why.${r.hero_paid ? ` ${money(r.hero_paid)} added to your earnings.` : ""}`, "check");
+    stopLive(); go("dash");
   });
 }
 
@@ -385,10 +448,10 @@ SCREENS.earnings = async () => {
     <div class="split earn-split"><div>
       <div class="section-title">Jobs</div>
       ${Object.keys(byDay).length ? Object.entries(byDay).map(([k, list]) => `<div class="card earn-day" data-k="${k}"><div class="row between"><h3>${esc(dayTitle(k))}</h3><b>${inr(list.reduce((a, j) => a + j.total, 0))}</b></div>
-        ${list.map((j) => `<details class="earn-job"><summary><span class="avatar">${ic(j.kind === "visit" ? "stethoscope" : j.kind === "lab" ? "flask" : j.kind === "physio" ? "heart" : "truck")}</span>
+        ${list.map((j) => `<details class="earn-job"><summary><span class="avatar">${ic(j.kind === "visit" ? "stethoscope" : j.kind === "lab" ? "flask" : j.kind === "physio" ? "heart" : j.kind === "no_show" ? "flag" : "truck")}</span>
             <span class="grow"><b>${esc(j.title)}</b><span class="tiny muted">${time(j.earned_at)} · ${j.distance_km} km${j.paid_out ? " · paid out" : ""}</span></span>
             <span class="amt">${inr(j.total)}</span></summary>
-          <table class="price"><tr><td>${j.kind === "visit" ? "Visit fee" : j.kind === "physio" ? "Session pay" : "Delivery pay"}</td><td>${inr(j.base)}</td></tr>
+          <table class="price"><tr><td>${j.kind === "visit" ? "Visit fee" : j.kind === "physio" ? "Session pay" : j.kind === "no_show" ? "Wasted trip pay" : j.kind === "lab" ? "Collection pay" : "Delivery pay"}</td><td>${inr(j.base)}</td></tr>
             ${j.bonus ? `<tr><td>Doctor now bonus</td><td>${inr(j.bonus)}</td></tr>` : ""}${j.tip ? `<tr><td>Tip</td><td>${inr(j.tip)}</td></tr>` : ""}
             <tr class="total"><td>You earned</td><td>${inr(j.total)}</td></tr></table></details>`).join("")}</div>`).join("")
         : empty("wallet", "No earnings yet", "Go online and complete a job. Your pay shows up here right away.")}

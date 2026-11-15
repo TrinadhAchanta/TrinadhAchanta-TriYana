@@ -86,6 +86,7 @@ function bookingCard(b) {
       <div><h3>${b.items.map((i) => esc(i.name)).join(", ")}</h3><div class="meta"><span>${ic("calendar")} ${when_}</span><span>${esc(b.booking_ref)}</span></div></div></div>
       <span class="badge ${cls}">${label}</span></div>
     ${b.collection_code ? `<div class="code-inline"><span class="tiny">Collection code</span><b>${esc(b.collection_code)}</b><span class="tiny muted">Share it with your collector at the door</span></div>` : ""}
+    ${heroCancelNotice(b.cancelled_by_hero)}
     ${b.status === "at_lab" && b.report_eta ? `<p class="small muted" style="margin:8px 0 0">${ic("clock")} Report expected around ${time(b.report_eta)} (demo labs run fast).</p>` : ""}
     <div class="actions-bar">${act}</div></article>`;
 }
@@ -179,7 +180,7 @@ function labHeadline(d) {
   const who = d.provider?.name || "Your collector";
   return ({ searching: "Finding a sample collector", waiting: "Assigning your collector", confirmed: `${who} will collect your sample`,
     on_the_way: `${who} is on the way`, arrived: `${who} is at your door`, to_lab: "Your sample is on the way to the lab",
-    testing: "Testing at the lab", done: "Your report is ready", cancelled: "This booking was cancelled" })[d.phase] || "Live tracking";
+    testing: "Testing at the lab", done: "Your report is ready", cancelled: d.cancelled_by_hero ? `Cancelled: ${d.cancelled_by_hero.label}` : "This booking was cancelled" })[d.phase] || "Live tracking";
 }
 function labSub(d) {
   return ({ searching: `Asking the nearest collector · ${d.online_nearby} online near you`,
@@ -188,7 +189,7 @@ function labSub(d) {
     arrived: "Open the door and share your collection code.",
     to_lab: `Sealed and barcoded, heading to ${shortName(d.pharmacy.label)}.`,
     testing: d.report_eta ? `Report expected around ${time(d.report_eta)}.` : "Your report will appear here.",
-    done: "Tap View report to see your results.", cancelled: "Nothing was charged. You can book again any time." })[d.phase] || "";
+    done: "Tap View report to see your results.", cancelled: d.cancelled_by_hero ? d.cancelled_by_hero.message : "Nothing was charged. You can book again any time." })[d.phase] || "";
 }
 
 async function labLiveScreen(id) {

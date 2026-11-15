@@ -744,7 +744,13 @@ def visit_view(db: Session, v: HomeVisit, patient_user: User | None) -> dict:
             "home": {"lat": p.lat, "lng": p.lng, "label": "Home", "address": v.address or p.address},
             "provider": _provider_card(db, doc_user), "trip": t, "providers_asked": asked, "identity": identity,
             "online_nearby": online_count(db, "visit", p.lat, p.lng),
-            "provider_location": t["position"] if t else (list(provider_point(db, doc_user)) if doc_user else None)}
+            "provider_location": t["position"] if t else (list(provider_point(db, doc_user)) if doc_user else None),
+            "cancelled_by_hero": _hero_cancel_for(db, "visit", v.id) if phase == "cancelled" else None}
+
+
+def _hero_cancel_for(db: Session, kind: str, job_id: int) -> dict | None:
+    from .hero_cancel import for_job
+    return for_job(db, kind, job_id)
 
 
 def order_live(db: Session, user: User, order_id: int) -> dict:
