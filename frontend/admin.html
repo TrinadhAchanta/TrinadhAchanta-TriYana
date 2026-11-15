@@ -66,6 +66,7 @@
 </main>
 <div class="toast" id="toast"></div>
 <script src="/static/pwtoggle.js"></script>
+<script src="/static/demologin.js"></script>
 <script>
 const $ = (s) => document.querySelector(s);
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -253,8 +254,18 @@ function signedOut() {
     if (s.needs_first_admin && s.demo_key) $("#setupHint").innerHTML += " On the demo site, before a key is set, the key is <b>demo-admin</b>.";
   }).catch(() => {});
 }
+/* Demo site: the shared demo login, once used in any Triyana app on this device, opens /admin by itself. */
+let demoTried = false;
+async function demoAutoSignIn() {
+  if (demoTried || !window.TriyanaDemoLogin) return false;
+  demoTried = true;
+  const d = await TriyanaDemoLogin.signIn("/api/admin/login");
+  if (!d) return false;
+  start(d.token);
+  return true;
+}
 async function load() {
-  if (!token) { signedOut(); return; }
+  if (!token) { if (!(await demoAutoSignIn())) signedOut(); return; }
   try {
     if (!me) { me = (await call("/api/admin/me")).admin; $("#who").textContent = me ? `Signed in as ${me.name} (${me.email})` : ""; }
     if (area === "admins") { $("#pageTitle").textContent = "Admins"; $("#pageSub").textContent = "Everyone who can sign in to Triyana Ops. Each person has their own login."; $("#provTabs").hidden = true; $("#idTabs").hidden = true; await loadAdmins(); $("#keyCard").hidden = true; $("#main").hidden = false; return; }
@@ -271,6 +282,7 @@ async function load() {
     $("#list").innerHTML = rows.length ? rows.map(card).join("") : `<div class="card empty"><h3>Nothing here</h3><p class="small">No providers in this list.</p></div>`;
     call("/api/admin/identity/cases?status=open").then((cs) => { const n = cs.filter((c) => c.blocking).length; $("#caseCount").hidden = !n; $("#caseCount").textContent = n; }).catch(() => {});
   } catch (e) {
+    if (e.status === 401 && await demoAutoSignIn()) return;  // the demo server restarted: sign in again by itself
     if (e.status === 401 || e.status === 403) { if (e.status === 401) toast("You were signed out. Sign in again."); signedOut(); }
     else toast(e.message);
   }
@@ -281,6 +293,7 @@ $("#loginForm").onsubmit = async (e) => {
   const r = await fetch("/api/admin/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: $("#email").value, password: $("#password").value }) });
   const d = await r.json().catch(() => ({}));
   if (!r.ok) { toast((d.detail && d.detail.message) || "Couldn't sign in."); return; }
+  if (d.demo_login && window.TriyanaDemoLogin) TriyanaDemoLogin.save($("#email").value, $("#password").value);
   $("#password").value = ""; start(d.token);
 };
 $("#setupForm").onsubmit = async (e) => {
@@ -292,7 +305,7 @@ $("#setupForm").onsubmit = async (e) => {
   const l = await fetch("/api/admin/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) }).then((x) => x.json());
   $("#key").value = ""; $("#sPassword").value = ""; toast("Your admin login is ready."); start(l.token);
 };
-$("#lock").onclick = () => { if (token) fetch("/api/admin/logout", { method: "POST", headers: { Authorization: "Bearer " + token } }).catch(() => {}); signedOut(); };
+$("#lock").onclick = () => { if (window.TriyanaDemoLogin) TriyanaDemoLogin.forget(); if (token) fetch("/api/admin/logout", { method: "POST", headers: { Authorization: "Bearer " + token } }).catch(() => {}); signedOut(); };
 document.querySelectorAll("[data-area]").forEach((b) => b.onclick = () => { area = b.dataset.area; document.querySelectorAll("[data-area]").forEach((x) => x.classList.toggle("on", x === b)); load(); });
 document.querySelectorAll("[data-c]").forEach((b) => b.onclick = () => { caseTab = b.dataset.c; document.querySelectorAll("[data-c]").forEach((x) => x.classList.toggle("on", x === b)); load(); });
 document.querySelectorAll(".ops-tabs [data-s]").forEach((b) => b.onclick = () => { tab = b.dataset.s; document.querySelectorAll(".ops-tabs [data-s]").forEach((x) => x.classList.toggle("on", x === b)); load(); });

@@ -37,6 +37,15 @@ python -c "import secrets; print(secrets.token_urlsafe(48))"
 6. Face check vendor (see `FACE_VERIFICATION.md`). Until then doctors can't start visits in live mode.
 7. Finally `TRIYANA_DEMO=0`. If the secret is missing the deploy fails and the previous version keeps running.
 
+## Shared demo login (demo site only)
+
+`TRIYANA_DEMO_LOGIN=email:password` gives one login that opens every app on the demo site: Triyana as Meera,
+Triyana Heros as Dr. Carter, Triyana Pharmacy as Ravi, Triyana Rider as Asha, and `/admin` as a "Demo login"
+admin. After it is used once, the browser keeps it and every app signs in by itself; Sign out forgets it on that
+device. The password lives only in the env var because the repo is public. With `TRIYANA_DEMO=0` it does
+nothing: logins with it fail, its admin is switched off at startup and its sessions stop working at once.
+Delete the env var when going live anyway.
+
 ## Forgot password
 
 Both apps have **Forgot password?** on the sign-in screen. We text a 6-digit code to the mobile

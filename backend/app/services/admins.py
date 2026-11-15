@@ -89,7 +89,37 @@ def seed_from_env(db: Session, raw: str | None = None) -> list[str]:
             _revoke_sessions(db, a)
             touched.append(email)
     db.commit()
+    sync_demo_admin(db)
     return touched
+
+
+def _demo_admin_off(a: AdminAccount) -> bool:
+    """A demo-login admin whose demo login is gone (live mode, or TRIYANA_DEMO_LOGIN changed or removed)."""
+    if a.created_by != config.DEMO_ADMIN_SOURCE:
+        return False
+    shared = config.demo_login()
+    return not shared or a.email != shared[0]
+
+
+def sync_demo_admin(db: Session) -> None:
+    """Demo site only: the shared demo login (config.demo_login) also opens /admin. In live mode, or once the
+    env var is removed or changed, any admin it made is switched off and signed out."""
+    shared = config.demo_login()
+    for a in db.scalars(select(AdminAccount).where(AdminAccount.created_by == config.DEMO_ADMIN_SOURCE)):
+        if _demo_admin_off(a) and a.active:
+            a.active = False
+            _revoke_sessions(db, a)
+    if shared:
+        email, password = shared
+        fp = _fingerprint(email, password)
+        a = db.scalars(select(AdminAccount).where(AdminAccount.email == email)).first()
+        if a is None:
+            db.add(AdminAccount(email=email, name="Demo login", password_hash=hash_password(password),
+                                env_fingerprint=fp, created_by=config.DEMO_ADMIN_SOURCE))
+        elif a.created_by == config.DEMO_ADMIN_SOURCE and (a.env_fingerprint != fp or not a.active):
+            a.password_hash, a.env_fingerprint, a.active = hash_password(password), fp, True
+            _revoke_sessions(db, a)
+    db.commit()
 
 
 # ------------------------------------------------------------------ sessions
@@ -98,7 +128,7 @@ def login(db: Session, email: str, password: str) -> tuple[AdminAccount, str]:
     key = f"admin:{email}"
     _check_rate(key)
     a = db.scalars(select(AdminAccount).where(AdminAccount.email == email)).first()
-    if a is None or not a.active:
+    if a is None or not a.active or _demo_admin_off(a):
         check_password(password, _DUMMY_HASH)  # same work either way, so timing doesn't reveal admins
         _fail(key)
         raise Forbidden("bad_credentials", "Wrong email or password.")
@@ -122,7 +152,7 @@ def admin_for_token(db: Session, token: str | None) -> AdminAccount | None:
     if not s or s.revoked or s.expires_at < utcnow():
         return None
     a = db.get(AdminAccount, s.admin_id)
-    return a if a and a.active else None
+    return a if a and a.active and not _demo_admin_off(a) else None
 
 
 def logout(db: Session, token: str) -> None:

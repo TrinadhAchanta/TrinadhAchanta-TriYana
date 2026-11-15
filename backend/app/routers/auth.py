@@ -135,7 +135,9 @@ def countries():
 @router.post("/auth/login")
 def login(body: LoginIn, db: Session = Depends(get_db)):
     user, token = accounts.login(db, body.email, body.password, body.app)
-    return {"token": token, "account": accounts.account_dict(db, user)}
+    # demo_login tells the app it may keep these details on this device and open every Triyana app with them.
+    return {"token": token, "account": accounts.account_dict(db, user),
+            "demo_login": accounts.is_demo_login(body.email, body.password)}
 
 
 @router.post("/auth/password/forgot")
@@ -276,7 +278,7 @@ def admin_setup(db: Session = Depends(get_db)):
 @router.post("/admin/login")
 def admin_login(body: AdminLoginIn, db: Session = Depends(get_db)):
     a, token = admins.login(db, body.email, body.password)
-    return {"token": token, "admin": admins.admin_dict(a)}
+    return {"token": token, "admin": admins.admin_dict(a), "demo_login": accounts.is_demo_login(body.email, body.password)}
 
 
 @router.post("/admin/logout")
@@ -313,6 +315,8 @@ def admin_password(body: PasswordIn, authorization: str | None = Header(default=
                    admin: AdminAccount | None = Depends(_admin), db: Session = Depends(get_db)):
     if admin is None:
         raise Forbidden("use_admin_login", "Sign in with your own admin account first.")
+    if admin.created_by == config.DEMO_ADMIN_SOURCE:
+        raise Forbidden("demo_login", "The shared demo login's password is set on the server (TRIYANA_DEMO_LOGIN).")
     admins.change_password(db, admin, body.current_password, body.new_password,
                            keep_token=authorization.split(" ", 1)[1].strip())
     return {"ok": True}

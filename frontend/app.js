@@ -135,12 +135,29 @@ async function boot() {
     if (!res.ok) { const d = (await res.json().catch(() => ({}))).detail || {}; throw new Error(d.message || "Reset is not available."); }
     toast("Demo data restored"); signIn(state.token);
   });
-  $$(".sign-out").forEach((b) => (b.onclick = signOut));
+  $$(".sign-out").forEach((b) => (b.onclick = userSignOut));
   if (APP === "patient") setupYana();
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
   let saved = null; try { saved = localStorage.getItem(TOKEN_KEY); } catch {}
   // Stay signed in: demo personas and real (email) accounts both resume from the saved session.
-  if (saved && (saved.startsWith("tys_") || state.accounts.some((a) => a.token === saved))) signIn(saved); else loginScreen();
+  if (saved && (saved.startsWith("tys_") || state.accounts.some((a) => a.token === saved))) signIn(saved);
+  else if (!(await demoAutoSignIn())) loginScreen();
+}
+
+/* Demo site: once the shared demo login has been used in any Triyana app, open this app with it too. */
+async function demoAutoSignIn() {
+  if (!state.accounts.length || !window.TriyanaDemoLogin) return false;  // demo accounts are only listed in demo mode
+  const d = await TriyanaDemoLogin.signIn("/api/auth/login", { app: APP_ID });
+  if (!d) return false;
+  await signIn(d.token);
+  toast("Signed in with the demo login");
+  return true;
+}
+
+/* The person tapped Sign out: also forget the shared demo login on this device. */
+function userSignOut() {
+  if (window.TriyanaDemoLogin) TriyanaDemoLogin.forget();
+  signOut();
 }
 
 function stopLive() {

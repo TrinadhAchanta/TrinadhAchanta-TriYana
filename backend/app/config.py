@@ -50,6 +50,25 @@ def is_demo() -> bool:
     return os.environ.get("TRIYANA_DEMO", "1") == "1"
 
 
+# One shared demo login (TRIYANA_DEMO_LOGIN="email:password") that opens every app on the demo site:
+# Triyana -> Meera (patient), Heros -> Dr. Carter, Pharmacy -> Ravi, Rider -> Asha, /admin -> a demo admin.
+# The password lives only in the env var (the repo is public). It does nothing at all in live mode.
+DEMO_LOGIN_PERSONA = {"patient": "patient", "provider": "doctor", "pharmacy": "pharmacist", "rider": "courier"}
+DEMO_ADMIN_SOURCE = "TRIYANA_DEMO_LOGIN"
+
+
+def demo_login() -> tuple[str, str] | None:
+    """(email, password) of the shared demo login, or None when it's off (live mode, unset or malformed)."""
+    raw = os.environ.get("TRIYANA_DEMO_LOGIN", "").strip()
+    if not is_demo() or ":" not in raw:
+        return None
+    email, password = raw.split(":", 1)
+    email, password = email.strip().lower(), password.strip()
+    if "@" not in email or len(password) < 8:
+        return None
+    return email, password
+
+
 def secret() -> str:
     return os.environ.get("TRIYANA_SECRET") or DEFAULT_SECRET
 
