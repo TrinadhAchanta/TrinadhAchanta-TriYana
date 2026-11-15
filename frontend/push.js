@@ -4,13 +4,13 @@
 "use strict";
 
 window.TriyanaPush = (() => {
-  const SNOOZE_KEY = `triyana.${APP}.pushSnooze`;
+  const SNOOZE_KEY = `triyana.${APP_ID}.pushSnooze`;
   const supported = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
   const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   const standalone = () => window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
   const fromB64 = (s) => { const b = atob((s + "===".slice((s.length + 3) % 4)).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from(b, (c) => c.charCodeAt(0)); };
   const sameKey = (a, b) => a && b && a.byteLength === b.byteLength && new Uint8Array(a).every((v, i) => v === b[i]);
-  const authed = (token, path, body) => fetch(path, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify(body || {}) });
+  const authed = (token, path, body) => fetch(path, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, "X-Triyana-App": APP_ID }, body: JSON.stringify(body || {}) });
 
   async function subscribe(token) {
     const reg = await navigator.serviceWorker.ready;

@@ -18,8 +18,12 @@ const PROVIDER_KINDS = [
   ["physio", "Physiotherapist", "heart", "Home therapy sessions"],
   ["courier", "Delivery rider", "truck", "Medicine deliveries"],
   ["phlebotomist", "Sample collector", "flask", "Lab sample pickups"],
+  ["pharmacist", "Pharmacy", "store", "Medicine orders from patients"],
 ];
-const auth = { mode: "signin", kind: "doctor", draft: {}, countries: [] };
+/* The Pharmacy and Rider apps sign up one kind of person only, so they skip the "I am a" picker. */
+const ROLE_APP_KIND = { pharmacy: "pharmacist", rider: "courier" }[ROLE_APP];
+const auth = { mode: "signin", kind: ROLE_APP_KIND || "doctor", draft: {}, countries: [] };
+const APP_TAGLINE = document.querySelector('meta[name="provider-app"]')?.dataset.tagline || "For doctors, physios, riders, pharmacists & sample collectors";
 
 /* ------------------------------------------------------------ country picker */
 const flagOf = (iso) => /^[A-Z]{2}$/.test(iso) ? String.fromCodePoint(...[...iso].map((c) => 127397 + c.charCodeAt(0))) : "🌐";
@@ -68,7 +72,7 @@ function renderAuth(mode) {
       <p class="tiny muted center">New to ${partner ? PROVIDER_APP : "Triyana"}? <a href="#" data-mode="signup">Create an account</a></p>
     </form>`;
 
-  const providerFields = !partner ? "" : `
+  const providerFields = !partner || ROLE_APP_KIND ? "" : `
       <div class="section-title" style="margin-top:2px">I want to sign up as</div>
       <div class="kind-pick">${PROVIDER_KINDS.map(([k, l, i, sub]) => `<button type="button" class="kind ${auth.kind === k ? "on" : ""}" data-kind="${k}">${ic(i)}<b>${l}</b><span class="tiny muted">${sub}</span></button>`).join("")}</div>`;
   const physio = auth.kind === "physio";
@@ -77,7 +81,14 @@ function renderAuth(mode) {
   const councils = dental ? ["Dental Council of India", "Telangana State Dental Council", "Andhra Pradesh State Dental Council", "Karnataka State Dental Council", "Tamil Nadu State Dental Council", "Maharashtra State Dental Council", "Delhi Dental Council", "Other state dental council"]
     : physio ? ["Indian Association of Physiotherapists (IAP)", "Telangana State Allied & Healthcare Council", "Karnataka Allied & Healthcare Council", "Maharashtra OT & PT Council", "Delhi Council for Physiotherapy & OT", "Other state council"]
     : ["National Medical Commission", "Telangana State Medical Council", "Andhra Pradesh Medical Council", "Karnataka Medical Council", "Tamil Nadu Medical Council", "Maharashtra Medical Council", "Delhi Medical Council", "Other state medical council"];
-  const doctorFields = partner && (auth.kind === "doctor" || physio) ? `
+  const pharmacyFields = partner && auth.kind === "pharmacist" ? `
+      <div class="auth-note">${ic("shield")}<span>We check your drug licence before patients can order from your pharmacy.</span></div>
+      <div class="form-grid">
+        <label class="wide">Pharmacy name<input id="store" value="${esc(d.store || "")}" placeholder="e.g. GreenLeaf Pharmacy" required></label>
+        <label>Drug licence number<input id="dl" value="${esc(d.dl || "")}" placeholder="Form 20/21 number" required></label>
+        <label>GSTIN (optional)<input id="gstin" value="${esc(d.gstin || "")}" placeholder="36ABCDE1234F1Z5"></label>
+      </div>` : "";
+  const doctorFields = pharmacyFields || (partner && (auth.kind === "doctor" || physio) ? `
       <div class="auth-note">${ic("shield")}<span>We check your registration with the ${physio ? "council" : dental ? "dental council" : "medical council"} before you can take ${physio ? "sessions" : "visits"}.</span></div>
       <div class="form-grid">
         ${physio ? "" : `<label class="wide">What kind of doctor are you?<select id="care">${Object.entries(DOCTOR_KINDS).map(([k, v]) => `<option value="${k}" ${care === k ? "selected" : ""}>${v[0]}</option>`).join("")}</select></label>`}
@@ -88,7 +99,7 @@ function renderAuth(mode) {
         ${physio ? "" : `<label>Specialty<input id="spec" value="${esc(d.spec || DOCTOR_KINDS[care][1])}"></label>`}
       </div>` : partner ? `
       <label class="field">Vehicle<select id="vehicle">${["Bike", "Scooter", "Bicycle", "Car"].map((v) => `<option ${d.vehicle === v ? "selected" : ""}>${v}</option>`).join("")}</select></label>
-      <div class="auth-note">${ic("shield")}<span>We check your ID${auth.kind === "courier" ? " and driving licence" : " and training"} before you can go online.</span></div>` : "";
+      <div class="auth-note">${ic("shield")}<span>We check your ID${auth.kind === "courier" ? " and driving licence" : " and training"} before you can go online.</span></div>` : "");
 
   const signupForm = `
     <form class="auth-form" id="authForm" novalidate>
@@ -100,7 +111,8 @@ function renderAuth(mode) {
         <p class="tiny muted" style="margin:-4px 0 0">Sent to ${esc(auth.otp.masked)}.${auth.otp.demo_code ? ` <span class="otp-demo">Demo: no real SMS is sent. Your code is <b>${esc(auth.otp.demo_code)}</b></span>` : ""}</p>` : `<p class="tiny muted" style="margin:-4px 0 0">We'll text you a code to confirm your number.</p>`}
       ${input("password", "Create a password", "password", 'autocomplete="new-password" minlength="8" required')}
       <p class="tiny muted" style="margin:-4px 0 0">At least 8 characters, with letters and numbers.</p>
-      ${partner ? input("address", "Area you work in (optional)", "text", 'placeholder="e.g. Lake View"') : `
+      ${partner && auth.kind === "pharmacist" ? input("address", "Pharmacy address", "text", 'autocomplete="street-address" required placeholder="Shop number, street, area"')
+        : partner ? input("address", "Area you work in (optional)", "text", 'placeholder="e.g. Lake View"') : `
         ${input("address", "Home address", "text", 'autocomplete="street-address" required placeholder="House, street, area"')}
         <div class="form-grid">${input("dob", "Date of birth", "date", 'max="' + new Date().toISOString().slice(0, 10) + '"')}
           <label class="field">Gender<select id="gender">${[["", "Select"], ["female", "Female"], ["male", "Male"], ["other", "Other"], ["prefer_not", "Prefer not to say"]].map(([v, l]) => `<option value="${v}" ${d.gender === v ? "selected" : ""}>${l}</option>`).join("")}</select></label></div>
@@ -122,14 +134,14 @@ function renderAuth(mode) {
     </details>` : "";
 
   $("#login").innerHTML = `<div class="login-card">
-      <div class="brand"><div class="mark">${ic("logo")}</div><div><b>${partner ? PROVIDER_APP : "Triyana"}</b><small>${partner ? "For doctors, physios, riders, pharmacists & sample collectors" : "Doctor at home in 10 min"}</small></div></div>
-      <h1>${signup ? (partner ? `Join ${PROVIDER_APP}` : "Create your account") : (partner ? "Welcome back, hero" : "Welcome to Triyana")}</h1>
-      <p class="muted">${signup ? (partner ? "Sign up with your email. Once we verify you, go online and get nearby requests." : "Sign up with your email. Your visits, prescriptions, orders and lab reports stay in your account.") : (partner ? "Sign in to go online, see your jobs and your earnings." : "Sign in, or create an account in a minute.")}</p>
+      <div class="brand"><div class="mark">${ic("logo")}</div><div><b>${partner ? PROVIDER_APP : "Triyana"}</b><small>${partner ? esc(APP_TAGLINE) : "Doctor at home in 10 min"}</small></div></div>
+      <h1>${signup ? (partner ? `Join ${PROVIDER_APP}` : "Create your account") : (ROLE_APP === "pharmacy" ? "Welcome back" : partner ? "Welcome back, hero" : "Welcome to Triyana")}</h1>
+      <p class="muted">${signup ? (ROLE_APP === "pharmacy" ? "Sign up with your email and your pharmacy's details. Once we verify your licence, patients nearby can order from you." : partner ? "Sign up with your email. Once we verify you, go online and get nearby requests." : "Sign up with your email. Your visits, prescriptions, orders and lab reports stay in your account.") : (ROLE_APP === "pharmacy" ? "Sign in to see new medicine orders, pack them and hand them to a rider." : partner ? "Sign in to go online, see your jobs and your earnings." : "Sign in, or create an account in a minute.")}</p>
       <div class="seg auth-seg"><button type="button" data-mode="signin" class="${signup ? "" : "on"}">Sign in</button><button type="button" data-mode="signup" class="${signup ? "on" : ""}">Create account</button></div>
       <div class="auth-error" id="authErr" role="alert" hidden></div>
       ${signup ? signupForm : signinForm}
       ${demo}
-      <div class="demo-flag">${ic("info")}<span>${partner ? `Patients use <a href="/">the Triyana app</a>.` : `Doctors and riders use <a href="/provider">${PROVIDER_APP}</a>.`}</span></div>
+      <div class="demo-flag">${ic("info")}<span>${otherAppsLine()}</span></div>
     </div>`;
 
   const keep = () => $$("#authForm input, #authForm select").forEach((el) => (d[el.id] = el.value));
@@ -150,7 +162,7 @@ function renderAuth(mode) {
     keep(); $("#authErr").hidden = true;
     const btn = $("#sendOtp"); btn.disabled = true; btn.textContent = "Sending…";
     try {
-      const res = await fetch("/api/auth/otp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phone: d.phone || "", country: d.phoneCountry, app: APP }) });
+      const res = await fetch("/api/auth/otp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phone: d.phone || "", country: d.phoneCountry, app: APP_ID }) });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error((data.detail && data.detail.message) || "Could not send the code.");
       auth.otp = { ...data, typed: d.phone, country: d.phoneCountry }; d.otp = "";
@@ -164,10 +176,10 @@ async function submitAuth() {
   err.hidden = true;
   let body;
   if (auth.mode === "signin") {
-    body = { app: APP, email: (d.email || "").trim(), password: d.password || "" };
+    body = { app: APP_ID, email: (d.email || "").trim(), password: d.password || "" };
     if (!body.email || !body.password) return showAuthErr("Enter your email and password.");
   } else {
-    body = { app: APP, name: (d.name || "").trim(), email: (d.email || "").trim(), password: d.password || "",
+    body = { app: APP_ID, name: (d.name || "").trim(), email: (d.email || "").trim(), password: d.password || "",
              phone: (d.phone || "").trim(), otp: (d.otp || "").trim(), address: (d.address || "").trim() || null };
     if (!body.name || !body.email || !body.password) return showAuthErr("Fill in your name, email and a password.");
     if (!auth.otp) return showAuthErr("Tap Send code to verify your mobile number.");
@@ -184,6 +196,11 @@ async function submitAuth() {
                         qualification: (d.qual || (ph ? "BPT" : DOCTOR_KINDS[care][2])).trim(), specialty: (d.spec || DOCTOR_KINDS[care][1]).trim(),
                         care_type: care,
                         registration_year: /^\d{4}$/.test(d.regYear || "") ? +d.regYear : null };
+      } else if (auth.kind === "pharmacist") {
+        if (!(d.store || "").trim()) return showAuthErr("Enter your pharmacy's name.");
+        if (!(d.dl || "").trim()) return showAuthErr("Enter your drug licence number.");
+        if (!body.address) return showAuthErr("Enter your pharmacy's address so riders can pick up orders.");
+        body.pharmacy = { name: d.store.trim(), license_no: d.dl.trim(), gstin: (d.gstin || "").trim() || null };
       } else body.vehicle = d.vehicle || "Bike";
     } else {
       if (!body.address) return showAuthErr("Enter your home address so doctors and riders can reach you.");
@@ -210,6 +227,17 @@ async function submitAuth() {
   } finally {
     const b = $("#authGo"); if (b) { b.disabled = false; b.textContent = auth.mode === "signin" ? "Sign in" : "Create account"; }
   }
+}
+
+/* "Wrong app?" line under every sign-in: points each kind of person to their own app. */
+function otherAppsLine() {
+  const heros = HEROS_APP_NAME, links = [];
+  if (APP !== "patient") links.push(`Patients use <a href="/">the Triyana app</a>.`);
+  if (ROLE_APP) links.push(`Doctors, physios and sample collectors use <a href="/provider">${esc(heros)}</a>.`);
+  else links.push(APP === "patient" ? `Doctors and partners use <a href="/provider">${esc(heros)}</a>.` : "");
+  if (ROLE_APP !== "pharmacy") links.push(`Pharmacies: <a href="/pharmacy">${esc(PHARMACY_APP_NAME)}</a>.`);
+  if (ROLE_APP !== "rider") links.push(`Riders: <a href="/rider">${esc(RIDER_APP_NAME)}</a>.`);
+  return links.filter(Boolean).join(" ");
 }
 
 function showAuthErr(msg) { const err = $("#authErr"); err.innerHTML = `${ic("alert")}<span>${esc(msg)}</span>`; err.hidden = false; }
@@ -273,7 +301,7 @@ async function loadVerifyChecks() {
 }
 document.addEventListener("click", (e) => {
   if (!e.target.closest || !e.target.closest("#demoVerify")) return;
-  guard(async () => { await post("/api/account/demo-verify"); state.verification = "verified"; toast("Approved. You can go online now."); go("dash"); });
+  guard(async () => { await post("/api/account/demo-verify"); state.verification = "verified"; toast(state.role === "pharmacist" ? "Approved. Patients can now order from your pharmacy." : "Approved. You can go online now."); go(TABS[state.role][0][0]); });
 });
 
 /* ---------------------------------------------------------------- Account tab */

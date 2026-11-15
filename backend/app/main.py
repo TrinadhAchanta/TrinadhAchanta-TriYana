@@ -1,6 +1,8 @@
 """Triyana API: Digital Prescription -> Suggested Cart -> Pharmacy -> Delivery."""
 from __future__ import annotations
 
+import html
+import json
 import mimetypes
 import os
 from datetime import datetime
@@ -777,11 +779,18 @@ DEMO_APPS = {
 }
 
 
+DEMO_ROLE = {"pharmacist": "pharmacist", "courier": "courier"}  # demo key -> role, for the one-job apps
+
+
 @app.get("/api/demo/accounts")
-def demo_accounts(app_name: Literal["patient", "provider"] | None = Query(None, alias="app")):
+def demo_accounts(app_name: Literal["patient", "provider", "pharmacy", "rider"] | None = Query(None, alias="app")):
     if not config.is_demo():
         raise NotFound("not_found", "Not available.")
     from .seed import DEMO_TOKENS
+    if app_name in config.ROLE_APPS:  # the Pharmacy / Rider apps list only their own people
+        roles = config.ROLE_APPS[app_name]["roles"]
+        return [{"key": k, "label": v, "token": DEMO_TOKENS[k], "app": app_name}
+                for k, v in DEMO_APPS["provider"].items() if DEMO_ROLE.get(k.rstrip("0123456789")) in roles]
     apps = [app_name] if app_name else list(DEMO_APPS)
     return [{"key": k, "label": v, "token": DEMO_TOKENS[k], "app": a} for a in apps for k, v in DEMO_APPS[a].items()]
 
@@ -822,16 +831,57 @@ FRONTEND = Path(__file__).resolve().parents[2] / "frontend"
 if FRONTEND.exists():
     app.mount("/static", StaticFiles(directory=FRONTEND), name="static")
 
-    def _named(name: str, media_type: str = "text/html") -> Response:
-        """Serve a frontend file with the provider app's name filled in from config."""
+    HEROS = {"name": config.PROVIDER_APP_NAME, "short": config.PROVIDER_APP_SHORT,
+             "tagline": "For doctors, physios, riders, pharmacists & sample collectors",
+             "sidebar": "Doctors · physios · couriers · labs",
+             "description": "For Triyana doctors, physios, riders, pharmacists and sample collectors: "
+                            "go online, accept nearby requests and navigate.",
+             "theme": "#0a1412"}
+
+    def _provider_family(app_id: str) -> dict:
+        """Heros (/provider) and its one-job apps (/pharmacy, /rider) share one page; this fills in which."""
+        if app_id == "provider":
+            return {**HEROS, "role_app": ""}
+        ra = config.ROLE_APPS[app_id]
+        return {**ra, "sidebar": ra["tagline"], "role_app": app_id}
+
+    def _app_switch(app_id: str) -> str:
+        links = [("/", "Patient app: Triyana")]
+        if app_id != "provider":
+            links.append(("/provider", f"Doctors: {config.PROVIDER_APP_NAME}"))
+        for key, ra in config.ROLE_APPS.items():
+            if key != app_id:
+                links.append((f"/{key}", f"{'Pharmacies' if key == 'pharmacy' else 'Riders'}: {ra['name']}"))
+        return "".join(f'<a class="app-switch" href="{h}">{html.escape(t)} →</a>' for h, t in links)
+
+    def _named(name: str, media_type: str = "text/html", app_id: str = "provider") -> Response:
+        """Serve a frontend file with the app names filled in from config."""
         text = (FRONTEND / name).read_text(encoding="utf-8")
-        text = text.replace("__PROVIDER_APP_SHORT__", config.PROVIDER_APP_SHORT)
-        text = text.replace("__PROVIDER_APP__", config.PROVIDER_APP_NAME)
+        a = _provider_family(app_id)
+        esc = (lambda v: json.dumps(v)[1:-1]) if media_type.endswith("json") else html.escape
+        fills = {"__APP_SWITCH__": _app_switch(app_id), "__APP_ID__": app_id, "__ROLE_APP__": a["role_app"],
+                 "__APP_NAME__": esc(a["name"]), "__APP_SHORT__": esc(a["short"]),
+                 "__APP_TAGLINE__": esc(a["tagline"]), "__APP_SIDEBAR__": esc(a["sidebar"]),
+                 "__APP_DESCRIPTION__": esc(a["description"]), "__APP_THEME__": a["theme"],
+                 "__PHARMACY_APP__": esc(config.ROLE_APPS["pharmacy"]["name"]),
+                 "__RIDER_APP__": esc(config.ROLE_APPS["rider"]["name"]),
+                 "__PROVIDER_APP_SHORT__": esc(config.PROVIDER_APP_SHORT),
+                 "__PROVIDER_APP__": esc(config.PROVIDER_APP_NAME)}
+        for k, v in fills.items():
+            text = text.replace(k, v)
         return Response(text, media_type=media_type)
 
     @app.get("/provider.webmanifest")
     def provider_manifest():
         return _named("provider.webmanifest", "application/manifest+json")
+
+    @app.get("/pharmacy.webmanifest")
+    def pharmacy_manifest():
+        return _named("provider.webmanifest", "application/manifest+json", "pharmacy")
+
+    @app.get("/rider.webmanifest")
+    def rider_manifest():
+        return _named("provider.webmanifest", "application/manifest+json", "rider")
 
     @app.get("/")
     def index():
@@ -842,6 +892,16 @@ if FRONTEND.exists():
     def provider_app():
         """Triyana Heros (config.PROVIDER_APP_NAME): the app for doctors, physios, riders, pharmacists and sample collectors."""
         return _named("provider.html")
+
+    @app.get("/pharmacy")
+    def pharmacy_app():
+        """Triyana Pharmacy: only pharmacists sign in. Order queue, packing, hand-over and drones."""
+        return _named("provider.html", app_id="pharmacy")
+
+    @app.get("/rider")
+    def rider_app():
+        """Triyana Rider: only delivery riders sign in. Go online, deliveries, earnings."""
+        return _named("provider.html", app_id="rider")
 
     @app.get("/admin")
     def admin_app():

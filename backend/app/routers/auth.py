@@ -29,8 +29,14 @@ class DoctorIn(BaseModel):
     visit_fee: float | None = Field(None, ge=0, le=100000)
 
 
+class PharmacyIn(BaseModel):
+    name: str = Field(max_length=120)
+    license_no: str = Field(max_length=40)
+    gstin: str | None = Field(None, max_length=20)
+
+
 class RegisterIn(BaseModel):
-    app: Literal["patient", "provider"]
+    app: Literal["patient", "provider", "pharmacy", "rider"]
     name: str = Field(max_length=120)
     email: str = Field(max_length=254)
     password: str = Field(max_length=200)
@@ -41,13 +47,14 @@ class RegisterIn(BaseModel):
     date_of_birth: str | None = Field(None, max_length=10)
     lat: float | None = Field(None, ge=-90, le=90)
     lng: float | None = Field(None, ge=-180, le=180)
-    role: Literal["doctor", "physio", "courier", "phlebotomist"] | None = None
+    role: Literal["doctor", "physio", "courier", "phlebotomist", "pharmacist"] | None = None
+    pharmacy: PharmacyIn | None = None  # pharmacists register their store
     vehicle: str | None = Field(None, max_length=40)
     doctor: DoctorIn | None = None
 
 
 class LoginIn(BaseModel):
-    app: Literal["patient", "provider"]
+    app: Literal["patient", "provider", "pharmacy", "rider"]
     email: str = Field(max_length=254)
     password: str = Field(max_length=200)
 
@@ -60,11 +67,11 @@ class PasswordIn(BaseModel):
 class OtpIn(BaseModel):
     phone: str = Field(max_length=30)
     country: str | None = Field(None, min_length=2, max_length=2)  # ISO code from the country picker
-    app: Literal["patient", "provider"] | None = None  # which app the sign-up is for
+    app: Literal["patient", "provider", "pharmacy", "rider"] | None = None  # which app the sign-up is for
 
 
 class ForgotIn(BaseModel):
-    app: Literal["patient", "provider"]
+    app: Literal["patient", "provider", "pharmacy", "rider"]
     email: str = Field(max_length=254)
 
 

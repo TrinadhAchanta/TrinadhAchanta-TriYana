@@ -3,12 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0a1412">
-  <title>__PROVIDER_APP__</title>
-  <meta name="provider-app" content="__PROVIDER_APP__" data-short="__PROVIDER_APP_SHORT__">
-  <link rel="manifest" href="/provider.webmanifest">
-  <link rel="icon" href="/static/icons/provider.svg" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="/static/icons/provider-192.png">
+  <meta name="theme-color" content="__APP_THEME__">
+  <title>__APP_NAME__</title>
+  <meta name="provider-app" content="__APP_NAME__" data-short="__APP_SHORT__" data-tagline="__APP_TAGLINE__" data-heros="__PROVIDER_APP__" data-pharmacy="__PHARMACY_APP__" data-rider="__RIDER_APP__">
+  <link rel="manifest" href="/__APP_ID__.webmanifest">
+  <link rel="icon" href="/static/icons/__APP_ID__.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/static/icons/__APP_ID__-192.png">
+  <meta name="apple-mobile-web-app-title" content="__APP_SHORT__">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -20,11 +21,11 @@
   <link rel="stylesheet" href="/static/labs.css">
   <link rel="stylesheet" href="/static/physio.css">
 </head>
-<body data-app="provider" data-defer-boot="1" class="partner-app">
+<body data-app="provider" data-role-app="__ROLE_APP__" data-defer-boot="1" class="partner-app __APP_ID__-app">
   <div class="login" id="login"></div>
   <div class="app">
     <aside class="sidebar">
-      <div class="brand"><div class="mark" id="markA"></div><div><b>__PROVIDER_APP__</b><small>Doctors · physios · couriers · labs</small></div></div>
+      <div class="brand"><div class="mark" id="markA"></div><div><b>__APP_NAME__</b><small>__APP_SIDEBAR__</small></div></div>
       <nav id="sideNav"></nav>
       <div class="spacer"></div>
       <div class="account-card">
@@ -33,12 +34,12 @@
         <select id="account" aria-label="Demo account"></select>
         <div class="demo-flag" id="demoFlag"><span id="flagIco"></span><span>Demo · fictional data</span></div>
         <div class="row" style="margin-top:8px;gap:6px;flex-wrap:nowrap"><button class="btn ghost sm sign-out" style="flex:1">Sign out</button><button class="btn ghost sm" id="reset" style="flex:1">Reset demo</button></div>
-        <a class="app-switch" href="/">Patient app: Triyana →</a>
+        __APP_SWITCH__
       </div>
     </aside>
     <div class="main">
       <header class="topbar">
-        <div class="brand"><div class="mark" id="markB"></div><b>__PROVIDER_APP_SHORT__</b></div>
+        <div class="brand"><div class="mark" id="markB"></div><b>__APP_SHORT__</b></div>
         <select id="accountMobile" aria-label="Demo account"></select>
         <button class="acct-me" id="acctMe" aria-label="Your account" hidden></button>
         <button class="btn ghost sm sign-out" aria-label="Sign out">Sign out</button>

@@ -463,3 +463,6 @@ body.face-open { overflow: hidden; }
 .heros-join { display: flex; align-items: center; gap: 12px; margin-top: 18px; text-decoration: none; color: inherit; }
 .heros-join .grow { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .heros-go { font-weight: 700; font-size: 13px; color: var(--brand); white-space: nowrap; }
+.section-title + .heros-join { margin-top: 8px; }
+.heros-join + .heros-join { margin-top: 10px; }
+.app-switch + .app-switch { margin-top: 2px; }

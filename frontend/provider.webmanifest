@@ -1,16 +1,16 @@
 {
-  "name": "__PROVIDER_APP__",
-  "short_name": "__PROVIDER_APP_SHORT__",
-  "description": "For Triyana doctors, physios, riders, pharmacists and sample collectors: go online, accept nearby requests and navigate.",
-  "id": "/provider",
-  "start_url": "/provider",
-  "scope": "/provider",
+  "name": "__APP_NAME__",
+  "short_name": "__APP_SHORT__",
+  "description": "__APP_DESCRIPTION__",
+  "id": "/__APP_ID__",
+  "start_url": "/__APP_ID__",
+  "scope": "/__APP_ID__",
   "display": "standalone",
-  "background_color": "#0a1412",
-  "theme_color": "#0a1412",
+  "background_color": "__APP_THEME__",
+  "theme_color": "__APP_THEME__",
   "icons": [
-    {"src": "/static/icons/provider-192.png", "sizes": "192x192", "type": "image/png"},
-    {"src": "/static/icons/provider-512.png", "sizes": "512x512", "type": "image/png"},
-    {"src": "/static/icons/provider.svg", "sizes": "any", "type": "image/svg+xml"}
+    {"src": "/static/icons/__APP_ID__-192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "/static/icons/__APP_ID__-512.png", "sizes": "512x512", "type": "image/png"},
+    {"src": "/static/icons/__APP_ID__.svg", "sizes": "any", "type": "image/svg+xml"}
   ]
 }

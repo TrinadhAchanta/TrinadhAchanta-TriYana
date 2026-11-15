@@ -1,6 +1,6 @@
 /* Triyana service worker: makes both apps installable, shows an offline notice and shows push alerts
    (new requests for doctors, visit updates for patients). API calls always go to the network. */
-const SHELL = "triyana-shell-v2";
+const SHELL = "triyana-shell-v3";
 const OFFLINE = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Offline</title>
 <body style="font-family:system-ui;display:grid;place-items:center;height:100vh;margin:0;background:#062e29;color:#fff;text-align:center">
 <div><h1>You're offline</h1><p>Triyana needs a connection for bookings and live tracking.</p></div>`;
@@ -14,15 +14,15 @@ self.addEventListener("fetch", (e) => {
 self.addEventListener("push", (e) => {
   let m = {};
   try { m = e.data ? e.data.json() : {}; } catch { m = { title: "Triyana", body: e.data ? e.data.text() : "" }; }
-  const provider = (m.url || "/") === "/provider";
+  const app = { "/provider": "provider", "/pharmacy": "pharmacy", "/rider": "rider" }[m.url || "/"] || "patient";
   e.waitUntil(self.registration.showNotification(m.title || "Triyana", {
     body: m.body || "",
     tag: m.tag || undefined,
     renotify: !!m.urgent,
     requireInteraction: !!m.urgent,
     vibrate: m.urgent ? [400, 150, 400, 150, 400] : [200],
-    icon: provider ? "/static/icons/provider-192.png" : "/static/icons/patient-192.png",
-    badge: provider ? "/static/icons/provider-192.png" : "/static/icons/patient-192.png",
+    icon: `/static/icons/${app}-192.png`,
+    badge: `/static/icons/${app}-192.png`,
     data: { url: m.url || "/", link: m.link || "" },
   }));
 });

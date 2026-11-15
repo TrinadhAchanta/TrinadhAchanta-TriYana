@@ -191,7 +191,7 @@ def queue(db: Session, user_ids: list[int], title: str, body: str, link: str = "
         return
     ttl, urgency = _style(link, title)
     for s in subs:
-        url = "/provider" if s.app == "provider" else "/"
+        url = "/" if s.app == "patient" else f"/{s.app}"  # /provider, /pharmacy or /rider
         msg = {"title": title, "body": body, "link": link, "url": url, "tag": link or title,
                "urgent": urgency == "high"}
         db.info.setdefault("push_outbox", []).append(

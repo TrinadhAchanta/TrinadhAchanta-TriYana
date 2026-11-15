@@ -17,14 +17,17 @@ python -m pytest -q
 
 Or with Docker: `docker build -t triyana . && docker run -p 8000:8000 triyana`. To host a public demo, see [docs/DEPLOY.md](docs/DEPLOY.md).
 
-### Two apps, one backend
+### Four apps, one backend
 
 | App | URL | Who | What |
 |---|---|---|---|
 | **Triyana** | `/` | Patients | Service tiles (Doctor now, book a visit, prescriptions, medicine cart, tracking, Yana), live map with ETA |
 | **Triyana Heros** | `/provider` | Doctors, couriers, pharmacists, phlebotomists | Go online / offline, nearby request offers with a countdown, accept or decline, turn-by-turn navigation |
+| **Triyana Pharmacy** | `/pharmacy` | Pharmacists only | Order queue: check the prescription, approve, pack, hand to a rider or launch a drone. New pharmacies sign up with their drug licence and appear to patients once approved in `/admin` |
+| **Triyana Rider** | `/rider` | Delivery riders only | Go online, accept nearby deliveries, navigate, hand over with the patient's 4-digit code, earnings |
 
 The provider app's name lives in one place, `PROVIDER_APP_NAME` / `PROVIDER_APP_SHORT` in `backend/app/config.py`; screens, the install manifest and messages all read it.
+The Pharmacy and Rider app names live in `ROLE_APPS` in the same file. Both are the Heros screens limited to one role, each with its own sign-in, saved session, install manifest and home-screen icon.
 
 Both are installable PWAs (Add to Home Screen) with their own sign-in; a patient token is refused by the Heros app and vice versa (`X-Triyana-App` header).
 
