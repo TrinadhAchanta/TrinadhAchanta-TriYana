@@ -9,7 +9,7 @@ function forgotScreen(email) {
   const partner = APP === "provider";
   const s = forgot.sent;
   $("#login").innerHTML = `<div class="login-card">
-      <div class="brand"><div class="mark">${ic("logo")}</div><div><b>${partner ? "Triyana Partner" : "Triyana"}</b><small>Reset your password</small></div></div>
+      <div class="brand"><div class="mark">${ic("logo")}</div><div><b>${partner ? PROVIDER_APP : "Triyana"}</b><small>Reset your password</small></div></div>
       <h1>Forgot your password?</h1>
       <p class="muted">${s ? `We texted a 6-digit code to ${esc(s.masked)}, the mobile number on your account.` : "Enter your account email. We'll text a code to the mobile number you verified when you signed up."}</p>
       <div class="auth-error" id="authErr" role="alert" hidden></div>

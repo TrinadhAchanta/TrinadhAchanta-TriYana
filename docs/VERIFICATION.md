@@ -1,6 +1,6 @@
 # Provider verification partners
 
-Every doctor, physiotherapist, rider and sample collector who signs up in Triyana Partner
+Every doctor, physiotherapist, rider and sample collector who signs up in Triyana Heros
 starts as **pending** and cannot go online until a person at Triyana approves them. Before
 that, two partners check them automatically:
 
@@ -11,7 +11,7 @@ that, two partners check them automatically:
 | Court records | Everyone | IDfy court-record search | Same time as the ID check |
 | Final review | Everyone | Triyana ops at `/admin` | When the checks are back |
 
-Results show to the provider on their Partner dashboard and to ops at `/admin`, where each
+Results show to the provider on their Heros dashboard and to ops at `/admin`, where each
 provider is **Ready to approve** (all passed), **Flagged** (something needs a look),
 **Checks running** or **Waiting for provider's ID**. Approving a provider whose checks did not
 all pass needs an override with a note (for example "Checked the TSMC register by phone"); the
@@ -30,7 +30,7 @@ Both partners run in **demo mode** until keys are set. Demo rules, so you can tr
 * An ID number containing `9999` comes back with a court record to review.
 
 Each admin signs in to `/admin` with their own email and password (see "Admin logins" below).
-The "Approve me (demo only)" button in the Partner app still works while `TRIYANA_DEMO=1`.
+The "Approve me (demo only)" button in the Heros app still works while `TRIYANA_DEMO=1`.
 
 ## Keys you need
 
@@ -86,6 +86,6 @@ with the same `verify_id`, `court_record_check` and `poll` functions; nothing el
 
 ## Before real providers
 
-* Have the consent text in the Partner app reviewed by your lawyer (DPDP Act, and the partner's own terms).
+* Have the consent text in the Heros app reviewed by your lawyer (DPDP Act, and the partner's own terms).
 * Decide who on the team is an admin, and switch `TRIYANA_DEMO=0` so "Approve me" disappears.
 * Check the name-matching rule in `names_match` against real HPR data; it accepts initials ("N Rao" = "Neha Rao").

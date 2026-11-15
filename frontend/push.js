@@ -43,7 +43,7 @@ padding:12px 14px;box-shadow:0 12px 32px rgba(0,0,0,.18)}.push-banner b{display:
     const el = document.createElement("div");
     el.id = "pushBanner"; el.className = "push-banner"; el.setAttribute("role", "dialog");
     el.innerHTML = `<div class="push-ico">${BELL}</div><div class="grow"><b>${provider ? "Get new requests with your phone locked" : "Know when your doctor is on the way"}</b>
-      <span class="tiny muted">${iosHint ? `On iPhone: tap Share, then <b>Add to Home Screen</b>, and open ${provider ? "Triyana Partner" : "Triyana"} from there to turn on alerts.`
+      <span class="tiny muted">${iosHint ? `On iPhone: tap Share, then <b>Add to Home Screen</b>, and open ${provider ? PROVIDER_APP : "Triyana"} from there to turn on alerts.`
         : provider ? "Turn on alerts so a nearby patient's request rings even when the app is closed." : "We'll alert you when your doctor accepts, sets off and arrives."}</span></div>
       <div class="push-actions">${iosHint ? "" : `<button class="btn primary sm" id="pushOn">Turn on</button>`}<button class="btn ghost sm" id="pushLater">${iosHint ? "OK" : "Later"}</button></div>`;
     document.body.appendChild(el);
@@ -87,7 +87,7 @@ padding:12px 14px;box-shadow:0 12px 32px rgba(0,0,0,.18)}.push-banner b{display:
     const blocked = supported() && Notification.permission === "denied";
     const provider = APP === "provider";
     box.innerHTML = `<h3>Alerts on this phone</h3>
-      <p class="small muted" style="margin:6px 0 10px">${!supported() ? (isIOS() ? `On iPhone, add ${provider ? "Triyana Partner" : "Triyana"} to your Home Screen (Share, then Add to Home Screen) and open it from there to get alerts.` : "This browser can't show alerts.")
+      <p class="small muted" style="margin:6px 0 10px">${!supported() ? (isIOS() ? `On iPhone, add ${provider ? PROVIDER_APP : "Triyana"} to your Home Screen (Share, then Add to Home Screen) and open it from there to get alerts.` : "This browser can't show alerts.")
         : on ? (provider ? "On. New requests ring here even when your phone is locked." : "On. We'll tell you when your doctor accepts, sets off and arrives.")
         : blocked ? "Blocked. Allow notifications for this site in your browser settings, then come back here."
         : (provider ? "Off. Turn on to hear new requests when the app is closed." : "Off. Turn on to hear when your doctor is on the way.")}</p>

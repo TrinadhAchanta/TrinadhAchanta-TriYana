@@ -28,7 +28,7 @@ from datetime import timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .. import audit
+from .. import audit, config
 from ..adapters import face as partner
 from ..errors import Conflict, Forbidden, NotFound, Unprocessable
 from ..models import (
@@ -114,7 +114,7 @@ def require_enrolled(db: Session, user: User) -> None:
         pending = current_enrollment(db, user)
         raise Forbidden("face_enrollment_required",
                         "Your face enrolment is waiting for Triyana's approval." if pending else
-                        "Enrol your face in the Partner app before you take home visits.")
+                        f"Enrol your face in the {config.PROVIDER_APP_NAME} app before you take home visits.")
 
 
 def _locked_error(case: IdentityCase) -> Forbidden:
@@ -189,7 +189,7 @@ def open_case(db: Session, user: User, kind: str, summary: str, *, visit_id: int
 def start_challenge(db: Session, user: User, purpose: str, visit_id: int | None = None,
                     consent: bool = False) -> dict:
     if user.role != Role.doctor:
-        raise Forbidden("forbidden_role", "Face checks are for doctors in the Partner app.")
+        raise Forbidden("forbidden_role", f"Face checks are for doctors in the {config.PROVIDER_APP_NAME} app.")
     if purpose not in ("visit", "enroll"):
         raise Unprocessable("bad_purpose", "Unknown face check.")
     case = blocking_case(db, user)
@@ -491,7 +491,7 @@ def on_account_approved(db: Session, user: User) -> None:
     enr = current_enrollment(db, user)
     if enr is None:
         raise Conflict("face_enrollment_required",
-                       "The doctor must enrol their face first. In the Partner app, open Home and tap "
+                       f"The doctor must enrol their face first. In the {config.PROVIDER_APP_NAME} app, open Home and tap "
                        "Enrol my face, then approve again.")
     enr.status, enr.activated_at = "active", utcnow()
     _revoke_others(db, user, enr)

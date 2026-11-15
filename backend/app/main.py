@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import Depends, FastAPI, Query, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
@@ -812,15 +812,26 @@ FRONTEND = Path(__file__).resolve().parents[2] / "frontend"
 if FRONTEND.exists():
     app.mount("/static", StaticFiles(directory=FRONTEND), name="static")
 
+    def _named(name: str, media_type: str = "text/html") -> Response:
+        """Serve a frontend file with the provider app's name filled in from config."""
+        text = (FRONTEND / name).read_text(encoding="utf-8")
+        text = text.replace("__PROVIDER_APP_SHORT__", config.PROVIDER_APP_SHORT)
+        text = text.replace("__PROVIDER_APP__", config.PROVIDER_APP_NAME)
+        return Response(text, media_type=media_type)
+
+    @app.get("/provider.webmanifest")
+    def provider_manifest():
+        return _named("provider.webmanifest", "application/manifest+json")
+
     @app.get("/")
     def index():
         """Triyana: the patient app."""
-        return FileResponse(FRONTEND / "index.html")
+        return _named("index.html")
 
     @app.get("/provider")
     def provider_app():
-        """Triyana Partner: the app for doctors, couriers and pharmacists."""
-        return FileResponse(FRONTEND / "provider.html")
+        """Triyana Heros (config.PROVIDER_APP_NAME): the app for doctors, physios, riders, pharmacists and sample collectors."""
+        return _named("provider.html")
 
     @app.get("/admin")
     def admin_app():

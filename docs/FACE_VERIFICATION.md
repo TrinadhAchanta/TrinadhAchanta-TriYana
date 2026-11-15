@@ -2,13 +2,13 @@
 
 No doctor can start a home-visit journey without passing a live face check **for that specific
 visit**, or an equivalent check approved by Triyana's identity team. The server enforces this; the
-Partner app only runs the camera and shows the result.
+Heros app only runs the camera and shows the result.
 
 ## How it works
 
 ### 1. At registration
 
-1. The doctor signs up in Triyana Partner (`/provider`). Their council registration (ABDM HPR), PAN and
+1. The doctor signs up in Triyana Heros (`/provider`). Their council registration (ABDM HPR), PAN and
    court records are checked by the existing partners (see [VERIFICATION.md](VERIFICATION.md)).
 2. They give **biometric consent** (versioned text, stored as a `biometric_face` consent record) and take
    a live selfie. The face partner checks liveness and enrols the face. This adds a **Live face enrolment**
@@ -96,7 +96,7 @@ lighting). These can only make a check fail.
      may be simplest.
    - **AWS Rekognition Face Liveness + CompareFaces**: global, needs an AWS account and the Amplify
      liveness component in the app.
-2. Their **capture SDK in the Partner app** for certified passive liveness, which works best in a native app.
+2. Their **capture SDK in the Heros app** for certified passive liveness, which works best in a native app.
 3. API keys as environment variables, and a new branch in `backend/app/adapters/face.py` (`enroll` and
    `verify`), with the same outcomes: `passed`, `failed`, `spoof`, `poor_quality`.
 4. **Selfie-to-ID match at enrolment**, for example against the DigiLocker Aadhaar photo or driving licence

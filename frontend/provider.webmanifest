@@ -1,7 +1,7 @@
 {
-  "name": "Triyana Partner",
-  "short_name": "Partner",
-  "description": "For Triyana doctors, couriers and pharmacists: go online, accept nearby requests and navigate.",
+  "name": "__PROVIDER_APP__",
+  "short_name": "__PROVIDER_APP_SHORT__",
+  "description": "For Triyana doctors, physios, riders, pharmacists and sample collectors: go online, accept nearby requests and navigate.",
   "id": "/provider",
   "start_url": "/provider",
   "scope": "/provider",
