@@ -36,7 +36,7 @@ SCREENS.dash = async () => {
   let jobs = st.can_go_online ? activeJobs(await api("/api/provider/jobs")) : [];
   let earn = st.can_go_online ? await api("/api/provider/earnings").catch(() => null) : null;
   let sig = "";
-  const signature = () => JSON.stringify([st.online, st.offers.map((o) => o.id), st.active_trip?.id, st.active_trip?.arrived, jobs.map((j) => [j.id, j.status, j.trip_id])]);
+  const signature = () => JSON.stringify([st.online, st.busy_note, st.offers.map((o) => o.id), st.active_trip?.id, st.active_trip?.arrived, jobs.map((j) => [j.id, j.status, j.trip_id])]);
 
   const render = () => {
     sig = signature();
@@ -46,8 +46,8 @@ SCREENS.dash = async () => {
       <section class="hero partner ${st.online ? "is-online" : ""}">
         <div class="eyebrow">${esc(state.name)}</div>
         <div class="row between" style="align-items:flex-end">
-          <div><h1>${st.online ? "You're online" : "You're offline"}</h1>
-            <p>${st.online ? `Looking for ${word} near you. New requests appear here, nearest first.` : `Go online to start receiving ${word} from patients near you.`}</p></div>
+          <div><h1>${st.online ? (st.busy_note ? "You're on a job" : "You're online") : "You're offline"}</h1>
+            <p>${st.online ? (st.busy_note ? esc(st.busy_note) : `Looking for ${word} near you. New requests appear here, nearest first. Keep this screen open so requests reach you first.`) : `Go online to start receiving ${word} from patients near you.`}</p></div>
           <button class="duty ${st.online ? "on" : ""}" id="duty" aria-pressed="${st.online}"><span class="knob">${ic("power")}</span><span class="lbl">${st.online ? "Go offline" : "Go online"}</span></button>
         </div>
         <div class="stats">${earn ? `<button class="stat stat-link" data-earn="1"><b>${inr(earn.today.total)}</b><span>Earned today ›</span></button>` : ""}<div class="stat"><b>${st.offers.length}</b><span>New requests</span></div>
@@ -59,7 +59,7 @@ SCREENS.dash = async () => {
       ${t ? `<button class="live-banner" id="toNav"><span class="live-dot"></span><span class="grow"><b>${t.arrived ? "You've arrived" : `Navigating to ${esc(t.dest_label)}`}</b><span class="tiny">${t.arrived ? "Open to finish this job" : `${t.eta_min} min · ${km(t.remaining_m)} · ${esc(t.next_step?.text || "")}`}</span></span><span class="btn sm">${ic("nav")} Navigate</span></button>` : ""}
       <div class="split"><div>
         <div class="section-title">Requests</div>
-        <div id="offers">${st.offers.length ? st.offers.map(offerCard).join("") : `<div class="card empty slim">${st.online ? `<div class="radar-mini"></div><h3>Waiting for requests</h3><p class="small">Stay online. Requests from patients near you will appear here.</p>` : `<div class="ico">${ic("power")}</div><h3>You're offline</h3><p class="small">Go online to receive nearby ${word}.</p>`}</div>`}</div>
+        <div id="offers">${st.offers.length ? st.offers.map(offerCard).join("") : `<div class="card empty slim">${st.online && st.busy_note ? `<div class="ico">${ic("nav")}</div><h3>Requests paused</h3><p class="small">${esc(st.busy_note)}</p>` : st.online ? `<div class="radar-mini"></div><h3>Waiting for requests</h3><p class="small">Stay online. Requests from patients near you will appear here.</p>` : `<div class="ico">${ic("power")}</div><h3>You're offline</h3><p class="small">Go online to receive nearby ${word}.</p>`}</div>`}</div>
         ${jobs.length ? `<div class="section-title">Your jobs</div>${jobs.map(jobCard).join("")}` : ""}
       </div><aside class="sticky">
         ${earn ? `<button class="card earn-mini" data-earn="1"><div class="row between"><span class="eyebrow-sm">${ic("wallet")} This week</span><span class="tiny muted">${earn.week.jobs} job${earn.week.jobs === 1 ? "" : "s"}</span></div>

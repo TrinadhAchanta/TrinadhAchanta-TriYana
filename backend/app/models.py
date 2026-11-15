@@ -120,6 +120,8 @@ class User(Base):
     lng: Mapped[float | None] = mapped_column(Float)
     vehicle: Mapped[str] = mapped_column(String(40), default="")
     loc_updated_at: Mapped[datetime | None] = mapped_column(DateTime)
+    # Last time this provider's app was open and checking for requests (see dispatch.in_app).
+    app_seen_at: Mapped[datetime | None] = mapped_column(DateTime)
     # Self-registered accounts (email + password). Demo accounts have no email.
     email: Mapped[str | None] = mapped_column(String(254), unique=True, index=True)
     password_hash: Mapped[str | None] = mapped_column(String(255))
