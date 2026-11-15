@@ -344,7 +344,15 @@ def visit_to_dict(v: HomeVisit, patient: Patient | None = None) -> dict:
         "sos": bool(v.sos),
         "care_type": specialties.of_visit(v), "care_label": specialties.label(v.care_type),
         "patient": {"id": v.patient_id, "name": v.patient.name if v.patient else None},
+        "cancelled_by_hero": _hero_cancel(v),
     }
+
+
+def _hero_cancel(v: HomeVisit) -> dict | None:
+    from sqlalchemy.orm import object_session
+    from . import hero_cancel
+    db = object_session(v)
+    return hero_cancel.for_job(db, "visit", v.id) if db and v.status == VisitStatus.cancelled else None
 
 
 def list_for_patient(db: Session, user: User) -> list[dict]:

@@ -224,7 +224,7 @@ function liveHeadline(d) {
     assigned: `${who} will collect your order`,
     preparing: "Your pharmacy is preparing your order",
     done: d.kind === "visit" ? "Visit complete" : d.kind === "physio" ? `Session ${d.number} complete` : "Delivered",
-    cancelled: care ? "This request was cancelled" : "This order was cancelled",
+    cancelled: d.cancelled_by_hero ? `Cancelled: ${d.cancelled_by_hero.label}` : care ? "This request was cancelled" : "This order was cancelled",
   })[d.phase] || "Live tracking";
 }
 function liveSub(d) {
@@ -237,7 +237,7 @@ function liveSub(d) {
     arrived: d.kind === "visit" ? (d.identity?.verified ? "Check they match the photo below, then give them your arrival code." : "Please open the door. Your doctor will show their ID.") : d.kind === "physio" ? "Please open the door. Your physiotherapist will show their ID." : "Share your handover code to receive your medicines.",
     with_you: d.kind === "physio" ? `Session ${d.number} of ${d.sessions_total}. Your notes and home exercises appear after the session.` : "Your prescription will appear here after the visit.",
     done: d.kind === "physio" ? "Your session notes and home exercises are ready." : "Thank you for using Triyana.",
-    cancelled: "No one is coming. You can book again any time.",
+    cancelled: d.cancelled_by_hero ? d.cancelled_by_hero.message : "No one is coming. You can book again any time.",
   })[d.phase] || "";
 }
 

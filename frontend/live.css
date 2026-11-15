@@ -466,3 +466,10 @@ body.face-open { overflow: hidden; }
 .section-title + .heros-join { margin-top: 8px; }
 .heros-join + .heros-join { margin-top: 10px; }
 .app-switch + .app-switch { margin-top: 2px; }
+
+/* Heros: at the door, call or cancel with a reason */
+.door-help { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--line); display: grid; gap: 8px; }
+.reason-list { display: grid; gap: 8px; }
+.reason-list .choice { width: 100%; }
+.cancel-why { margin-top: 10px; }
+.sheet-wrap.over-nav { z-index: 1500; } /* above the full-screen navigation map and its sheet */

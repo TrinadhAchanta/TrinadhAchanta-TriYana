@@ -35,6 +35,7 @@ async function usePendingReferral() {
 
 /* What the patient pays, shown on every visit card. */
 function billLine(v) {
+  if (v.status === "cancelled") return `<span class="muted">Not charged</span>`;
   const b = v.bill;
   if (!b || b.patient_pays === b.base_fee) return `<span><b>${money(v.fee)}</b> <span class="muted">pay after the visit</span></span>`;
   const tag = b.promise === "late" ? `<span class="badge good">Free: we were late</span>`

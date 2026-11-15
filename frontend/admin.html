@@ -57,7 +57,7 @@
     </form>
   </div>
   <div id="main" hidden>
-    <div class="areas"><button class="btn sm on" data-area="providers">Providers</button><button class="btn sm" data-area="identity">Identity &amp; security <span class="badge bad" id="caseCount" hidden></span></button><button class="btn sm" data-area="log">Face check log</button><button class="btn sm" data-area="partners">Partners</button><button class="btn sm" data-area="promos">Promo codes</button><button class="btn sm" data-area="admins">Admins</button><button class="btn sm" data-area="launch">Launch check</button></div>
+    <div class="areas"><button class="btn sm on" data-area="providers">Providers</button><button class="btn sm" data-area="identity">Identity &amp; security <span class="badge bad" id="caseCount" hidden></span></button><button class="btn sm" data-area="log">Face check log</button><button class="btn sm" data-area="cancels">Hero cancellations</button><button class="btn sm" data-area="partners">Partners</button><button class="btn sm" data-area="promos">Promo codes</button><button class="btn sm" data-area="admins">Admins</button><button class="btn sm" data-area="launch">Launch check</button></div>
     <div class="who"><span class="meta" id="who"></span><button class="btn sm" id="lock">Sign out</button></div>
     <div id="idTabs" class="ops-tabs" hidden><button class="btn sm on" data-c="open">Open cases</button><button class="btn sm" data-c="resolved">Resolved</button></div>
     <div class="ops-tabs" id="provTabs"><button class="btn sm on" data-s="pending">Waiting</button><button class="btn sm" data-s="rejected">Rejected</button><button class="btn sm" data-s="verified">Approved</button></div>
@@ -167,6 +167,15 @@ async function loadPartners() {
 }
 const PROMO_ST = { live: ["good", "Live"], paused: ["", "Paused"], expired: ["", "Expired"], scheduled: ["info", "Scheduled"], used_up: ["warn", "Used up"] };
 const rupees = (n) => "₹" + Number(n || 0).toLocaleString("en-IN");
+async function loadCancels() {
+  const rows = await call("/api/admin/hero-cancellations");
+  const inr = (n) => n ? `₹${Number(n).toLocaleString("en-IN")}` : "—";
+  const role = { doctor: "Doctor", phlebotomist: "Sample collector", physio: "Physio" };
+  $("#list").innerHTML = `<div class="card log-wrap"><table class="log"><thead><tr><th>Time</th><th>Hero</th><th>Job</th><th>Patient</th><th>Reason</th><th>Calls</th><th>Waited</th><th>Hero paid</th></tr></thead><tbody>${rows.map((r) =>
+    `<tr><td>${esc(at(r.at))}</td><td>${esc(r.hero)}<div class="meta">${esc(role[r.hero_role] || r.hero_role)}</div></td><td>${esc(r.kind_label)}<div class="meta">${esc(r.booking_ref)}</div></td><td>${esc(r.patient)}</td>
+      <td><span class="badge ${r.reason === "unsafe" ? "bad" : r.reason === "other" ? "warn" : ""}">${esc(r.reason_label)}</span>${r.note ? `<div class="meta">“${esc(r.note)}”</div>` : ""}</td>
+      <td>${r.calls}</td><td>${r.waited_min} min</td><td>${r.reason === "other" ? "Review" : inr(r.hero_paid)}</td></tr>`).join("") || `<tr><td colspan="8">No cancellations yet. When a Hero cancels at the door, it shows up here.</td></tr>`}</tbody></table></div>`;
+}
 async function loadPromos() {
   const rows = await call("/api/admin/promos");
   const rules = (p) => [p.applies_to_label, p.min_amount ? `bills from ${rupees(p.min_amount)}` : "", p.new_customers_only ? "new customers only" : "",
@@ -270,12 +279,13 @@ async function load() {
     if (!me) { me = (await call("/api/admin/me")).admin; $("#who").textContent = me ? `Signed in as ${me.name} (${me.email})` : ""; }
     if (area === "admins") { $("#pageTitle").textContent = "Admins"; $("#pageSub").textContent = "Everyone who can sign in to Triyana Ops. Each person has their own login."; $("#provTabs").hidden = true; $("#idTabs").hidden = true; await loadAdmins(); $("#keyCard").hidden = true; $("#main").hidden = false; return; }
     if (area === "launch") { $("#pageTitle").textContent = "Launch check"; $("#pageSub").textContent = "What the server still needs before real patients. No secret values are shown."; $("#provTabs").hidden = true; $("#idTabs").hidden = true; await loadLaunch(); $("#keyCard").hidden = true; $("#main").hidden = false; return; }
-    const head = { providers: ["Provider verification", "Partner checks come in automatically. You give the final approval."], identity: ["Identity & security", "Face-check alerts, lockouts and recovery. Only Triyana's security team should act here."], log: ["Face check log", "Every live face check: outcome, scores and time."], partners: ["Partner organisations", "Housing societies, offices and old-age homes whose members get discounts and priority."], promos: ["Promo codes", "Codes patients type at payment for money off a doctor visit or medicines."] }[area];
+    const head = { providers: ["Provider verification", "Partner checks come in automatically. You give the final approval."], identity: ["Identity & security", "Face-check alerts, lockouts and recovery. Only Triyana's security team should act here."], log: ["Face check log", "Every live face check: outcome, scores and time."], partners: ["Partner organisations", "Housing societies, offices and old-age homes whose members get discounts and priority."], promos: ["Promo codes", "Codes patients type at payment for money off a doctor visit or medicines."], cancels: ["Hero cancellations", "Visits, sample collections and physio sessions a Hero cancelled at the patient's door, with the reason they picked."] }[area];
     $("#pageTitle").textContent = head[0]; $("#pageSub").textContent = head[1];
     $("#provTabs").hidden = area !== "providers"; $("#idTabs").hidden = area !== "identity";
     if (area === "identity") { await loadIdentity(); $("#keyCard").hidden = true; $("#main").hidden = false; return; }
     if (area === "log") { await loadLog(); $("#keyCard").hidden = true; $("#main").hidden = false; return; }
     if (area === "partners") { await loadPartners(); $("#keyCard").hidden = true; $("#main").hidden = false; return; }
+    if (area === "cancels") { await loadCancels(); $("#keyCard").hidden = true; $("#main").hidden = false; return; }
     if (area === "promos") { await loadPromos(); $("#keyCard").hidden = true; $("#main").hidden = false; return; }
     const rows = await call(`/api/admin/providers/pending?status=${tab}`);
     $("#keyCard").hidden = true; $("#main").hidden = false;

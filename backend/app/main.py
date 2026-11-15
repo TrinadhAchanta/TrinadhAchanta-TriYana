@@ -31,6 +31,7 @@ from .routers.perks import router as perks_router
 from .routers.care import router as care_router
 from .routers.family import router as family_router
 from .routers.push import router as push_router
+from .routers.hero_cancel import router as hero_cancel_router
 from .errors import DomainError, Forbidden, NotFound
 from .models import (
     AuditLog,
@@ -825,6 +826,7 @@ app.include_router(perks_router)
 app.include_router(care_router)
 app.include_router(family_router)
 app.include_router(push_router)
+app.include_router(hero_cancel_router)
 
 # --------------------------------------------------------------- frontend
 FRONTEND = Path(__file__).resolve().parents[2] / "frontend"
