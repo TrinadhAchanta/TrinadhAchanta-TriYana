@@ -422,3 +422,39 @@ body.face-open { overflow: hidden; }
   .svc-hero .ten-badge b { font-size: 24px; }
   .svc-hero > b, .svc-hero > span:nth-of-type(4) { padding-right: 66px; }
 }
+
+/* ------------------------------------------------------------- simple home (one promise, one button) */
+.now-hero h1 { max-width: 15ch; }
+.now-hero p { max-width: 46ch; }
+.now-live { display: inline-flex; align-items: center; gap: 8px; margin-top: 14px; font-size: 13px; font-weight: 700; padding: 6px 12px; border-radius: 99px; background: rgba(255, 255, 255, .14); }
+.now-hero .actions { margin-top: 16px; }
+.btn.now-cta { background: #fff; color: #063a33; border: 0; font-size: 16px; font-weight: 800; padding: 15px 26px; border-radius: 16px; box-shadow: 0 10px 24px rgba(0, 0, 0, .18); }
+.btn.now-cta:hover { background: #f2fbf8; }
+.hero-links { display: flex; gap: 22px; flex-wrap: wrap; margin-top: 14px; position: relative; }
+.hero-links .link-btn { color: #fff; opacity: .92; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; font-size: 14px; }
+.hero-links .link-btn:hover { opacity: 1; text-decoration: underline; }
+.hero-links svg.i { width: 16px; height: 16px; }
+
+.services { grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 10px; }
+.svc { align-items: center; text-align: center; gap: 8px; padding: 14px 6px; border-radius: 18px; }
+.svc .ico { width: 48px; height: 48px; border-radius: 15px; margin: 0; }
+.svc b { font-size: 13px; font-weight: 700; line-height: 1.2; }
+@media (max-width: 1080px) { .services { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (max-width: 780px) {
+  .services { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+  .svc { padding: 12px 2px; border-radius: 16px; box-shadow: none; }
+  .svc .ico { width: 44px; height: 44px; }
+  .svc b { font-size: 12px; }
+  .btn.now-cta { width: 100%; justify-content: center; }
+}
+
+/* One short consent step, shown the first time a patient books or orders. */
+.consent-sheet { text-align: center; }
+.consent-sheet .consent-ico { width: 56px; height: 56px; margin: 4px auto 10px; border-radius: 18px; display: grid; place-items: center; background: var(--brand-soft); color: var(--brand); }
+.consent-sheet h2 { margin: 0 0 6px; font-size: 22px; letter-spacing: -.02em; }
+.consent-sheet > p { margin: 0 auto 12px; max-width: 36ch; color: var(--muted); }
+.consent-more { text-align: left; margin: 0 0 12px; padding: 10px 14px; border-radius: 14px; background: var(--surface-2); }
+.consent-more summary { cursor: pointer; font-weight: 700; font-size: 13.5px; }
+.consent-more p { margin: 8px 0 0; }
+.consent-sheet .check { justify-content: center; text-align: left; margin: 4px 0 6px; }
+.consent-sheet .tiny { margin: 10px 0 0; }

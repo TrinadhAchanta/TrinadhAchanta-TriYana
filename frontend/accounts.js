@@ -108,9 +108,9 @@ function renderAuth(mode) {
     </details>` : "";
 
   $("#login").innerHTML = `<div class="login-card">
-      <div class="brand"><div class="mark">${ic("logo")}</div><div><b>${partner ? "Triyana Partner" : "Triyana"}</b><small>${partner ? "For doctors, physios, riders, pharmacists & sample collectors" : "Home healthcare"}</small></div></div>
-      <h1>${signup ? (partner ? "Join Triyana Partner" : "Create your account") : (partner ? "Welcome back, partner" : "Welcome back")}</h1>
-      <p class="muted">${signup ? (partner ? "Sign up with your email. Once we verify you, go online and get nearby requests." : "Sign up with your email. Your visits, prescriptions, orders and lab reports stay in your account.") : (partner ? "Sign in to go online, see your jobs and your earnings." : "Sign in to book doctors, order medicines and see your history.")}</p>
+      <div class="brand"><div class="mark">${ic("logo")}</div><div><b>${partner ? "Triyana Partner" : "Triyana"}</b><small>${partner ? "For doctors, physios, riders, pharmacists & sample collectors" : "Doctor at home in 10 min"}</small></div></div>
+      <h1>${signup ? (partner ? "Join Triyana Partner" : "Create your account") : (partner ? "Welcome back, partner" : "Welcome to Triyana")}</h1>
+      <p class="muted">${signup ? (partner ? "Sign up with your email. Once we verify you, go online and get nearby requests." : "Sign up with your email. Your visits, prescriptions, orders and lab reports stay in your account.") : (partner ? "Sign in to go online, see your jobs and your earnings." : "Sign in, or create an account in a minute.")}</p>
       <div class="seg auth-seg"><button type="button" data-mode="signin" class="${signup ? "" : "on"}">Sign in</button><button type="button" data-mode="signup" class="${signup ? "on" : ""}">Create account</button></div>
       <div class="auth-error" id="authErr" role="alert" hidden></div>
       ${signup ? signupForm : signinForm}

@@ -79,6 +79,9 @@ async function api(path, opts = {}) {
   if (!res.ok) {
     const d = data.detail || {};
     const msg = typeof d === "string" ? d : d.message || (Array.isArray(d) ? "Please check the form and try again." : "Something went wrong.");
+    // Booking or ordering needs the patient's care consent (DPDP). Ask once, then carry on with what they tapped.
+    if (res.status === 403 && d.code === "consent_required" && APP === "patient" && !opts.retried && await askCareConsent())
+      return api(path, { ...opts, retried: true });
     const err = new Error(msg); err.detail = d; err.status = res.status; throw err;
   }
   return data;
@@ -168,10 +171,8 @@ async function signIn(token) {
   accountChrome();
   $("#yanaBtn").hidden = me.role !== "patient";
   $("#yanaPanel").classList.remove("open");
-  if (me.role === "patient") {
-    const c = await api("/api/consents");
-    if (!c.consents.care) { state.tab = null; renderNav(); return consentScreen(); }
-  }
+  // No privacy wall on opening: patients land on Home and are asked for consent in one short step
+  // the first time they book or order (see askCareConsent).
   go(TABS[me.role][0][0]);
 }
 
@@ -235,7 +236,7 @@ SCREENS.home = async () => {
   const first = state.name.split(" ")[0];
   const activeRx = dash.prescriptions.filter((p) => p.status === "signed");
   const bookBtn = (cls = "primary") => `<button class="btn ${cls}" data-go="book">${ic("stethoscope")} Book a home visit</button>`;
-  let hero;
+  let hero = "";
   if (ready) hero = `<h1>Your prescription is ready</h1><p>Your doctor has signed it. Review your medicines, choose what you'd like to order, and we'll match you with the best licensed pharmacy nearby.</p>
         <div class="actions"><button class="btn primary" id="openCart">${ic("cart")} Review my medicines</button><button class="btn" id="openRx">${ic("rx")} View prescription</button></div>`;
   else if (active) hero = `<h1>${esc(active.status_label)}</h1><p>Order ${esc(active.order_no)} from ${esc(shortName(active.pharmacy.name))}.</p>
@@ -245,25 +246,32 @@ SCREENS.home = async () => {
   else if (upcoming.length) hero = `<h1>${upcoming[0].status === "requested" ? "Your visit request is with the doctor" : upcoming[0].status === "accepted" ? "Your doctor is confirmed" : "Your doctor is with you"}</h1>
         <p>${esc(upcoming[0].doctor.name)} · ${when(upcoming[0].scheduled_for)}. After the visit, your prescription and medicine cart appear here automatically.</p>
         <div class="actions">${bookBtn("")}</div>`;
-  else hero = `<h1>Need a doctor? One at your door in 10 minutes.</h1><p>A verified doctor comes to your home, checks you, and prescribes. Your medicines are delivered to your door.</p>
-        <div class="actions"><button class="btn primary" data-svc="now">${ic("bolt")} Doctor in 10 min</button>${bookBtn("")}</div>`;
-  const showCta = ready || active;
+  const idle = !hero;
+  const counts = upcoming.length + activeRx.length + dash.active_orders.length;
   view().innerHTML = `
-    <section class="hero home-hero"><div class="eyebrow">${GREETING()}, ${esc(first)}</div>${hero}
-      <div class="stats"><div class="stat"><b>${upcoming.length}</b><span>Upcoming visits</span></div>
+    ${idle ? `<section class="hero home-hero now-hero"><div class="eyebrow">${GREETING()}, ${esc(first)}</div>
+        <h1>A doctor at your home in 10 minutes</h1>
+        <p>A verified doctor comes to you, checks you and prescribes. Medicines follow to your door.</p>
+        <div class="now-live"><span class="live-dot"></span><span id="onlineDocs">Checking doctors near you</span></div>
+        <div class="actions"><button class="btn now-cta" data-svc="now">${ic("bolt")} Get a doctor now</button></div>
+        <div class="hero-links"><button class="link-btn" data-go="book">${ic("calendar")} Book for later</button></div>
+      </section>`
+    : `<section class="hero home-hero"><div class="eyebrow">${GREETING()}, ${esc(first)}</div>${hero}
+      ${counts ? `<div class="stats"><div class="stat"><b>${upcoming.length}</b><span>Upcoming visits</span></div>
         <div class="stat"><b>${activeRx.length}</b><span>Active prescriptions</span></div>
-        <div class="stat"><b>${dash.active_orders.length}</b><span>Orders in progress</span></div></div>
-    </section>
+        <div class="stat"><b>${dash.active_orders.length}</b><span>Orders in progress</span></div></div>` : ""}
+    </section>`}
     <div id="liveSlot"></div>
+    ${idle ? "" : doctorNowBanner()}
     ${servicesHTML()}
     <div id="perkSlot"></div>
     ${upcoming.length ? `<div class="section-title">Your upcoming visit${upcoming.length > 1 ? "s" : ""}</div>${upcoming.map(visitCard).join("")}` : ""}
     ${past.length ? `<div class="section-title">Visit history</div>${past.slice(0, 5).map(pastVisitCard).join("")}` : ""}
-    <div class="section-title">Notifications</div>
-    <div class="card">${notes.length ? notes.slice(0, 8).map((n) => `
+    ${notes.length ? `<div class="section-title">Notifications</div>
+    <div class="card">${notes.slice(0, 8).map((n) => `
       <div class="list-item"><div class="avatar">${ic(n.link.startsWith("order") ? "truck" : n.link.startsWith("cart") ? "rx" : n.link.startsWith("visit") ? "stethoscope" : n.link.startsWith("physio") ? "heart" : "info")}</div>
         <div class="grow"><div class="row between"><b>${esc(n.title)}</b><span class="tiny muted">${when(n.at)}</span></div>
-        <div class="small muted">${esc(n.body)}</div></div></div>`).join("") : `<p class="muted small" style="margin:0">You're all caught up.</p>`}</div>`;
+        <div class="small muted">${esc(n.body)}</div></div></div>`).join("")}</div>` : ""}`;
   $$("[data-go]").forEach((b) => (b.onclick = () => go(b.dataset.go)));
   wireServices();
   wireCancel(() => SCREENS.home());
@@ -1000,31 +1008,37 @@ SCREENS.clarifications = async () => {
 };
 
 /* ------------------------------------------------------- privacy (DPDP) */
-async function consentScreen() {
-  const n = await api("/api/privacy/notice");
-  const care = n.purposes.care, rem = n.purposes.reminders;
-  view().innerHTML = `<section class="hero"><div class="eyebrow">Welcome to Triyana</div><h1>Your health data, your choice</h1>
-      <p>Before you book a doctor or order medicines, please read how we use your information. You can change your mind at any time under Privacy & consent.</p></section>
-    <div class="split"><div>
-      <div class="card"><h3>What we collect</h3><ul class="small" style="margin:8px 0 0;padding-left:18px">${n.what_we_collect.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>
-      <div class="card"><h3>How long we keep it</h3><p class="small muted" style="margin:6px 0 0">${esc(n.retention)}</p></div>
-      <div class="card"><h3>Your rights</h3><ul class="small" style="margin:8px 0 0;padding-left:18px">${n.rights.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
-        <p class="tiny muted" style="margin:10px 0 0">Grievance officer: ${esc(n.grievance_officer.name)} · ${esc(n.grievance_officer.email)} · replies within ${n.grievance_officer.respond_within_days} days</p></div>
-    </div><aside class="sticky"><div class="card featured">
-      <h3>Your consent</h3>
-      <label class="check" style="margin-top:12px"><input type="checkbox" id="cCare"> <span><b>${esc(care.title)}</b> <span class="badge info">Needed</span><br><span class="small muted">${esc(care.body)}</span></span></label>
-      <label class="check" style="margin-top:12px"><input type="checkbox" id="cRem"> <span><b>${esc(rem.title)}</b> <span class="badge">Optional</span><br><span class="small muted">${esc(rem.body)}</span></span></label>
-      <button class="btn primary block" id="consentAgree" style="margin-top:16px" disabled>${ic("check")} Agree and continue</button>
-      <button class="btn ghost block" id="consentLater" style="margin-top:6px">Not now</button>
-      <p class="tiny muted" style="text-align:center;margin:8px 0 0">Under India's Digital Personal Data Protection Act, 2023 · notice ${esc(n.version)}</p>
-    </div></aside></div>`;
-  $("#cCare").onchange = (e) => ($("#consentAgree").disabled = !e.target.checked);
-  $("#consentAgree").onclick = () => guard(async () => {
-    await post("/api/consents", { purpose: "care", granted: true });
-    if ($("#cRem").checked) await post("/api/consents", { purpose: "reminders", granted: true });
-    toast("Thanks. You can change this any time under Privacy & consent."); go("home");
-  });
-  $("#consentLater").onclick = () => { toast("You can look around, but booking and ordering need your consent.", "info"); go("home"); };
+/* One short consent step, shown the first time a patient books or orders, instead of a privacy page on opening. */
+let consentAsk = null;
+function askCareConsent() {
+  if (consentAsk) return consentAsk;
+  consentAsk = (async () => {
+    const n = await api("/api/privacy/notice").catch(() => null);
+    if (!n) return false;
+    return new Promise((resolve) => {
+      const s = sheet(`<div class="consent-sheet">
+        <div class="consent-ico">${ic("shield", "lg")}</div>
+        <h2>One quick thing</h2>
+        <p>To treat you, we share your details only with the doctor, pharmacy, lab or rider you choose.</p>
+        <details class="consent-more"><summary>What exactly is shared?</summary><p class="small muted">${esc(n.purposes.care.body)}</p></details>
+        <label class="check small"><input type="checkbox" id="cRem"> <span>Also send me medicine and refill reminders</span></label>
+        <button class="btn primary block" id="consentAgree">I agree, continue</button>
+        <button class="btn ghost block" id="consentLater">Not now</button>
+        <p class="tiny muted center">You can change this any time. <a href="#" id="consentRead">Privacy notice</a></p>
+      </div>`);
+      let done = false;
+      const finish = (ok) => { if (done) return; done = true; s.close(); resolve(ok); };
+      const backdrop = s.el.onclick; s.el.onclick = (e) => { if (e.target === s.el) { backdrop(e); finish(false); } };
+      $("#consentAgree", s.el).onclick = () => guard(async () => {
+        await post("/api/consents", { purpose: "care", granted: true });
+        if ($("#cRem", s.el).checked) await post("/api/consents", { purpose: "reminders", granted: true }).catch(() => {});
+        finish(true);
+      });
+      $("#consentLater", s.el).onclick = () => finish(false);
+      $("#consentRead", s.el).onclick = (e) => { e.preventDefault(); finish(false); go("privacy"); };
+    });
+  })().finally(() => { consentAsk = null; });
+  return consentAsk;
 }
 
 SCREENS.privacy = async () => {

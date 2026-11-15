@@ -12,7 +12,7 @@ Object.assign(P, {
 if (APP === "patient") {
   const at = TABS.patient.findIndex((t) => t[0] === "privacy");
   TABS.patient.splice(at < 0 ? TABS.patient.length : at, 0, ["family", "Family & SOS", "users", "desktop"]);
-  SERVICES.unshift({ key: "family", title: "Family care", sub: "Book for parents and kids, SOS contacts", icon: "users", go: "family", tone: "gold" });
+  SERVICES.splice(SERVICES.length - 1, 0, { key: "family", title: "Family", icon: "users", go: "family", tone: "gold" });
 }
 
 /* ------------------------------------------------------------------ who is this visit for */
