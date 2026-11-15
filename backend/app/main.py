@@ -769,7 +769,7 @@ DEMO_APPS = {
                 "hospital": "Nisha · hospital (Lotus Hospital)", "hospital2": "Dev · hospital (District Hospital)"},
     "provider": {
         "doctor": "Dr. Carter · doctor", "doctor_rohan": "Dr. Rohan · doctor", "doctor_vikram": "Dr. Vikram · doctor",
-        "doctor_sana": "Dr. Sana · doctor", "doctor_kavya": "Dr. Kavya · eye doctor",
+        "doctor_sana": "Dr. Sana · doctor", "doctor_arvind": "Dr. Arvind · eye doctor",
         "doctor_farhan": "Dr. Farhan · ear, nose & throat", "doctor_nisha": "Dr. Nisha · dentist", "physio": "Ananya · physiotherapist", "physio_arun": "Arun · physiotherapist",
         "physio_meghna": "Meghna · physiotherapist", "courier": "Asha · courier (GreenLeaf)", "courier2": "Kiran · courier",
         "pharmacist": "Ravi · pharmacist (GreenLeaf)", "pharmacist2": "Lina · pharmacist (Sunrise)",

@@ -13,8 +13,8 @@ def test_each_specialty_lists_only_its_own_doctors(as_):
     meera = as_("patient")
     general = meera.get("/api/doctors").json()["doctors"]
     assert {d["care_type"] for d in general} == {"general"}
-    assert "Dr. Kavya Iyer" not in [d["name"] for d in general]
-    for kind, name in (("eye", "Dr. Kavya Iyer"), ("ent", "Dr. Farhan Ali"), ("dental", "Dr. Nisha Reddy")):
+    assert "Dr. Arvind Menon" not in [d["name"] for d in general]
+    for kind, name in (("eye", "Dr. Arvind Menon"), ("ent", "Dr. Farhan Ali"), ("dental", "Dr. Nisha Reddy")):
         r = meera.get("/api/doctors", params={"care_type": kind}).json()
         assert [d["name"] for d in r["doctors"]] == [name]
         assert r["soonest"]["doctor"]["name"] == name
@@ -23,16 +23,16 @@ def test_each_specialty_lists_only_its_own_doctors(as_):
 
 
 def test_book_eye_visit_goes_to_eye_doctor_with_promo(env, as_):
-    meera, kavya = as_("patient"), as_("doctor_kavya")
+    meera, arvind = as_("patient"), as_("doctor_arvind")
     slot = meera.get("/api/visit-slots", params={"care_type": "eye"}).json()[-1]
     r = meera.post("/api/patient/visits", {"doctor_id": None, "scheduled_for": slot, "reason": "Red or itchy eyes",
                                            "care_type": "eye", "promo_code": "DOC100"})
     assert r.status_code == 201, r.text
     v = r.json()
-    assert v["doctor"]["name"] == "Dr. Kavya Iyer" and v["care_type"] == "eye" and v["care_label"] == "Eye doctor"
+    assert v["doctor"]["name"] == "Dr. Arvind Menon" and v["care_type"] == "eye" and v["care_label"] == "Eye doctor"
     assert v["fee"] == 900 and v["bill"]["patient_pays"] < 900  # promo / first-visit offer still apply
-    assert any(n["title"] == "New eye home visit request" for n in kavya.get("/api/notifications").json())
-    assert any(x["id"] == v["id"] for x in kavya.get("/api/doctor/visits").json())
+    assert any(n["title"] == "New eye home visit request" for n in arvind.get("/api/notifications").json())
+    assert any(x["id"] == v["id"] for x in arvind.get("/api/doctor/visits").json())
     # A general doctor can't be booked for an eye visit.
     carter = next(d for d in meera.get("/api/doctors").json()["doctors"] if d["name"] == "Dr. Emily Carter")
     bad = meera.post("/api/patient/visits", {"doctor_id": carter["id"], "scheduled_for": slot,

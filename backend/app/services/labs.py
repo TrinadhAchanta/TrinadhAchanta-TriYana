@@ -382,7 +382,7 @@ def _report(db: Session, b: LabBooking) -> dict:
                         f"{', '.join(flagged[:5])}. Please discuss them with a doctor.") if flagged
                        else "All results are within the reference range.",
             "lab": {"name": b.lab.name, "accreditation": b.lab.accreditation, "address": b.lab.address},
-            "pathologist": "Dr. Kavya Demo, MD (Pathology) · Reg. TSMC-DEMO-70112",
+            "pathologist": "Dr. Lab Demo, MD (Pathology) · Reg. TSMC-DEMO-70112",
             "reported_at": utcnow().isoformat()}
 
 

@@ -158,7 +158,7 @@ def seed_history(db: Session, users: dict) -> None:
     now = utcnow()
     plan = {
         "doctor": [(0, 600, 0, "Home visit · Arjun"), (1, 600, 100, "Doctor now · Priya"), (2, 600, 0, "Home visit · Ravi"),
-                   (3, 600, 0, "Follow-up · Meera"), (8, 600, 0, "Home visit · Kavya"), (9, 600, 100, "Doctor now · Sam")],
+                   (3, 600, 0, "Follow-up · Meera"), (8, 600, 0, "Home visit · Arjun"), (9, 600, 100, "Doctor now · Sam")],
         "doctor_rohan": [(1, 700, 0, "Home visit · Anu"), (2, 700, 100, "Doctor now · Dev")],
         "courier": [(0, 24, 0, "Delivery · GreenLeaf → Arjun"), (0, 36, 0, "Delivery · GreenLeaf → Leela"),
                     (1, 24, 0, "Delivery · GreenLeaf → Om"), (2, 48, 0, "Delivery · GreenLeaf → Zara"),
